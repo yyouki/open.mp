@@ -8,7 +8,7 @@
 
 #include "../Types.hpp"
 #include "sdk.hpp"
-#include <Server/Components/CustomModels/model_types.hpp>
+#include "../../../CustomModels/model_types.hpp"
 
 SCRIPT_API(AddCharModel, bool(int baseid, int newid, std::string const& dff, std::string const& textureLibrary))
 {

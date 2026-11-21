@@ -10,7 +10,7 @@
 
 #include "vehicle.hpp"
 #include <Server/Components/CustomModels/custommodels.hpp>
-#include <Server/Components/CustomModels/model_types.hpp>
+#include "../CustomModels/model_types.hpp"
 #include <Server/Components/Vehicles/vehicle_components.hpp>
 #include <Server/Components/Vehicles/vehicle_models.hpp>
 #include <Server/Components/Vehicles/vehicles.hpp>

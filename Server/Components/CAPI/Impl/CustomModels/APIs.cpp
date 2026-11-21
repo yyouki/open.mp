@@ -7,7 +7,7 @@
  */
 
 #include "../ComponentManager.hpp"
-#include <Server/Components/CustomModels/model_types.hpp>
+#include "../../../CustomModels/model_types.hpp"
 
 OMP_CAPI(CustomModel_AddCharModel, bool(int baseid, int newid, StringCharPtr dff, StringCharPtr textureLibrary))
 {
