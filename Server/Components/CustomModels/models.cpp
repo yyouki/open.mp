@@ -597,12 +597,8 @@ private:
 			{
 				data->setRequestedFile(type, checksum);
 			}
-			if (!self.hasDownloadEndpoint())
-			{
-				return true;
-			}
-
-			if (self.eventDispatcher.stopAtFalse(
+			if (self.hasDownloadEndpoint() &&
+				self.eventDispatcher.stopAtFalse(
 					[&peer, &type, &checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
@@ -611,12 +607,11 @@ private:
 				const auto& model = itr->second.second;
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
 				const StringView baseUrl = self.getWebUrl();
-				if (baseUrl.empty())
+				if (!baseUrl.empty())
 				{
-					return true;
+					NetCode::RPC::ModelUrl urlRPC(httplib::encode_uri(String(baseUrl.data()) + file.name), static_cast<uint8_t>(type), file.checksum);
+					PacketHelper::send(urlRPC, peer);
 				}
-				NetCode::RPC::ModelUrl urlRPC(httplib::encode_uri(String(baseUrl.data()) + file.name), static_cast<uint8_t>(type), file.checksum);
-				PacketHelper::send(urlRPC, peer);
 			}
 			if (data != nullptr)
 			{
