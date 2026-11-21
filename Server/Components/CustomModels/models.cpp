@@ -765,8 +765,8 @@ public:
 		else if (type == ModelType::Object && !(id >= MIN_CUSTOM_OBJECT_ID && id <= MAX_CUSTOM_OBJECT_ID))
 			return false;
 		else if (type == CustomModels::Vehicle &&
-			(!(id >= CustomModels::MIN_CUSTOM_VEHICLE_MODEL_ID && id <= CustomModels::MAX_CUSTOM_VEHICLE_MODEL_ID) ||
-				baseId < 400 || baseId > 611 || baseId == 449 || baseId == 537 || baseId == 538 ||
+			(!CustomModels::isCustomVehicleModelId(id) ||
+				!CustomModels::isSupportedBaseVehicleModel(baseId) ||
 				!vehicleModelsEnabled))
 		{
 			if (!vehicleModelsEnabled)
