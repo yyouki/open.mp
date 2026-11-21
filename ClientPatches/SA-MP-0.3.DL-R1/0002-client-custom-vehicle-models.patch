@@ -454,14 +454,14 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
          }
 +    }
  }
-@@ -407,7 +407,41 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
+@@ -407,4 +407,41 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
      queue[slot] = *entry;
  }
  
 +#if defined(DL_BUILD)
- // Custom vehicle queue entries retain their original tuning bytes until loaded.
- void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
- {
++// Custom vehicle queue entries retain their original tuning bytes until loaded.
++void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
++{
 +    if (!entry || !tuning || entry->id >= 2000 || entry->model < 30001 || entry->model > 32767)
 +        return;
 +    int slot = -1;
@@ -499,9 +499,12 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 diff --git a/source/game/game.cpp b/source/game/game.cpp
 --- a/source/game/game.cpp
 +++ b/source/game/game.cpp
-@@ -707,5 +707,17 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
+@@ -707,7 +707,18 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
  {
 -    // Native indexes this+model-0x122 without a model-range check.
+-    if (model < 400 || model > 611)
+-        return 0;
++    // Resolve custom visuals to a base model only for keep-loaded bookkeeping.
 +    int baseModel = model;
 +#if defined(DL_BUILD)
 +    if (model >= 30001 && model <= 32767)
