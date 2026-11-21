@@ -515,7 +515,7 @@ public:
 		int baseModelID = data.modelID;
 		int customModelID = 0;
 		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
-			(customModelID != 0 && (baseModelID == 537 || baseModelID == 538 || baseModelID == 449)))
+			(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 		{
 			return nullptr;
 		}
