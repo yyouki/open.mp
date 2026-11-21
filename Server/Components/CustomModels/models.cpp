@@ -736,7 +736,8 @@ public:
 			return false;
 		else if (type == CustomModels::Vehicle &&
 			(!(id >= CustomModels::MIN_CUSTOM_VEHICLE_MODEL_ID && id <= CustomModels::MAX_CUSTOM_VEHICLE_MODEL_ID) ||
-				baseId < 400 || baseId > 611 || !vehicleModelsEnabled))
+				baseId < 400 || baseId > 611 || baseId == 449 || baseId == 537 || baseId == 538 ||
+				!vehicleModelsEnabled))
 		{
 			if (!vehicleModelsEnabled)
 			{
