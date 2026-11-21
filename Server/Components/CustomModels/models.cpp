@@ -405,6 +405,13 @@ private:
 				peer.addExtension(new PlayerCustomVehicleModelsData(), true);
 			}
 
+			// The legacy artwork HTTP server normally whitelists only 0.3DL clients.
+			// Capability opt-in also authorizes this compatible 0.3.7 extension client.
+			if (self.webServer)
+			{
+				self.webServer->allowIPAddress(peer.getNetworkData().networkID.address.v4);
+			}
+
 			self.sendCustomVehicleModels(peer);
 			return true;
 		}
@@ -887,7 +894,8 @@ public:
 
 	void onPlayerDisconnect(IPlayer& player, PeerDisconnectReason reason) override
 	{
-		if (player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL || !webServer)
+		const bool supportsCustomVehicles = queryExtension<IPlayerCustomVehicleModelsData>(player) != nullptr;
+		if ((player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL && !supportsCustomVehicles) || !webServer)
 		{
 			return;
 		}
