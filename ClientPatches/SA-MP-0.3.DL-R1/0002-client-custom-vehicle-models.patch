@@ -158,15 +158,6 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x0000cd00
  BYTE CCustomModels::GetLoadedFlag(int model)
  {
-@@ -1698,7 +1790,7 @@ void CCustomModels::Process()
-         do
-         {
-             BYTE* entry = index < count ? (*(BYTE***)state)[index] : 0;
--            if (entry && entry[6] != 1 && (entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
-+            if (entry && entry[6] != 1 && (entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
-             {
-                 if (!entry[0])
-                 {
 @@ -1444,6 +1505,6 @@ int CCustomModels::CountMissingResources()
          BYTE* record = (BYTE*)GetRecord(i);
          if (!record || record[6])
@@ -184,6 +175,15 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
              {
                  if (!entry[0] && IsDffCached(*(DWORD*)(entry + 0x46)))
                      entry[0] = 1;
+@@ -1698,7 +1790,7 @@ void CCustomModels::Process()
+         do
+         {
+             BYTE* entry = index < count ? (*(BYTE***)state)[index] : 0;
+-            if (entry && entry[6] != 1 && (entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
++            if (entry && entry[6] != 1 && (entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
+             {
+                 if (!entry[0])
+                 {
 @@ -1790,7 +1851,32 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
      }
      return GameRegisterCustomObject(base, model, name, dff, txd) != 0;
@@ -323,16 +323,16 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      if (entry.id >= 2000 || !pool->Create(&entry))
          return;
-@@ -1295,2 +1337,3 @@ void UnRegisterRPCs(RakClientInterface* client)
-         &g_rpcScrFinishedDownloading,
-+        &g_rpcServerSupportsCustomVehicleModels,
- #endif // DL_BUILD
 @@ -1270,3 +1312,5 @@ void UnRegisterRPCs(RakClientInterface* client)
  void UnRegisterRPCs(RakClientInterface* client)
  {
 +    g_customVehicleModelsAdvertised = FALSE;
 +    g_customVehicleModelsAcknowledged = FALSE;
      const int* ids[] = {
+@@ -1295,2 +1337,3 @@ void UnRegisterRPCs(RakClientInterface* client)
+         &g_rpcScrFinishedDownloading,
++        &g_rpcServerSupportsCustomVehicleModels,
+ #endif // DL_BUILD
 @@ -1331,3 +1380,7 @@ void RegisterRPCs(RakClientInterface* client)
  void RegisterRPCs(RakClientInterface* client)
  {
