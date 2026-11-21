@@ -352,14 +352,22 @@ private:
 
 	class PlayerCustomVehicleModelsData final : public IPlayerCustomVehicleModelsData
 	{
+		bool supported_ = false;
+
 	public:
 		bool supportsCustomVehicleModels() const override
 		{
-			return true;
+			return supported_;
+		}
+
+		void setSupported(bool supported)
+		{
+			supported_ = supported;
 		}
 
 		void reset() override
 		{
+			supported_ = false;
 		}
 
 		void freeExtension() override
@@ -368,14 +376,25 @@ private:
 		}
 	};
 
-	bool supportsCustomVehicles(const IPlayer& player) const
+	bool hasDownloadEndpoint()
+	{
+		return usingCdn || (webServer && webServer->is_running());
+	}
+
+	bool supportsCustomVehicles(const IPlayer& player)
 	{
 		const auto* extension = queryExtension<IPlayerCustomVehicleModelsData>(player);
-		return enabled && vehicleModelsEnabled && extension && extension->supportsCustomVehicleModels();
+		return enabled && vehicleModelsEnabled && hasDownloadEndpoint() &&
+			extension && extension->supportsCustomVehicleModels();
 	}
 
 	void sendCustomModels(IPlayer& player)
 	{
+		if (!hasDownloadEndpoint())
+		{
+			return;
+		}
+
 		const bool is03DL = player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
 		const bool includeVehicles = supportsCustomVehicles(player);
 		if (!is03DL && !includeVehicles)
@@ -411,7 +430,7 @@ private:
 
 	uint32_t sendCustomVehicleModels(IPlayer& player)
 	{
-		if (!supportsCustomVehicles(player))
+		if (!hasDownloadEndpoint() || !supportsCustomVehicles(player))
 		{
 			return 0;
 		}
@@ -481,6 +500,9 @@ private:
 			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId), poolId + 1);
 			model.write(request);
 			PacketHelper::send(request, *player);
+
+			// Completed 0.3.DL artwork passes restart only after a virtual-world change.
+			forceCustomModelDownload(*player);
 		}
 	}
 
@@ -516,9 +538,16 @@ private:
 				peer.addExtension(new PlayerCustomVehicleModelsData(), true);
 			}
 
+			PlayerCustomVehicleModelsData* vehicleData =
+				queryExtension<PlayerCustomVehicleModelsData>(peer);
+			if (vehicleData)
+			{
+				vehicleData->setSupported(self.hasDownloadEndpoint());
+			}
+
 			// The legacy artwork HTTP server normally whitelists only 0.3DL clients.
 			// Capability opt-in also authorizes this compatible 0.3.7 extension client.
-			if (isFirstCapability && self.webServer &&
+			if (isFirstCapability && self.webServer && self.webServer->is_running() &&
 				peer.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 			{
 				// 0.3DL clients were already whitelisted in onPlayerConnect.
@@ -568,6 +597,11 @@ private:
 			{
 				data->setRequestedFile(type, checksum);
 			}
+			if (!self.hasDownloadEndpoint())
+			{
+				return true;
+			}
+
 			if (self.eventDispatcher.stopAtFalse(
 					[&peer, &type, &checksum](PlayerModelsEventHandler* handler)
 					{
@@ -576,7 +610,12 @@ private:
 			{
 				const auto& model = itr->second.second;
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
-				NetCode::RPC::ModelUrl urlRPC(httplib::encode_uri(self.getWebUrl().data() + file.name), static_cast<uint8_t>(type), file.checksum);
+				const StringView baseUrl = self.getWebUrl();
+				if (baseUrl.empty())
+				{
+					return true;
+				}
+				NetCode::RPC::ModelUrl urlRPC(httplib::encode_uri(String(baseUrl.data()) + file.name), static_cast<uint8_t>(type), file.checksum);
 				PacketHelper::send(urlRPC, peer);
 			}
 			if (data != nullptr)
@@ -788,7 +827,7 @@ public:
 
 	void startWebServer()
 	{
-		if (usingCdn || webServer)
+		if (usingCdn || (webServer && webServer->is_running()))
 		{
 			return;
 		}
@@ -807,34 +846,43 @@ public:
 			}
 		}
 
-		webServer = new WebServer(core, modelsPath, bindAddress, *core->getConfig().getInt("artwork.port"), core->getConfig().getString("network.public_addr"), httpThreads);
+		WebServer* candidate = new WebServer(core, modelsPath, bindAddress,
+			*core->getConfig().getInt("artwork.port"),
+			core->getConfig().getString("network.public_addr"), httpThreads);
 
-		if (webServer->is_running())
+		if (!candidate->is_running())
 		{
-			// The web server may be created after players have already connected.
-			// Rebuild its allow-list for both native 0.3DL and opted-in extension clients.
-			for (IPlayer* player : players->entries())
+			delete candidate;
+			core->logLn(LogLevel::Error, "Failed to start web server");
+			return;
+		}
+
+		webServer = candidate;
+
+		// The web server may be created after players have already connected.
+		// Rebuild its allow-list and re-enable clients that negotiated vehicle support.
+		for (IPlayer* player : players->entries())
+		{
+			PlayerCustomVehicleModelsData* vehicleData =
+				queryExtension<PlayerCustomVehicleModelsData>(*player);
+			if (vehicleData)
 			{
-				const bool supportsCustomVehicles =
-					queryExtension<IPlayerCustomVehicleModelsData>(*player) != nullptr;
-				if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL ||
-					supportsCustomVehicles)
-				{
-					webServer->allowIPAddress(player->getNetworkData().networkID.address.v4);
-				}
+				vehicleData->setSupported(vehicleModelsEnabled);
 			}
 
-			core->logLn(LogLevel::Message, "Web server is running on %.*s", PRINT_VIEW(webServer->getUrl()));
-
-			const auto maxPlayers = *core->getConfig().getInt("max_players");
-			if (httpThreads < maxPlayers / 2)
+			if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL ||
+				(vehicleData && vehicleData->supportsCustomVehicleModels()))
 			{
-				core->logLn(LogLevel::Warning, "HTTP threads count value (%d) is much lower than MAX_PLAYERS (%d). Players may encounter slow download times.", httpThreads, maxPlayers);
+				webServer->allowIPAddress(player->getNetworkData().networkID.address.v4);
 			}
 		}
-		else
+
+		core->logLn(LogLevel::Message, "Web server is running on %.*s", PRINT_VIEW(webServer->getUrl()));
+
+		const auto maxPlayers = *core->getConfig().getInt("max_players");
+		if (httpThreads < maxPlayers / 2)
 		{
-			core->logLn(LogLevel::Error, "Failed to start web server");
+			core->logLn(LogLevel::Warning, "HTTP threads count value (%d) is much lower than MAX_PLAYERS (%d). Players may encounter slow download times.", httpThreads, maxPlayers);
 		}
 	}
 
@@ -854,7 +902,11 @@ public:
 
 	StringView getWebUrl()
 	{
-		return cdn.empty() ? webServer->getUrl() : cdn;
+		if (usingCdn)
+		{
+			return cdn;
+		}
+		return webServer && webServer->is_running() ? webServer->getUrl() : StringView();
 	}
 
 	bool addCustomModel(ModelType type, int32_t id, int32_t baseId, StringView dffName, StringView txdName, int32_t virtualWorld = -1, uint8_t timeOn = 0, uint8_t timeOff = 0) override
@@ -903,6 +955,14 @@ public:
 			return false;
 		}
 
+		// Do not register or advertise assets until clients can actually fetch them.
+		startWebServer();
+		if (!hasDownloadEndpoint())
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model because no download endpoint is available.");
+			return false;
+		}
+
 		if (showCRCLogs)
 		{
 			core->logLn(LogLevel::Message, "[artwork:crc] %.*s CRC = 0x%X", PRINT_VIEW(txdName), txd.checksum);
@@ -918,8 +978,6 @@ public:
 		checksums.emplace(dff.checksum, std::make_pair(ModelDownloadType::DFF, model));
 		checksums.emplace(txd.checksum, std::make_pair(ModelDownloadType::TXD, model));
 
-		// Start the artwork endpoint before clients can request the new files.
-		startWebServer();
 		sendNewCustomModel(*model);
 		return true;
 	}
