@@ -407,8 +407,9 @@ private:
 
 			// The legacy artwork HTTP server normally whitelists only 0.3DL clients.
 			// Capability opt-in also authorizes this compatible 0.3.7 extension client.
-			if (self.webServer)
+			if (self.webServer && peer.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 			{
+				// 0.3DL clients were already whitelisted in onPlayerConnect.
 				self.webServer->allowIPAddress(peer.getNetworkData().networkID.address.v4);
 			}
 
