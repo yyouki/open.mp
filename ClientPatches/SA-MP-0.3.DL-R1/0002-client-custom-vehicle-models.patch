@@ -1,0 +1,516 @@
+# Custom vehicle integration patch for 1therealcloud/samp
+# Requires 0001-client-hardening.patch.
+# Target baseline: 118956c2e6c67527395dce47f3e655fad4352a12
+# Adds opt-in RPC 186/187, type-3 model records, GTA vehicle model registration,
+# and pending custom-vehicle creation. Must be reviewed and built in the target
+# VS2003 / DirectX 9 toolchain before distribution.
+
+diff --git a/source/game/custommodels.h b/source/game/custommodels.h
+--- a/source/game/custommodels.h
++++ b/source/game/custommodels.h
+@@ -58,6 +58,13 @@ struct NativeModelArrayPrefix
+ };
+ STATIC_ASSERT(sizeof(NativeModelArrayPrefix) == 8);
+ STATIC_ASSERT(offsetof(NativeModelArrayPrefix, count) == 4);
++enum CustomVehicleModelLoadStatus
++{
++    CUSTOM_VEHICLE_FAILED = -1,
++    CUSTOM_VEHICLE_PENDING = 0,
++    CUSTOM_VEHICLE_READY = 1
++};
++
+ // Native allocation extent0x206D; fields remain opaque except observed accesses.
+ // Download/validation paths are recovered; full native class coverage is not established.
+ class CCustomModels
+@@ -191,6 +198,10 @@ class CCustomModels
+     // 0x0000ccc0
+     bool IsObjectEntry(int model);
++    // Experimental global-model category. Type 3 is gated by RPC 187.
++    bool IsVehicleEntry(int model);
++    BOOL GetVehicleBaseModel(int model, DWORD* base);
++    int LoadVehicleEntry(int model);
+     // Returns the raw record byte, not a normalized boolean.
+     // 0x0000cd00
+     BYTE GetLoadedFlag(int model);
+@@ -226,6 +237,8 @@ class CCustomModels
+     // 0x0000c2e0
+     BOOL LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash);
++    // Loads a custom vehicle DFF/TXD and publishes a cloned CVehicleModelInfo.
++    BOOL LoadVehicleModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash);
+ };
+ STATIC_ASSERT(sizeof(CCustomModels) == 0x206d);
+
+diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
+--- a/source/game/custommodels.cpp
++++ b/source/game/custommodels.cpp
+@@ -37,6 +37,7 @@ DWORD g_gameLoadingCustomModel;
+ 
+ // Original owning type/name unconfirmed; preserve this distinct native entry.
+ // 0x00152ae8
++static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd);
+ const GameModelReferencePatch g_gameModelReferencePatchesUS[707] = {
+@@ -508,16 +509,30 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
+     if (!record || index > GetCount() || GetRecord(index))
+         return 0xffffffff;
+     BYTE type = ((const BYTE*)record)[7];
+     int base = *(const int*)((const BYTE*)record + 0xc);
+-    if ((type != 1 && type != 2) || base < 0 || base > 20000)
++    int model = *(const int*)((const BYTE*)record + 0x10);
++    if (type == 3)
++    {
++        if (base < 400 || base > 611 || model < 30001 || model > 32767 ||
++            base == 449 || base == 537 || base == 538 || base == 569 || base == 570)
++            return 0xffffffff;
++        for (DWORD i = 0; i < GetCount(); ++i)
++        {
++            BYTE* existing = (BYTE*)GetRecord(i);
++            if (existing && existing[7] == 3 && *(int*)(existing + 0x10) == model)
++                return 0xffffffff;
++        }
++    }
++    else if ((type != 1 && type != 2) || base < 0 || base > 20000)
+         return 0xffffffff;
+-    void* copy = calloc(1, 94);
++    // Two private bytes hold the type-3 registration state; wire size stays 94.
++    void* copy = calloc(1, 96);
+     if (!copy)
+         return 0xffffffff;
+     memcpy(copy, record, 94);
+@@ -575,7 +590,7 @@ int CCustomModels::MarkResourceRequests()
+         do
+         {
+             BYTE* entry = (BYTE*)GetRecord(index);
+-            if ((entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))) && !entry[6])
++            if ((entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))) && !entry[6])
+             {
+                 if (!entry[0])
+                 {
+@@ -620,6 +635,52 @@ bool CCustomModels::IsObjectEntry(int model)
+     return false;
+ }
+ 
++// 0x0000ccf0 (new extension)
++bool CCustomModels::IsVehicleEntry(int model)
++{
++    if (model < 30001 || model > 32767)
++        return false;
++    DWORD count = GetCount();
++    for (DWORD i = 0; i < count; ++i)
++    {
++        BYTE* entry = (BYTE*)GetRecord(i);
++        if (entry && entry[7] == 3 && *(int*)(entry + 0x10) == model)
++            return true;
++    }
++    return false;
++}
++
++// Returns the base GTA vehicle ID for a registered custom vehicle.
++BOOL CCustomModels::GetVehicleBaseModel(int model, DWORD* base)
++{
++    if (!base || model < 30001 || model > 32767)
++        return FALSE;
++    DWORD count = GetCount();
++    for (DWORD i = 0; i < count; ++i)
++    {
++        BYTE* entry = (BYTE*)GetRecord(i);
++        if (entry && entry[7] == 3 && *(int*)(entry + 0x10) == model)
++        {
++            *base = *(DWORD*)(entry + 0xc);
++            return TRUE;
++        }
++    }
++    return FALSE;
++}
++
++// 0 = assets still downloading, 1 = GTA model registered, -1 = permanent failure.
++int CCustomModels::LoadVehicleEntry(int model)
++{
++    if (model < 30001 || model > 32767)
++        return CUSTOM_VEHICLE_FAILED;
++    DWORD count = GetCount();
++    for (DWORD i = 0; i < count; ++i)
++    {
++        BYTE* entry = (BYTE*)GetRecord(i);
++        if (!entry || entry[7] != 3 || *(int*)(entry + 0x10) != model)
++            continue;
++        if (entry[0x5e] == 1)
++            return CUSTOM_VEHICLE_READY;
++        if (entry[0x5e] == 2)
++            return CUSTOM_VEHICLE_FAILED;
++        if (!entry[0] || !entry[1])
++            return CUSTOM_VEHICLE_PENDING;
++        if (LoadVehicleModel(*(DWORD*)(entry + 0xc), *(DWORD*)(entry + 0x10),
++                             *(DWORD*)(entry + 0x46), *(DWORD*)(entry + 0x4a)))
++        {
++            entry[0x5e] = 1;
++            entry[0x58] = 1;
++            entry[0x59] = 0;
++            return CUSTOM_VEHICLE_READY;
++        }
++        entry[0x5e] = 2;
++        return CUSTOM_VEHICLE_FAILED;
++    }
++    return CUSTOM_VEHICLE_FAILED;
++}
++
+ // 0x0000cd00
+ BYTE CCustomModels::GetLoadedFlag(int model)
+ {
+@@ -1154,7 +1215,7 @@ void CCustomModels::Process()
+         do
+         {
+             BYTE* entry = index < count ? (*(BYTE***)state)[index] : 0;
+-            if (entry && entry[6] != 1 && (entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
++            if (entry && entry[6] != 1 && (entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
+             {
+                 if (!entry[0])
+                 {
+@@ -1444,7 +1505,7 @@ int CCustomModels::CountMissingResources()
+         BYTE* record = (BYTE*)GetRecord(i);
+         if (!record || record[6])
+             continue;
+-        if (record[7] == 1 || (record[7] == 2 && (*(DWORD*)(record + 8) == *(DWORD*)(nativeState + 0x217) || *(DWORD*)(record + 8) == 0xffffffff)))
++        if (record[7] == 1 || record[7] == 3 || (record[7] == 2 && (*(DWORD*)(record + 8) == *(DWORD*)(nativeState + 0x217) || *(DWORD*)(record + 8) == 0xffffffff)))
+             if (!record[0] || !record[1])
+                 ++missing;
+@@ -1554,7 +1615,7 @@ void CCustomModels::RefreshCachedResources()
+         do
+         {
+             BYTE* entry = (BYTE*)GetRecord(index);
+-            if (entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(nativeState + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff)))
++            if (entry && (entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(nativeState + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
+             {
+                 if (!entry[0] && IsDffCached(*(DWORD*)(entry + 0x46)))
+                     entry[0] = 1;
+@@ -1790,6 +1851,25 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
+     }
+     return GameRegisterCustomObject(base, model, name, dff, txd) != 0;
+ }
+ 
++// Vehicle assets use the same checksum cache but publish a vehicle model-info type.
++BOOL CCustomModels::LoadVehicleModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
++{
++    char name[28], txd[264], dff[264];
++    const char *primary = (const char*)this + 9, *fallback = (const char*)this + 0x10e;
++    if (base < 400 || base > 611 || model < 30001 || model > 32767)
++        return FALSE;
++    sprintf(name, "%X", txdHash);
++    sprintf(dff, "%s\\0x%X.dff", primary, dffHash);
++    if (!GameFileExists(dff))
++    {
++        sprintf(dff, "%s\\0x%X.dff", fallback, dffHash);
++        if (!GameFileExists(dff))
++            return FALSE;
++    }
++    sprintf(txd, "%s\\0x%X.txd", primary, txdHash);
++    if (!GameFileExists(txd))
++    {
++        sprintf(txd, "%s\\0x%X.txd", fallback, txdHash);
++        if (!GameFileExists(txd))
++            return FALSE;
++    }
++    return GameRegisterCustomVehicle((int)base, (int)model, name, dff, txd);
++}
++
+ // 0x000b19c0
+ void* GameRwStreamOpen(int type, int access, const void* data)
+ {
+@@ -1850,6 +1930,43 @@ void* GameLoadPedDff(const char* path)
+     return clump;
+ }
+ 
++// Clone the full GTA CVehicleModelInfo and install its clump through VMT slot 16.
++static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd)
++{
++    if (base < 400 || base > 611 || model < 30001 || model > 32767 || !g_gameModelInfoTable)
++        return FALSE;
++    void* source = g_gameModelInfoTable[base];
++    if (!source || g_gameModelInfoTable[model])
++        return FALSE;
++    void* info = calloc(1, 0x308);
++    if (!info)
++        return FALSE;
++    memcpy(info, source, 0x308);
++    g_gameModelInfoTable[model] = info;
++    if (!GameAttachModelTxd(model, name, txd))
++        return FALSE;
++    g_gameLoadingCustomModel = model;
++    void* clump = GameLoadPedDff(dff);
++    if (!clump)
++        return FALSE;
++    *(void**)((BYTE*)info + 0x1c) = clump;
++    ((void(__fastcall*)(void*, void*, void*))(*(DWORD**)info)[16])(info, 0, clump);
++    return TRUE;
++}
++
+ // 0x000b1bc0
+ BOOL GameLoadObjectDff(const char* path, int model)
+ {
+diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
+--- a/source/net/netrpc.cpp
++++ b/source/net/netrpc.cpp
+@@ -113,6 +113,11 @@ const int g_rpcScrDestroyActor = 172;
+ #if defined(DL_BUILD)
++const int g_rpcClientSupportsCustomVehicleModels = 186;
++const int g_rpcServerSupportsCustomVehicleModels = 187;
++static BOOL g_customVehicleModelsAdvertised = FALSE;
++static BOOL g_customVehicleModelsAcknowledged = FALSE;
++
+ // 0x00117f10
+ const int g_rpcScrModelInfo = 179;
+@@ -181,7 +186,10 @@ void ScrCustomModelRecord(RPCParameters* parameters)
+     if (!count || index >= count || (record[7] != 1 && record[7] != 2))
+         return;
++    if (count > 32768 || (record[7] == 3 && !g_customVehicleModelsAcknowledged))
++        return;
+     if (!g_customModels)
+     {
+@@ -209,6 +217,25 @@ void ScrCustomModelsComplete(RPCParameters* parameters)
+     }
+ }
++
++// Server acknowledgement is intentionally empty; no type-3 record is accepted before it.
++void ScrServerSupportsCustomVehicleModels(RPCParameters* parameters)
++{
++    if (parameters && parameters->numberOfBitsOfData == 0)
++        g_customVehicleModelsAcknowledged = TRUE;
++}
++
++static void SendClientSupportsCustomVehicleModels()
++{
++    if (g_customVehicleModelsAdvertised || !g_pNetGame)
++        return;
++    RakClientInterface* client = *(RakClientInterface**)(((CNetGame*)g_pNetGame)->nativeState + 0x2c);
++    if (!client)
++        return;
++    RakNet::BitStream stream;
++    client->RPC((int*)&g_rpcClientSupportsCustomVehicleModels, &stream,
++                HIGH_PRIORITY, RELIABLE_ORDERED, 0, false);
++    g_customVehicleModelsAdvertised = TRUE;
++}
+ #endif // DL_BUILD
+@@ -298,6 +325,9 @@ void ScrInitGame(RPCParameters* parameters)
+     ((CNetGame*)g_pNetGame)->gameState = CNetGame::StateConnected;
++#if defined(DL_BUILD)
++    SendClientSupportsCustomVehicleModels();
++#endif // DL_BUILD
+     players->local->PrepareForClassSelection();
+ }
+@@ -369,12 +399,24 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+     if (!stream.Read((char*)&entry, 40) || !stream.Read((char*)tuning, 23))
+         return;
+     RakNet::GetTimeNS();
+-    if (entry.model < 400 || entry.model > 611)
+-        return;
++    if (entry.model >= 30001 && entry.model <= 32767)
++    {
++        if (!g_customVehicleModelsAcknowledged || !g_customModels || !g_customModels->IsVehicleEntry(entry.model))
++            return;
++        int loadStatus = g_customModels->LoadVehicleEntry(entry.model);
++        if (loadStatus == CUSTOM_VEHICLE_PENDING)
++        {
++            if (entry.id < 2000)
++                pool->QueueCustomVehicle(&entry, tuning);
++            return;
++        }
++        if (loadStatus != CUSTOM_VEHICLE_READY)
++            return;
++    }
++    else if (entry.model < 400 || entry.model > 611)
++        return;
+     if (entry.id >= 2000 || !pool->Create(&entry))
+         return;
+@@ -1295,6 +1337,7 @@ void UnRegisterRPCs(RakClientInterface* client)
+         &g_rpcScrFinishedDownloading,
++        &g_rpcServerSupportsCustomVehicleModels,
+ #endif // DL_BUILD
+@@ -1303,6 +1346,8 @@ void UnRegisterRPCs(RakClientInterface* client)
+ {
++    g_customVehicleModelsAdvertised = FALSE;
++    g_customVehicleModelsAcknowledged = FALSE;
+     const int* ids[] = {
+@@ -1375,6 +1420,8 @@ void RegisterRPCs(RakClientInterface* client)
+ {
++#if defined(DL_BUILD)
++    g_customVehicleModelsAdvertised = FALSE;
++    g_customVehicleModelsAcknowledged = FALSE;
++#endif // DL_BUILD
+     client->RegisterAsRemoteProcedureCall(const_cast<int*>(&g_rpcScrSetPlayerSkillLevel), ScrSetPlayerSkillLevel);
+@@ -1438,6 +1485,7 @@ void RegisterRPCs(RakClientInterface* client)
+     client->RegisterAsRemoteProcedureCall(const_cast<int*>(&g_rpcScrFinishedDownloading), ScrCustomModelsComplete);
++    client->RegisterAsRemoteProcedureCall((int*)&g_rpcServerSupportsCustomVehicleModels, ScrServerSupportsCustomVehicleModels);
+ #endif // DL_BUILD
+ }
+diff --git a/source/net/netrpc.h b/source/net/netrpc.h
+--- a/source/net/netrpc.h
++++ b/source/net/netrpc.h
+@@ -5,6 +5,9 @@ struct RPCParameters;
+ // 0x00012310
+ void RegisterRPCs(RakClientInterface* client);
+ #if defined(DL_BUILD)
++// 0x00000000
++void ScrServerSupportsCustomVehicleModels(RPCParameters* parameters);
++
+ // 0x00011d80
+ void ScrCustomModelRecord(RPCParameters* parameters);
+ #endif // DL_BUILD
+diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
+--- a/source/net/vehiclepool.h
++++ b/source/net/vehiclepool.h
+@@ -55,6 +55,8 @@ class CVehiclePool
+     // 0x0001e7d0
+     void Queue(const VehiclePoolQueueEntry* entry);
++    // Stores the existing 23-byte vehicle tuning payload beside a custom pending entry.
++    void QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning);
+     // Native ID overload has no bounds check.
+     // 0x0001e680
+     DWORD GetRef(int id);
+diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
+--- a/source/net/vehiclepool.cpp
++++ b/source/net/vehiclepool.cpp
+@@ -1,6 +1,7 @@
+ #include "net/vehiclepool.h"
+ 
++#include "game/custommodels.h"
+ #include "d3dhook/IDirect3DDevice9Hook.h"
+ #include "game/game.h"
+@@ -22,6 +23,9 @@ const char g_vehiclePoolQueueFullMessage[] = "All vehicle waiting slots are consumed!";
++static BYTE g_customVehicleQueueTuning[100][23];
++static BYTE g_customVehicleQueueHasTuning[100];
++
+ // 0x00002df0
+ void CVehiclePool::SetUnoccupiedSyncOwner(WORD vehicle, WORD player)
+ {
+@@ -187,7 +191,14 @@ BOOL CVehiclePool::Create(const VehiclePoolQueueEntry* entry)
+ {
+-    if (!entry || entry->id >= 2000 || entry->model < 400 || entry->model > 611)
++    if (!entry || entry->id >= 2000)
++        return FALSE;
++    if (entry->model < 400 || entry->model > 611)
++    {
++        if (entry->model < 30001 || entry->model > 32767 || !g_customModels ||
++            g_customModels->LoadVehicleEntry(entry->model) != CUSTOM_VEHICLE_READY)
++            return FALSE;
++    }
+-        return FALSE;
+     if (m_pObjects[entry->id])
+     {
+@@ -211,9 +222,58 @@ void CVehiclePool::ProcessWaitingList()
+ {
+-    for (int i = 0; i < 100; ++i)
+-        if (queueActive[i] && g_pGame->IsModelAvailable(queue[i].model))
++    for (int i = 0; i < 100; ++i)
++    {
++        if (!queueActive[i])
++            continue;
++        if (queue[i].model >= 30001 && queue[i].model <= 32767)
++        {
++            int status = g_customModels ? g_customModels->LoadVehicleEntry(queue[i].model) : CUSTOM_VEHICLE_FAILED;
++            if (status == CUSTOM_VEHICLE_PENDING)
++                continue;
++            if (status != CUSTOM_VEHICLE_READY)
++            {
++                queueActive[i] = 0;
++                g_customVehicleQueueHasTuning[i] = 0;
++                continue;
++            }
++            WORD id = queue[i].id;
++            if (Create(queue + i) && g_customVehicleQueueHasTuning[i])
++            {
++                CVehicle* vehicle = Get(id);
++                const BYTE* tuning = g_customVehicleQueueTuning[i];
++                if (vehicle && vehicle->GetSubtype() == 1)
++                {
++                    for (int component = 0; component < 14; ++component)
++                        if (tuning[component])
++                            vehicle->AddComponent((WORD)(tuning[component] + 999));
++                    if (tuning[14])
++                        vehicle->SetPaintjob((BYTE)(tuning[14] - 1));
++                }
++                int first, second;
++                memcpy(&first, tuning + 15, 4);
++                memcpy(&second, tuning + 19, 4);
++                if (vehicle && (first != -1 || second != -1))
++                    vehicle->SetColor((BYTE)first, (BYTE)second);
++            }
++            queueActive[i] = 0;
++            g_customVehicleQueueHasTuning[i] = 0;
++            continue;
++        }
++        if (g_pGame->IsModelAvailable(queue[i].model))
+         {
+             VehiclePoolQueueEntry* entry = queue + i;
+             Create(entry);
+@@ -237,6 +297,8 @@ void CVehiclePool::ProcessWaitingList()
+             }
+             queueActive[i] = 0;
+         }
++    }
+ }
+@@ -429,6 +491,32 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
+     queue[slot] = *entry;
+ }
+ 
++// Custom vehicle queue entries retain their original tuning bytes until loaded.
++void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
++{
++    if (!entry || !tuning || entry->id >= 2000 || entry->model < 30001 || entry->model > 32767)
++        return;
++    int slot = -1;
++    for (int i = 0; i < 100; ++i)
++    {
++        if (queueActive[i] && queue[i].id == entry->id)
++        {
++            slot = i;
++            break;
++        }
++    }
++    if (slot < 0)
++    {
++        for (int i = 0; i < 100; ++i)
++        {
++            if (!queueActive[i])
++            {
++                slot = i;
++                break;
++            }
++        }
++    }
++    if (slot < 0)
++    {
++        g_pChat->AddDebugMessage(g_vehiclePoolQueueFullMessage);
++        return;
++    }
++    queue[slot] = *entry;
++    queueActive[slot] = 1;
++    memcpy(g_customVehicleQueueTuning[slot], tuning, 23);
++    g_customVehicleQueueHasTuning[slot] = 1;
++}
++
+diff --git a/source/game/game.cpp b/source/game/game.cpp
+--- a/source/game/game.cpp
++++ b/source/game/game.cpp
+@@ -707,9 +707,19 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
+ {
+-    // Native indexes this+model-0x122 without a model-range check.
++    // GTA's keep-loaded flag is indexed by the base ID, not the custom ID.
++    int baseModel = model;
++    if (model >= 30001 && model <= 32767)
++    {
++        DWORD base = 0;
++        if (!g_customModels || g_customModels->LoadVehicleEntry(model) != CUSTOM_VEHICLE_READY ||
++            !g_customModels->GetVehicleBaseModel(model, &base))
++            return 0;
++        baseModel = (int)base;
++    }
++    if (baseModel < 400 || baseModel > 611)
++        return 0;
+     DWORD keepLoaded = 0;
+-    if (m_aKeepLoadedVehicleModels[model - 400])
++    if (m_aKeepLoadedVehicleModels[baseModel - 400])
+         keepLoaded = 1;
+diff --git a/source/game/game.cpp b/source/game/game.cpp
+--- a/source/game/game.cpp
++++ b/source/game/game.cpp
+@@ -6,6 +6,7 @@
+ #include "game/custommodels.h"
