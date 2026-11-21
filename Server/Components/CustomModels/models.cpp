@@ -268,12 +268,23 @@ private:
 	IPlayer& player;
 	uint32_t skin_ = 0;
 	std::pair<ModelDownloadType, uint32_t> requestedFile_;
+	bool clientInitialized_ = false;
 
 public:
 	PlayerCustomModelsData(IPlayer& player)
 		: player(player)
 		, requestedFile_ { ModelDownloadType::NONE, 0 }
 	{
+	}
+
+	bool hasClientInitialized() const
+	{
+		return clientInitialized_;
+	}
+
+	void markClientInitialized()
+	{
+		clientInitialized_ = true;
 	}
 
 	uint32_t getCustomSkin() const override
@@ -306,6 +317,7 @@ public:
 	{
 		skin_ = 0;
 		requestedFile_ = { ModelDownloadType::NONE, 0 };
+		clientInitialized_ = false;
 	}
 
 	void freeExtension() override
@@ -371,8 +383,8 @@ private:
 			return;
 		}
 
-		// ModelRequest::poolID is an index into one shared client-side model
-		// record array. Build a contiguous manifest per client capability.
+		// Initial model records share one client-side pool. Keep indices
+		// contiguous for the exact model types this client can process.
 		const uint32_t modelCount = static_cast<uint32_t>(std::count_if(
 			storage.begin(), storage.end(),
 			[is03DL, includeVehicles](const ModelInfo* model)
@@ -395,6 +407,90 @@ private:
 			model->write(request);
 			PacketHelper::send(request, player);
 		}
+	}
+
+	uint32_t sendCustomVehicleModels(IPlayer& player)
+	{
+		if (!supportsCustomVehicles(player))
+		{
+			return 0;
+		}
+
+		const bool is03DL = player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
+		const uint32_t nativeModelCount = is03DL
+			? static_cast<uint32_t>(std::count_if(
+				storage.begin(), storage.end(),
+				[](const ModelInfo* model)
+				{
+					return model->getType() != CustomModels::Vehicle;
+				}))
+			: 0;
+		const uint32_t vehicleModelCount = static_cast<uint32_t>(std::count_if(
+			storage.begin(), storage.end(),
+			[](const ModelInfo* model)
+			{
+				return model->getType() == CustomModels::Vehicle;
+			}));
+		const uint32_t modelCount = nativeModelCount + vehicleModelCount;
+
+		uint32_t poolId = nativeModelCount;
+		for (const ModelInfo* model : storage)
+		{
+			if (model->getType() != CustomModels::Vehicle)
+			{
+				continue;
+			}
+
+			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId++), modelCount);
+			model->write(request);
+			PacketHelper::send(request, player);
+		}
+		return vehicleModelCount;
+	}
+
+	void sendNewCustomModel(const ModelInfo& model)
+	{
+		const bool isVehicleModel = model.getType() == CustomModels::Vehicle;
+		for (IPlayer* player : players->entries())
+		{
+			const bool is03DL = player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
+			const bool includeVehicles = supportsCustomVehicles(*player);
+			if ((isVehicleModel && !includeVehicles) || (!isVehicleModel && !is03DL))
+			{
+				continue;
+			}
+
+			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(*player);
+			if (!data || !data->hasClientInitialized())
+			{
+				continue;
+			}
+
+			// Models are appended to storage, so the new eligible record is
+			// always the next pool index for this already-initialized client.
+			uint32_t poolId = 0;
+			for (size_t i = 0; i + 1 < storage.size(); ++i)
+			{
+				const bool previousIsVehicle = storage[i]->getType() == CustomModels::Vehicle;
+				if ((previousIsVehicle && includeVehicles) || (!previousIsVehicle && is03DL))
+				{
+					++poolId;
+				}
+			}
+
+			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId), poolId + 1);
+			model.write(request);
+			PacketHelper::send(request, *player);
+		}
+	}
+
+	void forceCustomModelDownload(IPlayer& player)
+	{
+		NetCode::RPC::SetPlayerVirtualWorld setWorld;
+		setWorld.worldId = player.getVirtualWorld() + 1;
+		PacketHelper::send(setWorld, player);
+		setWorld.worldId--;
+		PacketHelper::send(setWorld, player);
 	}
 
 	struct ClientSupportsCustomVehicleModelsHandler : public SingleNetworkInEventHandler
@@ -431,7 +527,15 @@ private:
 
 			NetCode::RPC::ServerSupportsCustomVehicleModels response;
 			PacketHelper::send(response, peer);
-			self.sendCustomModels(peer);
+
+			// If the ordinary DL manifest was already sent, append vehicle
+			// records after it. Otherwise onPlayerClientInit sends the full list.
+			PlayerCustomModelsData* playerData = queryExtension<PlayerCustomModelsData>(peer);
+			if (isFirstCapability && playerData && playerData->hasClientInitialized() &&
+				self.sendCustomVehicleModels(peer) > 0)
+			{
+				self.forceCustomModelDownload(peer);
+			}
 			return true;
 		}
 	} clientSupportsCustomVehicleModelsHandler;
@@ -814,25 +918,9 @@ public:
 		checksums.emplace(dff.checksum, std::make_pair(ModelDownloadType::DFF, model));
 		checksums.emplace(txd.checksum, std::make_pair(ModelDownloadType::TXD, model));
 
-		// Re-send the complete manifest so poolID remains contiguous when
-		// vehicle models and native 0.3DL artwork models are mixed in storage.
-		for (IPlayer* player : players->entries())
-		{
-			const bool is03DL = player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
-			const bool supportsVehicles = supportsCustomVehicles(*player);
-			if (type == CustomModels::Vehicle && !supportsVehicles)
-			{
-				continue;
-			}
-			if (type != CustomModels::Vehicle && !is03DL && !supportsVehicles)
-			{
-				continue;
-			}
-			sendCustomModels(*player);
-		}
-
-		// Start web server if needed.
+		// Start the artwork endpoint before clients can request the new files.
 		startWebServer();
+		sendNewCustomModel(*model);
 		return true;
 	}
 
@@ -871,8 +959,14 @@ public:
 
 	void onPlayerClientInit(IPlayer& player) override
 	{
+		PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(player);
+		if (data)
+		{
+			data->markClientInitialized();
+		}
+
 		// Native 0.3DL clients receive skins/objects; opted-in clients also
-		// receive the vehicle records in the same contiguous manifest.
+		// receive vehicle records in their initial model manifest.
 		sendCustomModels(player);
 		if (player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL &&
 			!supportsCustomVehicles(player))
@@ -880,12 +974,8 @@ public:
 			return;
 		}
 
-		// If client reconnected (lost connection to the server) let's force it to download files if there are any.
-		NetCode::RPC::SetPlayerVirtualWorld setWorld;
-		setWorld.worldId = player.getVirtualWorld() + 1;
-		PacketHelper::send(setWorld, player);
-		setWorld.worldId--;
-		PacketHelper::send(setWorld, player);
+		// If the client reconnects, force the native artwork loader to re-check files.
+		forceCustomModelDownload(player);
 	}
 
 	IEventDispatcher<PlayerModelsEventHandler>& getEventDispatcher() override
