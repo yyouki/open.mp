@@ -217,7 +217,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x000b19c0
  void* GameRwStreamOpen(int type, int access, const void* data)
  {
-@@ -1850,6 +1930,30 @@ void* GameLoadPedDff(const char* path)
+@@ -1850,6 +1930,51 @@ void* GameLoadPedDff(const char* path)
      return clump;
  }
  
@@ -229,19 +229,40 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +    void* source = g_gameModelInfoTable[base];
 +    if (!source || g_gameModelInfoTable[model])
 +        return FALSE;
++
 +    void* info = calloc(1, 0x308);
 +    if (!info)
 +        return FALSE;
 +    memcpy(info, source, 0x308);
 +    g_gameModelInfoTable[model] = info;
-+    if (!GameAttachModelTxd(model, name, txd))
++
++    void** vtable = *(void***)info;
++    if (!vtable || !vtable[16])
++    {
++        free(info);
++        g_gameModelInfoTable[model] = 0;
 +        return FALSE;
++    }
++    if (!GameAttachModelTxd(model, name, txd))
++    {
++        free(info);
++        g_gameModelInfoTable[model] = 0;
++        return FALSE;
++    }
++
++    DWORD previousLoadingModel = g_gameLoadingCustomModel;
 +    g_gameLoadingCustomModel = model;
 +    void* clump = GameLoadPedDff(dff);
++    g_gameLoadingCustomModel = previousLoadingModel;
 +    if (!clump)
++    {
++        free(info);
++        g_gameModelInfoTable[model] = 0;
 +        return FALSE;
++    }
++
 +    *(void**)((BYTE*)info + 0x1c) = clump;
-+    ((void(__fastcall*)(void*, void*, void*))(*(DWORD**)info)[16])(info, 0, clump);
++    ((void(__fastcall*)(void*, void*, void*))vtable[16])(info, 0, clump);
 +    return TRUE;
 +}
 +
