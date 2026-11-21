@@ -1,16 +1,6 @@
-From 7b8f4d5e6a1c2d3e4f5061728394a5b6c7d8e9f0 Mon Sep 17 00:00:00 2001
-From: open.mp custom vehicle integration
-Subject: [PATCH 1/1] DL client: harden model records and vehicle pool bounds
-
-Target baseline:
-1therealcloud/samp
-118956c2e6c67527395dce47f3e655fad4352a12
-
-This preparatory patch does not add model type 3 and does not advertise RPC
-186. It hardens the existing 0.3.DL client paths before the custom-vehicle
-implementation is applied.
-
----
+# Preparatory hardening patch for 1therealcloud/samp
+# Target baseline: 118956c2e6c67527395dce47f3e655fad4352a12
+# Does not add model type 3 or advertise RPC 186.
 diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 --- a/source/game/custommodels.cpp
 +++ b/source/game/custommodels.cpp
