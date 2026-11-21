@@ -4,7 +4,7 @@
 diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 --- a/source/game/custommodels.cpp
 +++ b/source/game/custommodels.cpp
-@@ -385,7 +385,18 @@ DWORD CCustomModels::ParseCacheHash(const char* filename)
+@@ -385,7 +385,19 @@ DWORD CCustomModels::ParseCacheHash(const char* filename)
  {
      if (filename[0] != '0' || filename[1] != 'x')
          return 0;
