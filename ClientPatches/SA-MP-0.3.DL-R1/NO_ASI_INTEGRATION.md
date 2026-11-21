@@ -134,13 +134,19 @@ In `ScrWorldVehicleAdd` and `CVehiclePool`:
 - Accept IDs 30001–32767 only when there is a matching loaded type-3 record.
 - If the vehicle record is known but its DFF/TXD are still downloading, queue
   the vehicle and retry it from the vehicle-pool update loop.
+- The reconstructed source has a `ProcessWaitingList` method, but it is not
+  currently called from `CVehiclePool::Process`. The patch must invoke it from
+  that per-frame update path; otherwise queued vehicles never retry.
+- Add bounds checks for the vehicle pool ID before indexing the 2,000-entry
+  vehicle arrays in `CVehiclePool::Create`.
 - Reject unknown or failed custom IDs rather than passing them to GTA.
 - Keep train-consist creation behavior unchanged.
 
 In `CGame::CreateVehicle`, use the custom record's base model ID when indexing
-`m_aKeepLoadedVehicleModels[model - 400]`. Pass the custom ID to the GTA
-vehicle creation command so the model-info table resolves the custom visual.
-Never index the 212-element keep-loaded array with a custom ID.
+`m_aKeepLoadedVehicleModels[model - 400]`. Validate that the resolved base is
+400–611 before indexing. Pass the custom ID to the GTA vehicle creation
+command so the model-info table resolves the custom visual. Never index the
+212-element keep-loaded array with a custom ID.
 
 ### 6. Backward compatibility
 
