@@ -196,7 +196,21 @@ The following tests are required before enabling the feature on a public server:
 ## Current status
 
 The server-side branch contains the experimental protocol and the latest
-manifest, HTTP-endpoint, and download-state fixes. The no-ASI route is technically
-feasible from the source baseline above, but the client integration described
-here is not yet implemented or compiled. This document is an implementation
-specification, not a claim of successful client testing.
+manifest, HTTP-endpoint, and download-state fixes. A preparatory client
+hardening patch is stored in this directory, and its hunk contexts were checked
+against the pinned external source files. The patch has not been applied to an
+external checkout or compiled. The model type-3 registration, RPC 186/187
+handshake, custom vehicle streaming, and pending-download integration remain
+unimplemented. This document is an implementation specification, not a claim
+of successful client testing.
+
+To try the preparatory patch in a separate checkout, first check out the exact
+baseline SHA above, then run:
+
+```sh
+git apply --check 0001-client-hardening.patch
+git apply 0001-client-hardening.patch
+```
+
+Do not apply it to a different source revision without reviewing the resulting
+diff. The commands above are instructions only; they have not been run here.
