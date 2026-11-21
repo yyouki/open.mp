@@ -9,6 +9,8 @@
 #pragma once
 
 #include "vehicle.hpp"
+#include <Server/Components/CustomModels/custommodels.hpp>
+#include <Server/Components/CustomModels/model_types.hpp>
 #include <Server/Components/Vehicles/vehicle_components.hpp>
 #include <Server/Components/Vehicles/vehicle_models.hpp>
 #include <Server/Components/Vehicles/vehicles.hpp>
@@ -20,6 +22,7 @@ class VehiclesComponent final : public IVehiclesComponent, public CoreEventHandl
 {
 private:
 	ICore* core = nullptr;
+	ICustomModelsComponent* modelsComponent = nullptr;
 	MarkedPoolStorage<Vehicle, IVehicle, 1, VEHICLE_POOL_SIZE> storage;
 	DefaultEventDispatcher<VehicleEventHandler> eventDispatcher;
 	StaticArray<uint8_t, MAX_VEHICLE_MODELS> preloadModels;
@@ -189,7 +192,7 @@ private:
 
 			case VehicleSCMEvent_AddComponent:
 			{
-				if (!isValidComponentForVehicleModel(vehicle.getModel(), scmEvent.Arg1))
+				if (!isValidComponentForVehicleModel(vehicle.getBaseModelID(), scmEvent.Arg1))
 				{
 					break;
 				}
@@ -364,6 +367,19 @@ public:
 		deathRespawnDelay = core->getConfig().getInt("game.vehicle_respawn_time");
 	}
 
+	void onInit(IComponentList* components) override
+	{
+		modelsComponent = components->queryComponent<ICustomModelsComponent>();
+	}
+
+	void onFree(IComponent* component) override
+	{
+		if (component == modelsComponent)
+		{
+			modelsComponent = nullptr;
+		}
+	}
+
 	void onPlayerConnect(IPlayer& player) override
 	{
 		player.addExtension(new PlayerVehicleData(player), true);
@@ -384,19 +400,59 @@ public:
 		return preloadModels;
 	}
 
+	bool resolveVehicleModel(int modelID, int& baseModelID, int& customModelID) const
+	{
+		baseModelID = modelID;
+		customModelID = 0;
+		if (isValidVehicleModel(modelID))
+		{
+			return true;
+		}
+		if (!CustomModels::isCustomVehicleModelId(modelID) || !modelsComponent)
+		{
+			return false;
+		}
+
+		uint32_t baseID = static_cast<uint32_t>(modelID);
+		uint32_t customID = 0;
+		if (!modelsComponent->getBaseModel(baseID, customID) || customID != static_cast<uint32_t>(modelID) || !isValidVehicleModel(static_cast<int>(baseID)))
+		{
+			return false;
+		}
+
+		baseModelID = static_cast<int>(baseID);
+		customModelID = static_cast<int>(customID);
+		return true;
+	}
+
+	int getClientVehicleModelID(const IPlayer& player, int baseModelID, int customModelID) const
+	{
+		const bool* vehicleModelsEnabled = core ? core->getConfig().getBool("artwork.experimental_vehicle_models") : nullptr;
+		if (customModelID != 0 && vehicleModelsEnabled && *vehicleModelsEnabled && player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL)
+		{
+			return customModelID;
+		}
+		return baseModelID;
+	}
+
 	IVehicle* create(bool isStatic, int modelID, Vector3 position, float Z, int colour1, int colour2, Seconds respawnDelay, bool addSiren) override
 	{
-		if (!isValidVehicleModel(modelID))
+		int baseModelID = modelID;
+		int customModelID = 0;
+		if (!resolveVehicleModel(modelID, baseModelID, customModelID))
 		{
 			return nullptr;
 		}
-		if (!isStatic && (modelID == 538 || modelID == 537 || modelID == 449))
+
+		const bool isTrainModel = baseModelID == 538 || baseModelID == 537;
+		if ((!isStatic && (isTrainModel || baseModelID == 449)) ||
+			(customModelID != 0 && (isTrainModel || baseModelID == 449)))
 		{
 			return nullptr;
 		}
 
 		IVehicle* ret = nullptr;
-		if (modelID == 538 || modelID == 537)
+		if (isTrainModel)
 		{
 			auto findConsecutiveFreeIds = [&](size_t count)
 			{
@@ -419,7 +475,6 @@ public:
 						return candidate;
 					}
 				}
-
 				return -1;
 			};
 
@@ -430,33 +485,39 @@ public:
 				return nullptr;
 			}
 
-			ret = createWithMustHint(startId, VehicleSpawnData { respawnDelay, modelID, position, Z, colour1, colour2, addSiren, 0 });
+			ret = createWithMustHint(startId, VehicleSpawnData { respawnDelay, baseModelID, position, Z, colour1, colour2, addSiren, 0 });
 			if (!ret)
 			{
 				core->logLn(LogLevel::Warning, "Creation of the train failed because the locomotive could not be created.");
 				return nullptr;
 			}
 
-			int carridgeModel = modelID == 538 ? 570 : 569;
-			ret->addCarriage(createWithMustHint(startId + 1, VehicleSpawnData { respawnDelay, carridgeModel, position, Z, colour1, colour2, 0 }), 0);
-			ret->addCarriage(createWithMustHint(startId + 2, VehicleSpawnData { respawnDelay, carridgeModel, position, Z, colour1, colour2, 0 }), 1);
-			ret->addCarriage(createWithMustHint(startId + 3, VehicleSpawnData { respawnDelay, carridgeModel, position, Z, colour1, colour2, 0 }), 2);
+			int carriageModel = baseModelID == 538 ? 570 : 569;
+			ret->addCarriage(createWithMustHint(startId + 1, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 0);
+			ret->addCarriage(createWithMustHint(startId + 2, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 1);
+			ret->addCarriage(createWithMustHint(startId + 3, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 2);
 		}
 		else
 		{
+			// Pass the requested ID; Vehicle::setSpawnData resolves it to its base model.
 			ret = create(VehicleSpawnData { respawnDelay, modelID, position, Z, colour1, colour2, addSiren, 0 });
 		}
-
 		return ret;
 	}
 
 	IVehicle* create(const VehicleSpawnData& data) override
 	{
-		IVehicle* vehicle = storage.emplace(this, data);
+		int baseModelID = data.modelID;
+		int customModelID = 0;
+		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID))
+		{
+			return nullptr;
+		}
 
+		IVehicle* vehicle = storage.emplace(this, data);
 		if (vehicle)
 		{
-			++preloadModels[data.modelID - 400];
+			++preloadModels[baseModelID - 400];
 
 			static bool delay_warn = false;
 			if (!delay_warn && data.respawnDelay == Seconds(0))
@@ -465,12 +526,18 @@ public:
 				delay_warn = true;
 			}
 		}
-
 		return vehicle;
 	}
 
 	IVehicle* createWithMustHint(int hint, const VehicleSpawnData& data)
 	{
+		int baseModelID = data.modelID;
+		int customModelID = 0;
+		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID))
+		{
+			return nullptr;
+		}
+
 		int vehicleId = storage.claimHint(hint, this, data);
 		if (hint != vehicleId)
 		{
@@ -481,7 +548,7 @@ public:
 		IVehicle* vehicle = storage.get(vehicleId);
 		if (vehicle)
 		{
-			++preloadModels[data.modelID - 400];
+			++preloadModels[baseModelID - 400];
 
 			static bool delay_warn = false;
 			if (!delay_warn && data.respawnDelay == Seconds(0))
@@ -520,13 +587,13 @@ public:
 		{
 			Vehicle& vehicle = *vehiclePtr;
 
-			int veh_model = vehicle.getModel();
+			int veh_model = vehicle.getBaseModelID();
 			if (veh_model == 538 || veh_model == 537)
 			{
 				for (IVehicle* c : vehicle.getCarriages())
 				{
 					Vehicle* carriage = static_cast<Vehicle*>(c);
-					--preloadModels[carriage->getModel() - 400];
+					--preloadModels[carriage->getBaseModelID() - 400];
 					carriage->destream();
 					storage.release(carriage->poolID, false);
 				}
@@ -538,7 +605,7 @@ public:
 				int carriageId = vehicle.getID();
 				for (auto veh : storage)
 				{
-					int veh_model = veh->getModel();
+					int veh_model = static_cast<Vehicle*>(veh)->getBaseModelID();
 					if (veh_model == 538 || veh_model == 537)
 					{
 						for (IVehicle* c : veh->getCarriages())
@@ -616,7 +683,7 @@ public:
 				{
 
 					// Trains shouldn't be respawned.
-					const int model = vehicle->getModel();
+					const int model = static_cast<Vehicle*>(vehicle)->getBaseModelID();
 					if (model == 537 || model == 538 || model == 570 || model == 569 || model == 449)
 					{
 						continue;
@@ -699,7 +766,7 @@ public:
 				Vehicle* vehicle = static_cast<Vehicle*>(v);
 
 				// Trains carriages are created/destroyed by client.
-				const int model = vehicle->getModel();
+				const int model = vehicle->getBaseModelID();
 				if (model == 569 || model == 570)
 				{
 					continue;

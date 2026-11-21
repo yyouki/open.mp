@@ -8,6 +8,7 @@
 
 #include <Impl/pool_impl.hpp>
 #include <Server/Components/CustomModels/custommodels.hpp>
+#include "model_types.hpp"
 #include <sdk.hpp>
 #include <netcode.hpp>
 #include <httplib.h>
@@ -22,6 +23,7 @@
 static auto rAddCharModel = std::regex(R"(AddCharModel\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
 static auto rAddSimpleModel = std::regex(R"(AddSimpleModel\s*\(\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
 static auto rAddSimpleModelTimed = std::regex(R"(AddSimpleModelTimed\s*\(\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*;*)");
+static auto rAddVehicleModel = std::regex(R"(AddVehicleModel\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
 static auto rUri = std::regex("[A-Za-z0-9-._~:/?#\\[\\]@!$&'()*+,;=]+"); // very loose interpretation of rfc3986
 
 using namespace Impl;
@@ -331,6 +333,7 @@ private:
 	bool usingCdn = false;
 	uint16_t httpThreads = 50; // default max_players is 50
 	bool showCRCLogs = false;
+	bool vehicleModelsEnabled = false;
 
 	DefaultEventDispatcher<PlayerModelsEventHandler> eventDispatcher;
 
@@ -448,6 +451,7 @@ public:
 			config.setInt("artwork.port", modelsPort);
 			config.setString("artwork.web_server_bind", webServerBindAddress);
 			config.setBool("artwork.show_crc_logs", showCRCLogs);
+			config.setBool("artwork.experimental_vehicle_models", vehicleModelsEnabled);
 		}
 		else
 		{
@@ -485,6 +489,10 @@ public:
 			{
 				config.setBool("artwork.show_crc_logs", showCRCLogs);
 			}
+			if (config.getType("artwork.experimental_vehicle_models") == ConfigOptionType_None)
+			{
+				config.setBool("artwork.experimental_vehicle_models", vehicleModelsEnabled);
+			}
 		}
 	}
 
@@ -500,6 +508,7 @@ public:
 		httpThreads = *core->getConfig().getInt("network.http_threads");
 		webServerBindAddress = String(core->getConfig().getString("artwork.web_server_bind"));
 		showCRCLogs = *core->getConfig().getBool("artwork.show_crc_logs");
+		vehicleModelsEnabled = *core->getConfig().getBool("artwork.experimental_vehicle_models");
 
 		NetCode::RPC::RequestTXD::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::RequestDFF::addEventHandler(*core, &requestDownloadLinkHandler);
@@ -562,6 +571,10 @@ public:
 				else if (std::regex_match(line, match, rAddSimpleModelTimed))
 				{
 					addCustomModel(ModelType::Object, std::atoi(match[3].str().c_str()), std::atoi(match[2].str().c_str()), match[4].str(), match[5].str(), std::atoi(match[1].str().c_str()), std::atoi(match[6].str().c_str()), std::atoi(match[7].str().c_str()));
+				}
+				else if (std::regex_match(line, match, rAddVehicleModel))
+				{
+					addCustomModel(CustomModels::Vehicle, std::atoi(match[2].str().c_str()), std::atoi(match[1].str().c_str()), match[3].str(), match[4].str());
 				}
 			}
 		}
@@ -635,6 +648,18 @@ public:
 		if (type == ModelType::Skin && !(id >= MIN_CUSTOM_SKIN_ID && id <= MAX_CUSTOM_SKIN_ID))
 			return false;
 		else if (type == ModelType::Object && !(id >= MIN_CUSTOM_OBJECT_ID && id <= MAX_CUSTOM_OBJECT_ID))
+			return false;
+		else if (type == CustomModels::Vehicle &&
+			(!(id >= CustomModels::MIN_CUSTOM_VEHICLE_MODEL_ID && id <= CustomModels::MAX_CUSTOM_VEHICLE_MODEL_ID) ||
+				baseId < 400 || baseId > 611 || !vehicleModelsEnabled))
+		{
+			if (!vehicleModelsEnabled)
+			{
+				core->logLn(LogLevel::Warning, "[artwork:warn] Custom vehicle models are experimental and disabled. Set artwork.experimental_vehicle_models to true to enable them.");
+			}
+			return false;
+		}
+		else if (type != ModelType::Skin && type != ModelType::Object && type != CustomModels::Vehicle)
 			return false;
 		else if (baseModels.find(id) != baseModels.end())
 		{

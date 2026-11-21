@@ -11,7 +11,33 @@
 #include <Server/Components/Vehicles/vehicle_models.hpp>
 #include <Server/Components/Vehicles/vehicle_colours.hpp>
 #include <Server/Components/Vehicles/vehicle_seats.hpp>
+#include <Server/Components/CustomModels/model_types.hpp>
 #include <sdk.hpp>
+
+namespace
+{
+int getBaseVehicleModel(int modelID)
+{
+	if (!CustomModels::isCustomVehicleModelId(modelID))
+	{
+		return modelID;
+	}
+
+	auto* models = PawnManager::Get()->models;
+	if (!models)
+	{
+		return modelID;
+	}
+
+	uint32_t baseID = static_cast<uint32_t>(modelID);
+	uint32_t customID = 0;
+	if (models->getBaseModel(baseID, customID) && customID == static_cast<uint32_t>(modelID) && Impl::isValidVehicleModel(static_cast<int>(baseID)))
+	{
+		return static_cast<int>(baseID);
+	}
+	return modelID;
+}
+}
 
 SCRIPT_API(CreateVehicle, int(int modelid, Vector3 pos, float rotation, int colour1, int colour2, int respawnDelay))
 {
@@ -36,7 +62,7 @@ SCRIPT_API(CreateVehicle, int(int modelid, Vector3 pos, float rotation, int colo
 
 SCRIPT_API(GetVehicleSeats, int(int modelid))
 {
-	return Impl::getVehiclePassengerSeats(modelid);
+	return Impl::getVehiclePassengerSeats(getBaseVehicleModel(modelid));
 }
 
 SCRIPT_API(DestroyVehicle, bool(IVehicle& vehicle))
@@ -284,12 +310,12 @@ SCRIPT_API(GetVehicleComponentType, int(int componentid))
 
 SCRIPT_API(VehicleCanHaveComponent, bool(int modelid, int componentid))
 {
-	return Impl::isValidComponentForVehicleModel(modelid, componentid);
+	return Impl::isValidComponentForVehicleModel(getBaseVehicleModel(modelid), componentid);
 }
 
 SCRIPT_API(GetRandomCarColPair, bool(int modelid, int& colour1, int& colour2, int& colour3, int& colour4))
 {
-	getRandomVehicleColour(modelid, colour1, colour2, colour3, colour4);
+	getRandomVehicleColour(getBaseVehicleModel(modelid), colour1, colour2, colour3, colour4);
 	return true;
 }
 
@@ -336,7 +362,7 @@ SCRIPT_API(UpdateVehicleDamageStatus, bool(IVehicle& vehicle, int panels, int do
 
 SCRIPT_API(GetVehicleModelInfo, bool(int vehiclemodel, int infotype, Vector3& pos))
 {
-	return getVehicleModelInfo(vehiclemodel, VehicleModelInfoType(infotype), pos);
+	return getVehicleModelInfo(getBaseVehicleModel(vehiclemodel), VehicleModelInfoType(infotype), pos);
 }
 
 SCRIPT_API(SetVehicleVirtualWorld, bool(IVehicle& vehicle, int virtualWorld))
@@ -422,6 +448,7 @@ SCRIPT_API(SetVehicleSpawnInfo, bool(IVehicle& vehicle, int modelid, Vector3 pos
 
 SCRIPT_API(GetVehicleModelCount, int(int modelid))
 {
+	modelid = getBaseVehicleModel(modelid);
 	if (modelid < 400 || modelid > 611)
 		return 0;
 
@@ -662,7 +689,7 @@ SCRIPT_API_FAILRET(GetVehicleOccupant, INVALID_PLAYER_ID, int(IVehicle& vehicle,
 
 SCRIPT_API(GetVehicleMaxPassengers, int(int model))
 {
-	return Impl::getVehiclePassengerSeats(model);
+	return Impl::getVehiclePassengerSeats(getBaseVehicleModel(model));
 }
 
 SCRIPT_API(CountVehicleOccupants, int(IVehicle& vehicle))

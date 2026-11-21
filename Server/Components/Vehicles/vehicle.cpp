@@ -11,6 +11,26 @@
 #include <Server/Components/Vehicles/vehicle_components.hpp>
 #include <Server/Components/Vehicles/vehicle_seats.hpp>
 
+void Vehicle::setSpawnData(const VehicleSpawnData& data)
+{
+	int baseModelID = data.modelID;
+	int customModelID = 0;
+	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID))
+	{
+		return;
+	}
+
+	spawnData = data;
+	spawnData.modelID = baseModelID;
+	customModelID_ = customModelID;
+
+	if (spawnData.colour1 == -1 || spawnData.colour2 == -1)
+	{
+		int ignore;
+		getRandomVehicleColour(spawnData.modelID, spawnData.colour1 == -1 ? spawnData.colour1 : ignore, spawnData.colour2 == -1 ? spawnData.colour2 : ignore);
+	}
+}
+
 void Vehicle::streamInForPlayer(IPlayer& player)
 {
 	const int pid = player.getID();
@@ -35,7 +55,7 @@ void Vehicle::streamInForPlayer(IPlayer& player)
 
 	NetCode::RPC::StreamInVehicle streamIn;
 	streamIn.VehicleID = poolID;
-	streamIn.ModelID = spawnData.modelID;
+	streamIn.ModelID = pool->getClientVehicleModelID(player, spawnData.modelID, customModelID_);
 	streamIn.Position = pos;
 
 	streamIn.Angle = rot.ToEuler().z;
@@ -385,7 +405,7 @@ bool Vehicle::updateFromPassengerSync(const VehiclePassengerSyncPacket& passenge
 		return false;
 	}
 	// Only do heavy processing if switching vehicle or switching between driver and passenger
-	int passengerSeats = Impl::getVehiclePassengerSeats(getModel());
+	int passengerSeats = Impl::getVehiclePassengerSeats(getBaseModelID());
 	// TODO: Deal with two players in the same seat.
 	// TODO: Detect fast switching cheats.
 	if (passengerSeats == 0xFF || passengerSync.SeatID < 1 || passengerSync.SeatID > passengerSeats)

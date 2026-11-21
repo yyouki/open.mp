@@ -8,6 +8,7 @@
 
 #include "../Types.hpp"
 #include "sdk.hpp"
+#include <Server/Components/CustomModels/model_types.hpp>
 
 SCRIPT_API(AddCharModel, bool(int baseid, int newid, std::string const& dff, std::string const& textureLibrary))
 {
@@ -17,6 +18,16 @@ SCRIPT_API(AddCharModel, bool(int baseid, int newid, std::string const& dff, std
 		return false;
 
 	return models->addCustomModel(ModelType::Skin, newid, baseid, dff, textureLibrary);
+}
+
+SCRIPT_API(AddVehicleModel, bool(int baseid, int newid, std::string const& dff, std::string const& textureLibrary))
+{
+	auto models = PawnManager::Get()->models;
+
+	if (!models)
+		return false;
+
+	return models->addCustomModel(CustomModels::Vehicle, newid, baseid, dff, textureLibrary);
 }
 
 SCRIPT_API(AddSimpleModel, bool(int virtualWorld, int baseid, int newid, std::string const& dff, std::string const& textureLibrary))

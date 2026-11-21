@@ -7,6 +7,7 @@
  */
 
 #include "../ComponentManager.hpp"
+#include <Server/Components/CustomModels/model_types.hpp>
 
 OMP_CAPI(CustomModel_AddCharModel, bool(int baseid, int newid, StringCharPtr dff, StringCharPtr textureLibrary))
 {
@@ -18,6 +19,17 @@ OMP_CAPI(CustomModel_AddCharModel, bool(int baseid, int newid, StringCharPtr dff
 
 	bool ret = models->addCustomModel(ModelType::Skin, newid, baseid, dff, textureLibrary);
 	return ret;
+}
+
+OMP_CAPI(CustomModel_AddVehicleModel, bool(int baseid, int newid, StringCharPtr dff, StringCharPtr textureLibrary))
+{
+	auto models = ComponentManager::Get()->models;
+	if (!models)
+	{
+		return false;
+	}
+
+	return models->addCustomModel(CustomModels::Vehicle, newid, baseid, dff, textureLibrary);
 }
 
 OMP_CAPI(CustomModel_AddSimpleModel, bool(int virtualWorld, int baseid, int newid, StringCharPtr dff, StringCharPtr textureLibrary))

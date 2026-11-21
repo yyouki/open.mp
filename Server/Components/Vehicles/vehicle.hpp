@@ -33,6 +33,7 @@ private:
 	int virtualWorld_ = 0;
 	VehiclesComponent* pool = nullptr;
 	VehicleSpawnData spawnData;
+	int customModelID_ = 0;
 	UniqueIDArray<IPlayer, PLAYER_POOL_SIZE> streamedFor_;
 	StaticArray<int, MAX_VEHICLE_COMPONENT_SLOT> mods;
 	float health = 1000.0f;
@@ -213,16 +214,7 @@ public:
 		return streamedFor_.valid(player.getID());
 	}
 
-	void setSpawnData(const VehicleSpawnData& data) override
-	{
-		spawnData = data;
-
-		if (spawnData.colour1 == -1 || spawnData.colour2 == -1)
-		{
-			int ignore;
-			getRandomVehicleColour(spawnData.modelID, spawnData.colour1 == -1 ? spawnData.colour1 : ignore, spawnData.colour2 == -1 ? spawnData.colour2 : ignore);
-		}
-	}
+	void setSpawnData(const VehicleSpawnData& data) override;
 
 	const VehicleSpawnData& getSpawnData() override
 	{
@@ -391,9 +383,14 @@ public:
 		return carriages;
 	}
 
+	int getBaseModelID() const
+	{
+		return spawnData.modelID;
+	}
+
 	bool isTrainCarriage()
 	{
-		const int model = getModel();
+		const int model = getBaseModelID();
 		return (model == 569 || model == 570);
 	}
 
@@ -418,7 +415,7 @@ public:
 	/// Gets the current model ID of the vehicle.
 	int getModel() override
 	{
-		return spawnData.modelID;
+		return customModelID_ != 0 ? customModelID_ : spawnData.modelID;
 	}
 
 	/// Gets the current landing gear state from a ID_VEHICLE_SYNC packet from the latest driver.
