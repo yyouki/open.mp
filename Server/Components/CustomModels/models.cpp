@@ -694,6 +694,19 @@ public:
 
 		if (webServer->is_running())
 		{
+			// The web server may be created after players have already connected.
+			// Rebuild its allow-list for both native 0.3DL and opted-in extension clients.
+			for (IPlayer* player : players->entries())
+			{
+				const bool supportsCustomVehicles =
+					queryExtension<IPlayerCustomVehicleModelsData>(*player) != nullptr;
+				if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL ||
+					supportsCustomVehicles)
+				{
+					webServer->allowIPAddress(player->getNetworkData().networkID.address.v4);
+				}
+			}
+
 			core->logLn(LogLevel::Message, "Web server is running on %.*s", PRINT_VIEW(webServer->getUrl()));
 
 			const auto maxPlayers = *core->getConfig().getInt("max_players");
