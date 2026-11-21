@@ -50,19 +50,14 @@ Relevant technical references:
 - GTA model-info vehicle allocation API:
   `https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CModelInfo.cpp`
 
-## Preparatory hardening patch
+## Client patch series
 
-The repository now contains
-[0001-client-hardening.patch](0001-client-hardening.patch), targeting the
-reference source SHA above. It fixes the unterminated cache-hash parse,
-prevents invalid or duplicate model records from leaking allocations, checks
-the 39-byte model-record and 63-byte vehicle-add payloads, adds vehicle-pool
-bounds checks, and invokes the existing waiting-list processor from the
-per-frame vehicle-pool update.
+The repository contains two ordered patches targeting the pinned source SHA:
 
-This is deliberately only a preparation patch. It continues to accept model
-types 1 and 2 only, does not send RPC 186, and does not enable custom vehicles.
-It has not yet been applied to the external reference checkout or compiled.
+1. [0001-client-hardening.patch](0001-client-hardening.patch) fixes cache-hash parsing for the variable-width hexadecimal names used by the client, prevents invalid model records from leaking allocations, validates the 39-byte model-record and 63-byte vehicle-add payloads, adds vehicle-pool bounds checks, and invokes the existing waiting-list processor from the per-frame vehicle-pool update.
+2. [0002-client-custom-vehicle-models.patch](0002-client-custom-vehicle-models.patch) adds the opt-in RPC 186/187 handshake, accepts model type 3 only after acknowledgement, includes type-3 DFF/TXD resources in the download manager, clones a base `CVehicleModelInfo` and installs the DFF through vehicle `SetClump`, and queues vehicles until both assets are ready. It retains the original tuning payload for delayed vehicle creation and uses the base model only for keep-loaded bookkeeping.
+
+Both patches are experimental. Their unified-diff hunk sizes and source contexts have been checked in sequence against the pinned source files. This source-level replay check is not a substitute for running `git apply --check` in a full checkout, compiling the DL client, or testing it in-game. Neither patch has been applied to the external reference repository or compiled.
 
 ## Client source changes required
 
@@ -196,21 +191,22 @@ The following tests are required before enabling the feature on a public server:
 ## Current status
 
 The server-side branch contains the experimental protocol and the latest
-manifest, HTTP-endpoint, and download-state fixes. A preparatory client
-hardening patch is stored in this directory, and its hunk contexts were checked
-against the pinned external source files. The patch has not been applied to an
-external checkout or compiled. The model type-3 registration, RPC 186/187
-handshake, custom vehicle streaming, and pending-download integration remain
-unimplemented. This document is an implementation specification, not a claim
-of successful client testing.
+manifest, HTTP-endpoint, and download-state fixes. The client-side model type-3
+implementation is drafted in the two patches above, but has not been applied to
+an external checkout, compiled, or tested in-game. Treat this as an unverified
+experimental patch series, not a release-ready client.
 
-To try the preparatory patch in a separate checkout, first check out the exact
-baseline SHA above, then run:
+To test it in a separate checkout, first check out the exact baseline SHA above,
+then run:
 
 ```sh
 git apply --check 0001-client-hardening.patch
 git apply 0001-client-hardening.patch
+git apply --check 0002-client-custom-vehicle-models.patch
+git apply 0002-client-custom-vehicle-models.patch
 ```
 
-Do not apply it to a different source revision without reviewing the resulting
-diff. The commands above are instructions only; they have not been run here.
+The commands above are instructions only; they have not been run here. Build
+with the source repository's documented Visual Studio .NET 2003 RTM and
+DirectX 9.0 SDK April 2005 toolchain, then run the test matrix below before
+enabling the server option.
