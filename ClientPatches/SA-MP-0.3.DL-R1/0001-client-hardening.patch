@@ -14,7 +14,7 @@ implementation is applied.
 diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 --- a/source/game/custommodels.cpp
 +++ b/source/game/custommodels.cpp
-@@ -385,8 +385,18 @@ DWORD CCustomModels::ParseCacheHash(const char* filename)
+@@ -385,7 +385,18 @@ DWORD CCustomModels::ParseCacheHash(const char* filename)
  {
      if (filename[0] != '0' || filename[1] != 'x')
          return 0;
@@ -36,7 +36,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +        return 0;
 +    return (DWORD)value;
  }
-@@ -498,10 +508,19 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
+@@ -498,9 +509,18 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
  {
 -    void* copy = calloc(1, 94);
 +    if (!record || index > GetCount() || GetRecord(index))
@@ -70,7 +70,7 @@ diff --git a/source/game/custommodels.h b/source/game/custommodels.h
 diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 --- a/source/net/netrpc.cpp
 +++ b/source/net/netrpc.cpp
-@@ -181,28 +181,35 @@ void ScrCustomModelRecord(RPCParameters* parameters)
+@@ -181,27 +181,33 @@ void ScrCustomModelRecord(RPCParameters* parameters)
  {
 +    // 8-byte index/count header + 31-byte model record.
 +    if (!parameters || parameters->numberOfBitsOfData != 39 * 8)
@@ -125,31 +125,31 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      g_customModels->SetExpectedRecordCount(count);
  }
-@@ -360,3 +367,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -360,2 +366,4 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
  {
 +    if (!parameters || parameters->numberOfBitsOfData != 63 * 8)
 +        return;
      RakNet::BitStream stream(parameters->input, (int)parameters->numberOfBitsOfData / 8 + 1, false);
-@@ -369,2 +378,2 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -369,2 +377,2 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
 -    stream.Read((char*)&entry, 40);
 -    stream.Read((char*)tuning, 23);
 +    if (!stream.Read((char*)&entry, 40) || !stream.Read((char*)tuning, 23))
 +        return;
-@@ -372,3 +381,4 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -372,4 +380,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
      if (entry.model < 400 || entry.model > 611)
          return;
 -    pool->Create(&entry);
 +    if (entry.id >= 2000 || !pool->Create(&entry))
 +        return;
      CVehicle* vehicle = pool->Get(entry.id);
-@@ -402,4 +412,6 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+@@ -402,4 +411,6 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
  void ScrWorldVehicleRemove(RPCParameters* parameters)
  {
 +    if (!parameters || parameters->numberOfBitsOfData != 16)
 +        return;
      CVehiclePool* vehicles = ((CNetGame*)g_pNetGame)->pools->vehicles;
      RakNet::BitStream stream(parameters->input, (int)parameters->numberOfBitsOfData / 8 + 1, false);
-@@ -409,2 +421,2 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+@@ -409,2 +420,3 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
      WORD id;
 -    stream.Read(id);
 +    if (!stream.Read(id))
@@ -157,30 +157,30 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 --- a/source/net/vehiclepool.cpp
 +++ b/source/net/vehiclepool.cpp
-@@ -26,4 +26,6 @@ void CVehiclePool::SetUnoccupiedSyncOwner(WORD vehicle, WORD player)
+@@ -26,3 +26,5 @@ void CVehiclePool::SetUnoccupiedSyncOwner(WORD vehicle, WORD player)
  {
 +    if (vehicle >= 2000)
 +        return;
      *(WORD*)((BYTE*)this + 0x8e34 + vehicle * 2) = player;
  }
-@@ -91,4 +93,5 @@ void CVehiclePool::Process()
+@@ -91,3 +93,4 @@ void CVehiclePool::Process()
  {
 +    ProcessWaitingList();
      DWORD now = GetTickCount();
      CLocalPlayer* local = ((CNetGame*)g_pNetGame)->pools->players->local;
-@@ -182,4 +185,6 @@ BOOL CVehiclePool::Create(const VehiclePoolQueueEntry* entry)
+@@ -182,3 +185,5 @@ BOOL CVehiclePool::Create(const VehiclePoolQueueEntry* entry)
  {
 +    if (!entry || entry->id >= 2000 || entry->model < 400 || entry->model > 611)
 +        return FALSE;
      if (m_pObjects[entry->id])
      {
-@@ -308,5 +313,5 @@ void CVehiclePool::ChangeInterior(WORD id, int interior)
+@@ -308,4 +313,4 @@ void CVehiclePool::ChangeInterior(WORD id, int interior)
  {
 -    if (m_bNotEmpty[id])
 +    if (id < 2000 && m_bNotEmpty[id])
          m_pObjects[id]->ChangeInterior(interior);
  }
-@@ -426,4 +431,4 @@ DWORD CVehiclePool::GetRef(int id)
+@@ -426,3 +431,3 @@ DWORD CVehiclePool::GetRef(int id)
  {
 -    return m_pGameObjects[id] ? GamePoolVehicleGetIndex(m_pGameObjects[id]) : 0xffff;
 +    return id >= 0 && id < 2000 && m_pGameObjects[id] ? GamePoolVehicleGetIndex(m_pGameObjects[id]) : 0xffff;
@@ -188,7 +188,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 diff --git a/source/game/game.cpp b/source/game/game.cpp
 --- a/source/game/game.cpp
 +++ b/source/game/game.cpp
-@@ -707,4 +707,6 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
+@@ -707,5 +707,7 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
  {
      // Native indexes this+model-0x122 without a model-range check.
 +    if (model < 400 || model > 611)
