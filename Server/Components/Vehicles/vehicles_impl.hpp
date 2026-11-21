@@ -415,13 +415,10 @@ public:
 
 		uint32_t baseID = static_cast<uint32_t>(modelID);
 		uint32_t customID = 0;
-		if (!modelsComponent->getBaseModel(baseID, customID) || customID != static_cast<uint32_t>(modelID) || !isValidVehicleModel(static_cast<int>(baseID)))
-		{
-			return false;
-		}
-
-		// Train consists and the special train-car model are not replaceable in this first version.
-		if (baseID == 537 || baseID == 538 || baseID == 449)
+		if (!modelsComponent->getBaseModel(baseID, customID) ||
+			customID != static_cast<uint32_t>(modelID) ||
+			!isValidVehicleModel(static_cast<int>(baseID)) ||
+			!CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
 		{
 			return false;
 		}
