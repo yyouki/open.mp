@@ -15,7 +15,8 @@ void Vehicle::setSpawnData(const VehicleSpawnData& data)
 {
 	int baseModelID = data.modelID;
 	int customModelID = 0;
-	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID))
+	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
+		(customModelID != 0 && (baseModelID == 537 || baseModelID == 538 || baseModelID == 449)))
 	{
 		return;
 	}

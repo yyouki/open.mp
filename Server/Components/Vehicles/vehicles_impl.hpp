@@ -420,6 +420,12 @@ public:
 			return false;
 		}
 
+		// Train consists and the special train-car model are not replaceable in this first version.
+		if (baseID == 537 || baseID == 538 || baseID == 449)
+		{
+			return false;
+		}
+
 		baseModelID = static_cast<int>(baseID);
 		customModelID = static_cast<int>(customID);
 		return true;
@@ -509,7 +515,8 @@ public:
 	{
 		int baseModelID = data.modelID;
 		int customModelID = 0;
-		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID))
+		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
+			(customModelID != 0 && (baseModelID == 537 || baseModelID == 538 || baseModelID == 449)))
 		{
 			return nullptr;
 		}
@@ -533,7 +540,7 @@ public:
 	{
 		int baseModelID = data.modelID;
 		int customModelID = 0;
-		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID))
+		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID) || customModelID != 0)
 		{
 			return nullptr;
 		}
