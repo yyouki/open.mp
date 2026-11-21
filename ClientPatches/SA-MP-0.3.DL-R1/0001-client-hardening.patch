@@ -125,7 +125,7 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      g_customModels->SetExpectedRecordCount(count);
  }
-@@ -360,3 +369,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -360,3 +367,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
  {
 +    if (!parameters || parameters->numberOfBitsOfData != 63 * 8)
 +        return;
