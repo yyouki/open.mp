@@ -436,9 +436,7 @@ public:
 		const bool* vehicleModelsEnabled = core ? core->getConfig().getBool("artwork.experimental_vehicle_models") : nullptr;
 		auto* customVehicleData = queryExtension<IPlayerCustomVehicleModelsData>(player);
 		const bool supportsCustomVehicles = customVehicleData && customVehicleData->supportsCustomVehicleModels();
-		const bool supportsLegacyDownload = player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
-		if (customModelID != 0 && vehicleModelsEnabled && *vehicleModelsEnabled &&
-			(supportsCustomVehicles || supportsLegacyDownload))
+		if (customModelID != 0 && vehicleModelsEnabled && *vehicleModelsEnabled && supportsCustomVehicles)
 		{
 			return customModelID;
 		}

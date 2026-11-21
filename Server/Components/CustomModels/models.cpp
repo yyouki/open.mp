@@ -490,9 +490,9 @@ public:
 	}
 
 	CustomModelsComponent()
-		: requestDownloadLinkHandler(*this)
+		: clientSupportsCustomVehicleModelsHandler(*this)
+		, requestDownloadLinkHandler(*this)
 		, finishDownloadHandler(*this)
-		, clientSupportsCustomVehicleModelsHandler(*this)
 	{
 	}
 
