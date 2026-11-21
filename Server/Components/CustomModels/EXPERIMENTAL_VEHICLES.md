@@ -48,9 +48,17 @@ The server uses the following existing artwork RPCs for the transfer:
 | 187 | Server acknowledges support |
 
 For RPC 179, the manifest index (`poolID`) and total count (`Count`) are
-shared by the model records sent to that client. The server therefore builds a
-contiguous manifest per client: ordinary 0.3.DL clients receive skin/object
-records, while opted-in clients receive those records plus vehicle records.
+shared by the model records sent to that client. The server builds a contiguous
+manifest per client. Ordinary 0.3.DL clients receive skin/object records;
+opted-in clients receive those records plus vehicle records.
+
+Capability timing is handled in both cases. When RPC 186 arrives before client
+initialization, the initial manifest includes all supported records. When it
+arrives after the native 0.3.DL manifest, vehicle records are appended after the
+existing native records. Later model registrations append a single new record
+with the next pool index instead of retransmitting the full manifest. A client
+must honor the supplied `poolID` and `Count`; it must not assume records are
+grouped by model type or that the type-3 records always begin at index zero.
 
 ## No-ASI experiment
 
