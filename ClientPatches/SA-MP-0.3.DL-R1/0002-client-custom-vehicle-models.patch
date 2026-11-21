@@ -349,12 +349,11 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 diff --git a/source/net/netrpc.h b/source/net/netrpc.h
 --- a/source/net/netrpc.h
 +++ b/source/net/netrpc.h
-@@ -9,3 +9,6 @@
+@@ -8,4 +8,6 @@
  #if defined(DL_BUILD)
 +// 0x00000000
 +void ScrServerSupportsCustomVehicleModels(RPCParameters* parameters);
-+
-
+ // 0x00011d80
  void ScrCustomModelRecord(RPCParameters* parameters);
  #endif // DL_BUILD
 diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
@@ -454,12 +453,11 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
          }
 +    }
  }
-@@ -407,4 +407,41 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
+@@ -420,2 +420,39 @@
      queue[slot] = *entry;
  }
- 
 +#if defined(DL_BUILD)
-+// Custom vehicle queue entries retain their original tuning bytes until loaded.
++// Preserve the existing 23-byte tuning payload while a custom vehicle downloads.
 +void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
 +{
 +    if (!entry || !tuning || entry->id >= 2000 || entry->model < 30001 || entry->model > 32767)
@@ -495,7 +493,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +    g_customVehicleQueueHasTuning[slot] = 1;
 +}
 +#endif // DL_BUILD
- 
+
 diff --git a/source/game/game.cpp b/source/game/game.cpp
 --- a/source/game/game.cpp
 +++ b/source/game/game.cpp
