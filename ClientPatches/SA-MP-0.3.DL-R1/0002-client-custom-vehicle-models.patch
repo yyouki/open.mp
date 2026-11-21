@@ -83,7 +83,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
          {
              BYTE* entry = (BYTE*)GetRecord(index);
 -            if ((entry[7] == 1 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))) && !entry[6])
-+            if ((entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))) && !entry[6])
++            if (entry && !entry[6] && (entry[7] == 1 || entry[7] == 3 || (entry[7] == 2 && (*(DWORD*)(entry + 8) == *(DWORD*)(state + 0x217) || *(DWORD*)(entry + 8) == 0xffffffff))))
              {
                  if (!entry[0])
                  {
