@@ -68,6 +68,7 @@ public:
 
 	const ModelFile& getTXD() { return txd_; }
 	const ModelFile& getDFF() { return dff_; }
+	ModelType getType() const { return type_; }
 
 	void write(NetCode::RPC::ModelRequest& modelInfo) const
 	{
@@ -337,6 +338,78 @@ private:
 
 	DefaultEventDispatcher<PlayerModelsEventHandler> eventDispatcher;
 
+	class PlayerCustomVehicleModelsData final : public IPlayerCustomVehicleModelsData
+	{
+	public:
+		bool supportsCustomVehicleModels() const override
+		{
+			return true;
+		}
+
+		void reset() override
+		{
+		}
+
+		void freeExtension() override
+		{
+			delete this;
+		}
+	};
+
+	void sendCustomVehicleModels(IPlayer& player)
+	{
+		if (!enabled || !vehicleModelsEnabled)
+		{
+			return;
+		}
+
+		const uint32_t vehicleModelCount = static_cast<uint32_t>(std::count_if(
+			storage.begin(), storage.end(),
+			[](const ModelInfo* model)
+			{
+				return model->getType() == CustomModels::Vehicle;
+			}));
+
+		uint32_t poolId = 0;
+		for (const ModelInfo* model : storage)
+		{
+			if (model->getType() != CustomModels::Vehicle)
+			{
+				continue;
+			}
+
+			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId++), vehicleModelCount);
+			model->write(request);
+			PacketHelper::send(request, player);
+		}
+	}
+
+	struct ClientSupportsCustomVehicleModelsHandler : public SingleNetworkInEventHandler
+	{
+		CustomModelsComponent& self;
+
+		ClientSupportsCustomVehicleModelsHandler(CustomModelsComponent& component)
+			: self(component)
+		{
+		}
+
+		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
+		{
+			if (!self.enabled || !self.vehicleModelsEnabled)
+			{
+				return true;
+			}
+
+			if (!queryExtension<IPlayerCustomVehicleModelsData>(peer))
+			{
+				peer.addExtension(new PlayerCustomVehicleModelsData(), true);
+			}
+
+			self.sendCustomVehicleModels(peer);
+			return true;
+		}
+	} clientSupportsCustomVehicleModelsHandler;
+
 	struct RequestDownloadLinkEventHandler : public SingleNetworkInEventHandler
 	{
 		CustomModelsComponent& self;
@@ -419,6 +492,7 @@ public:
 	CustomModelsComponent()
 		: requestDownloadLinkHandler(*this)
 		, finishDownloadHandler(*this)
+		, clientSupportsCustomVehicleModelsHandler(*this)
 	{
 	}
 
@@ -432,6 +506,7 @@ public:
 		NetCode::RPC::RequestTXD::removeEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::RequestDFF::removeEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::FinishDownload::removeEventHandler(*core, &finishDownloadHandler);
+		NetCode::RPC::ClientSupportsCustomVehicleModels::removeEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 		players->getPlayerConnectDispatcher().removeEventHandler(this);
 
 		if (webServer)
@@ -513,6 +588,7 @@ public:
 		NetCode::RPC::RequestTXD::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::RequestDFF::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::FinishDownload::addEventHandler(*core, &finishDownloadHandler);
+		NetCode::RPC::ClientSupportsCustomVehicleModels::addEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 
 		if (!enabled)
 			return;
@@ -694,21 +770,34 @@ public:
 		if (!model)
 			return false;
 
-		auto size = storage.size() - 1;
-		NetCode::RPC::ModelRequest modelInfo(size - 1, size);
-		model->write(modelInfo);
-
-		for (IPlayer* player : players->entries())
-		{
-			if (player->getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
-				continue;
-
-			PacketHelper::send(modelInfo, *player);
-		}
-
 		baseModels.emplace(id, baseId);
 		checksums.emplace(dff.checksum, std::make_pair(ModelDownloadType::DFF, model));
 		checksums.emplace(txd.checksum, std::make_pair(ModelDownloadType::TXD, model));
+
+		if (type == CustomModels::Vehicle)
+		{
+			// Vehicle replacements are sent only to clients that explicitly opted in.
+			for (IPlayer* player : players->entries())
+			{
+				if (queryExtension<IPlayerCustomVehicleModelsData>(*player))
+				{
+					sendCustomVehicleModels(*player);
+				}
+			}
+		}
+		else
+		{
+			const auto size = storage.size();
+			NetCode::RPC::ModelRequest modelInfo(static_cast<int32_t>(size - 1), static_cast<uint32_t>(size));
+			model->write(modelInfo);
+			for (IPlayer* player : players->entries())
+			{
+				if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL)
+				{
+					PacketHelper::send(modelInfo, *player);
+				}
+			}
+		}
 
 		// Start web server if needed.
 		startWebServer();
@@ -753,11 +842,21 @@ public:
 		if (player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 			return;
 
-		const auto modelsCount = storage.size();
-		for (auto i = 0; i != modelsCount; ++i)
+		uint32_t poolId = 0;
+		const auto modelsCount = static_cast<uint32_t>(std::count_if(
+			storage.begin(), storage.end(),
+			[](const ModelInfo* model)
+			{
+				return model->getType() != CustomModels::Vehicle;
+			}));
+		for (const ModelInfo* model : storage)
 		{
-			NetCode::RPC::ModelRequest modelInfo(i, modelsCount);
-			storage[i]->write(modelInfo);
+			if (model->getType() == CustomModels::Vehicle)
+			{
+				continue;
+			}
+			NetCode::RPC::ModelRequest modelInfo(static_cast<int32_t>(poolId++), modelsCount);
+			model->write(modelInfo);
 			PacketHelper::send(modelInfo, player);
 		}
 

@@ -17,6 +17,14 @@ namespace NetCode
 {
 namespace RPC
 {
+	struct ClientSupportsCustomVehicleModels : NetworkPacketBase<186, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
+	{
+		bool read(NetworkBitStream& bs)
+		{
+			return true;
+		}
+	};
+
 	struct ModelRequest : NetworkPacketBase<179, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
 	{
 

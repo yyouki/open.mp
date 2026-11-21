@@ -18,3 +18,11 @@ inline bool isCustomVehicleModelId(int modelId)
 		modelId <= MAX_CUSTOM_VEHICLE_MODEL_ID;
 }
 } // namespace CustomModels
+
+// Per-player opt-in state for the open.mp custom vehicle model extension.
+struct IPlayerCustomVehicleModelsData : public IExtension
+{
+	PROVIDE_EXT_UID(0x4B9E2D31A765C80F)
+
+	virtual bool supportsCustomVehicleModels() const = 0;
+};
