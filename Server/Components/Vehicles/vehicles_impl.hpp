@@ -451,7 +451,7 @@ public:
 
 		const bool isTrainModel = baseModelID == 538 || baseModelID == 537;
 		if ((!isStatic && (isTrainModel || baseModelID == 449)) ||
-			(customModelID != 0 && (isTrainModel || baseModelID == 449)))
+			(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 		{
 			return nullptr;
 		}
