@@ -125,34 +125,31 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      g_customModels->SetExpectedRecordCount(count);
  }
-diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
---- a/source/net/netrpc.cpp
-+++ b/source/net/netrpc.cpp
-@@ -360,3 +360,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -360,3 +369,5 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
  {
 +    if (!parameters || parameters->numberOfBitsOfData != 63 * 8)
 +        return;
      RakNet::BitStream stream(parameters->input, (int)parameters->numberOfBitsOfData / 8 + 1, false);
-@@ -369,2 +371,2 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -369,2 +378,2 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
 -    stream.Read((char*)&entry, 40);
 -    stream.Read((char*)tuning, 23);
 +    if (!stream.Read((char*)&entry, 40) || !stream.Read((char*)tuning, 23))
 +        return;
-@@ -372,3 +374,4 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -372,3 +381,4 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
      if (entry.model < 400 || entry.model > 611)
          return;
 -    pool->Create(&entry);
 +    if (entry.id >= 2000 || !pool->Create(&entry))
 +        return;
      CVehicle* vehicle = pool->Get(entry.id);
-@@ -402,4 +405,6 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+@@ -402,4 +412,6 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
  void ScrWorldVehicleRemove(RPCParameters* parameters)
  {
 +    if (!parameters || parameters->numberOfBitsOfData != 16)
 +        return;
      CVehiclePool* vehicles = ((CNetGame*)g_pNetGame)->pools->vehicles;
      RakNet::BitStream stream(parameters->input, (int)parameters->numberOfBitsOfData / 8 + 1, false);
-@@ -409,2 +414,2 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+@@ -409,2 +421,2 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
      WORD id;
 -    stream.Read(id);
 +    if (!stream.Read(id))
