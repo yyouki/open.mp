@@ -68,6 +68,17 @@ vehicle-model registration in its GTA/RenderWare model-loading path. The
 intended experiment is to integrate that support into a rebuilt or directly
 modified 0.3.DL client binary rather than load a separate ASI plugin.
 
+
+
+For the first no-ASI test, the client should send RPC 186 as soon as its network
+handlers are ready and **before** it sends the normal client-initialization
+message. The server can then include vehicle records in the initial artwork
+manifest, allowing the normal 0.3.DL download barrier to complete before
+vehicles are streamed. The server also handles a later capability message by
+appending vehicle records, but that timing is not yet validated for the no-ASI
+client; a late-opt-in client may need to defer vehicle creation until its
+downloads finish.
+
 At minimum, the client-side implementation must:
 
 1. Recognize model type `3` in RPC 179 and preserve the shared manifest
