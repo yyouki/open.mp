@@ -22,7 +22,7 @@ diff --git a/source/game/custommodels.h b/source/game/custommodels.h
  // Native allocation extent0x206D; fields remain opaque except observed accesses.
  // Download/validation paths are recovered; full native class coverage is not established.
  class CCustomModels
-@@ -191,6 +198,10 @@ class CCustomModels
+@@ -191,5 +198,9 @@ class CCustomModels
      // 0x0000ccc0
      bool IsObjectEntry(int model);
 +    // Experimental global-model category. Type 3 is gated by RPC 187.
@@ -32,7 +32,7 @@ diff --git a/source/game/custommodels.h b/source/game/custommodels.h
      // Returns the raw record byte, not a normalized boolean.
      // 0x0000cd00
      BYTE GetLoadedFlag(int model);
-@@ -226,6 +237,8 @@ class CCustomModels
+@@ -226,4 +237,6 @@ class CCustomModels
      // 0x0000c2e0
      BOOL LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash);
 +    // Loads a custom vehicle DFF/TXD and publishes a cloned CVehicleModelInfo.
@@ -43,13 +43,15 @@ diff --git a/source/game/custommodels.h b/source/game/custommodels.h
 diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 --- a/source/game/custommodels.cpp
 +++ b/source/game/custommodels.cpp
-@@ -37,6 +37,7 @@ DWORD g_gameLoadingCustomModel;
+@@ -47,6 +47,7 @@ DWORD g_gameLoadingCustomModel;
+ // 0x001e0448
+ DWORD g_gameLoadingCustomModel;
++static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd);
  
  // Original owning type/name unconfirmed; preserve this distinct native entry.
  // 0x00152ae8
-+static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd);
  const GameModelReferencePatch g_gameModelReferencePatchesUS[707] = {
-@@ -508,16 +509,30 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
+@@ -508,10 +509,24 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
      if (!record || index > GetCount() || GetRecord(index))
          return 0xffffffff;
      BYTE type = ((const BYTE*)record)[7];
@@ -85,7 +87,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
              {
                  if (!entry[0])
                  {
-@@ -620,6 +635,52 @@ bool CCustomModels::IsObjectEntry(int model)
+@@ -620,6 +635,70 @@ bool CCustomModels::IsObjectEntry(int model)
      return false;
  }
  
@@ -156,7 +158,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x0000cd00
  BYTE CCustomModels::GetLoadedFlag(int model)
  {
-@@ -1154,7 +1215,7 @@ void CCustomModels::Process()
+@@ -1698,7 +1790,7 @@ void CCustomModels::Process()
          do
          {
              BYTE* entry = index < count ? (*(BYTE***)state)[index] : 0;
@@ -165,7 +167,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
              {
                  if (!entry[0])
                  {
-@@ -1444,7 +1505,7 @@ int CCustomModels::CountMissingResources()
+@@ -1444,6 +1505,6 @@ int CCustomModels::CountMissingResources()
          BYTE* record = (BYTE*)GetRecord(i);
          if (!record || record[6])
              continue;
@@ -182,7 +184,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
              {
                  if (!entry[0] && IsDffCached(*(DWORD*)(entry + 0x46)))
                      entry[0] = 1;
-@@ -1790,6 +1851,25 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
+@@ -1790,7 +1851,32 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
      }
      return GameRegisterCustomObject(base, model, name, dff, txd) != 0;
  }
@@ -215,7 +217,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x000b19c0
  void* GameRwStreamOpen(int type, int access, const void* data)
  {
-@@ -1850,6 +1930,43 @@ void* GameLoadPedDff(const char* path)
+@@ -1850,6 +1930,30 @@ void* GameLoadPedDff(const char* path)
      return clump;
  }
  
@@ -249,7 +251,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 --- a/source/net/netrpc.cpp
 +++ b/source/net/netrpc.cpp
-@@ -113,6 +113,11 @@ const int g_rpcScrDestroyActor = 172;
+@@ -113,3 +113,8 @@ const int g_rpcScrDestroyActor = 172;
  #if defined(DL_BUILD)
 +const int g_rpcClientSupportsCustomVehicleModels = 186;
 +const int g_rpcServerSupportsCustomVehicleModels = 187;
@@ -258,14 +260,14 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +
  // 0x00117f10
  const int g_rpcScrModelInfo = 179;
-@@ -181,7 +186,10 @@ void ScrCustomModelRecord(RPCParameters* parameters)
+@@ -181,4 +186,6 @@ void ScrCustomModelRecord(RPCParameters* parameters)
      if (!count || index >= count || (record[7] != 1 && record[7] != 2))
          return;
 +    if (count > 32768 || (record[7] == 3 && !g_customVehicleModelsAcknowledged))
 +        return;
      if (!g_customModels)
      {
-@@ -209,6 +217,25 @@ void ScrCustomModelsComplete(RPCParameters* parameters)
+@@ -209,3 +217,23 @@ void ScrCustomModelsComplete(RPCParameters* parameters)
      }
  }
 +
@@ -289,14 +291,14 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +    g_customVehicleModelsAdvertised = TRUE;
 +}
  #endif // DL_BUILD
-@@ -298,6 +325,9 @@ void ScrInitGame(RPCParameters* parameters)
+@@ -298,3 +325,6 @@ void ScrInitGame(RPCParameters* parameters)
      ((CNetGame*)g_pNetGame)->gameState = CNetGame::StateConnected;
 +#if defined(DL_BUILD)
 +    SendClientSupportsCustomVehicleModels();
 +#endif // DL_BUILD
      players->local->PrepareForClassSelection();
  }
-@@ -369,12 +399,24 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
+@@ -369,7 +399,21 @@ void ScrWorldVehicleAdd(RPCParameters* parameters)
      if (!stream.Read((char*)&entry, 40) || !stream.Read((char*)tuning, 23))
          return;
      RakNet::GetTimeNS();
@@ -320,23 +322,25 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      if (entry.id >= 2000 || !pool->Create(&entry))
          return;
-@@ -1295,6 +1337,7 @@ void UnRegisterRPCs(RakClientInterface* client)
+@@ -1295,2 +1337,3 @@ void UnRegisterRPCs(RakClientInterface* client)
          &g_rpcScrFinishedDownloading,
 +        &g_rpcServerSupportsCustomVehicleModels,
  #endif // DL_BUILD
-@@ -1303,6 +1346,8 @@ void UnRegisterRPCs(RakClientInterface* client)
+@@ -1270,3 +1312,5 @@ void UnRegisterRPCs(RakClientInterface* client)
+ void UnRegisterRPCs(RakClientInterface* client)
  {
 +    g_customVehicleModelsAdvertised = FALSE;
 +    g_customVehicleModelsAcknowledged = FALSE;
      const int* ids[] = {
-@@ -1375,6 +1420,8 @@ void RegisterRPCs(RakClientInterface* client)
+@@ -1331,3 +1380,7 @@ void RegisterRPCs(RakClientInterface* client)
+ void RegisterRPCs(RakClientInterface* client)
  {
 +#if defined(DL_BUILD)
 +    g_customVehicleModelsAdvertised = FALSE;
 +    g_customVehicleModelsAcknowledged = FALSE;
 +#endif // DL_BUILD
      client->RegisterAsRemoteProcedureCall(const_cast<int*>(&g_rpcScrSetPlayerSkillLevel), ScrSetPlayerSkillLevel);
-@@ -1438,6 +1485,7 @@ void RegisterRPCs(RakClientInterface* client)
+@@ -1438,3 +1485,4 @@ void RegisterRPCs(RakClientInterface* client)
      client->RegisterAsRemoteProcedureCall(const_cast<int*>(&g_rpcScrFinishedDownloading), ScrCustomModelsComplete);
 +    client->RegisterAsRemoteProcedureCall((int*)&g_rpcServerSupportsCustomVehicleModels, ScrServerSupportsCustomVehicleModels);
  #endif // DL_BUILD
@@ -344,20 +348,18 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 diff --git a/source/net/netrpc.h b/source/net/netrpc.h
 --- a/source/net/netrpc.h
 +++ b/source/net/netrpc.h
-@@ -5,6 +5,9 @@ struct RPCParameters;
- // 0x00012310
- void RegisterRPCs(RakClientInterface* client);
+@@ -9,3 +9,6 @@
  #if defined(DL_BUILD)
 +// 0x00000000
 +void ScrServerSupportsCustomVehicleModels(RPCParameters* parameters);
 +
- // 0x00011d80
+
  void ScrCustomModelRecord(RPCParameters* parameters);
  #endif // DL_BUILD
 diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
 --- a/source/net/vehiclepool.h
 +++ b/source/net/vehiclepool.h
-@@ -55,6 +55,8 @@ class CVehiclePool
+@@ -55,5 +55,7 @@ class CVehiclePool
      // 0x0001e7d0
      void Queue(const VehiclePoolQueueEntry* entry);
 +    // Stores the existing 23-byte vehicle tuning payload beside a custom pending entry.
@@ -368,20 +370,22 @@ diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
 diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 --- a/source/net/vehiclepool.cpp
 +++ b/source/net/vehiclepool.cpp
-@@ -1,6 +1,7 @@
+@@ -1,4 +1,5 @@
  #include "net/vehiclepool.h"
  
 +#include "game/custommodels.h"
  #include "d3dhook/IDirect3DDevice9Hook.h"
  #include "game/game.h"
-@@ -22,6 +23,9 @@ const char g_vehiclePoolQueueFullMessage[] = "All vehicle waiting slots are consumed!";
+@@ -22,3 +22,7 @@ const char g_vehiclePoolQueueFullMessage[] = "All vehicle waiting slots are consumed!";
++#if defined(DL_BUILD)
 +static BYTE g_customVehicleQueueTuning[100][23];
 +static BYTE g_customVehicleQueueHasTuning[100];
-+
++#endif // DL_BUILD
+
  // 0x00002df0
  void CVehiclePool::SetUnoccupiedSyncOwner(WORD vehicle, WORD player)
  {
-@@ -187,7 +191,14 @@ BOOL CVehiclePool::Create(const VehiclePoolQueueEntry* entry)
+@@ -187,5 +191,11 @@ BOOL CVehiclePool::Create(const VehiclePoolQueueEntry* entry)
  {
 -    if (!entry || entry->id >= 2000 || entry->model < 400 || entry->model > 611)
 +    if (!entry || entry->id >= 2000)
@@ -395,7 +399,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 -        return FALSE;
      if (m_pObjects[entry->id])
      {
-@@ -211,9 +222,58 @@ void CVehiclePool::ProcessWaitingList()
+@@ -211,6 +222,43 @@ void CVehiclePool::ProcessWaitingList()
  {
 -    for (int i = 0; i < 100; ++i)
 -        if (queueActive[i] && g_pGame->IsModelAvailable(queue[i].model))
@@ -441,19 +445,19 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
          {
              VehiclePoolQueueEntry* entry = queue + i;
              Create(entry);
-@@ -237,6 +297,8 @@ void CVehiclePool::ProcessWaitingList()
-             }
+@@ -253,3 +303,4 @@ void CVehiclePool::ProcessWaitingList()
              queueActive[i] = 0;
          }
 +    }
  }
-@@ -429,6 +491,32 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
+@@ -407,7 +407,41 @@ void CVehiclePool::Queue(const VehiclePoolQueueEntry* entry)
      queue[slot] = *entry;
  }
  
-+// Custom vehicle queue entries retain their original tuning bytes until loaded.
-+void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
-+{
++#if defined(DL_BUILD)
+ // Custom vehicle queue entries retain their original tuning bytes until loaded.
+ void CVehiclePool::QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning)
+ {
 +    if (!entry || !tuning || entry->id >= 2000 || entry->model < 30001 || entry->model > 32767)
 +        return;
 +    int slot = -1;
@@ -486,11 +490,12 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +    memcpy(g_customVehicleQueueTuning[slot], tuning, 23);
 +    g_customVehicleQueueHasTuning[slot] = 1;
 +}
-+
++#endif // DL_BUILD
+ 
 diff --git a/source/game/game.cpp b/source/game/game.cpp
 --- a/source/game/game.cpp
 +++ b/source/game/game.cpp
-@@ -707,9 +707,19 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
+@@ -707,5 +707,16 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
  {
 -    // Native indexes this+model-0x122 without a model-range check.
 +    // GTA's keep-loaded flag is indexed by the base ID, not the custom ID.
@@ -509,8 +514,3 @@ diff --git a/source/game/game.cpp b/source/game/game.cpp
 -    if (m_aKeepLoadedVehicleModels[model - 400])
 +    if (m_aKeepLoadedVehicleModels[baseModel - 400])
          keepLoaded = 1;
-diff --git a/source/game/game.cpp b/source/game/game.cpp
---- a/source/game/game.cpp
-+++ b/source/game/game.cpp
-@@ -6,6 +6,7 @@
- #include "game/custommodels.h"
