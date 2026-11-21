@@ -25,6 +25,18 @@ namespace RPC
 		}
 	};
 
+	struct ServerSupportsCustomVehicleModels : NetworkPacketBase<187, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
+	{
+		bool read(NetworkBitStream& bs)
+		{
+			return false;
+		}
+
+		void write(NetworkBitStream& bs) const
+		{
+		}
+	};
+
 	struct ModelRequest : NetworkPacketBase<179, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
 	{
 
