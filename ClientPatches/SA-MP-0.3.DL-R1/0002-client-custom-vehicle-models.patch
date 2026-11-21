@@ -261,10 +261,11 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
  // 0x00117f10
  const int g_rpcScrModelInfo = 179;
 @@ -181,4 +186,6 @@ void ScrCustomModelRecord(RPCParameters* parameters)
-     if (!count || index >= count || (record[7] != 1 && record[7] != 2))
+-    if (!count || index >= count || (record[7] != 1 && record[7] != 2))
++    if (!count || count > 32768 || index >= count ||
++        (record[7] != 1 && record[7] != 2 && record[7] != 3) ||
++        (record[7] == 3 && !g_customVehicleModelsAcknowledged))
          return;
-+    if (count > 32768 || (record[7] == 3 && !g_customVehicleModelsAcknowledged))
-+        return;
      if (!g_customModels)
      {
 @@ -209,3 +217,23 @@ void ScrCustomModelsComplete(RPCParameters* parameters)
@@ -359,11 +360,13 @@ diff --git a/source/net/netrpc.h b/source/net/netrpc.h
 diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
 --- a/source/net/vehiclepool.h
 +++ b/source/net/vehiclepool.h
-@@ -55,5 +55,7 @@ class CVehiclePool
+@@ -55,5 +55,9 @@ class CVehiclePool
      // 0x0001e7d0
      void Queue(const VehiclePoolQueueEntry* entry);
++#if defined(DL_BUILD)
 +    // Stores the existing 23-byte vehicle tuning payload beside a custom pending entry.
 +    void QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning);
++#endif // DL_BUILD
      // Native ID overload has no bounds check.
      // 0x0001e680
      DWORD GetRef(int id);
@@ -399,7 +402,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 -        return FALSE;
      if (m_pObjects[entry->id])
      {
-@@ -211,6 +222,43 @@ void CVehiclePool::ProcessWaitingList()
+@@ -211,6 +222,44 @@ void CVehiclePool::ProcessWaitingList()
  {
 -    for (int i = 0; i < 100; ++i)
 -        if (queueActive[i] && g_pGame->IsModelAvailable(queue[i].model))
@@ -407,6 +410,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +    {
 +        if (!queueActive[i])
 +            continue;
++#if defined(DL_BUILD)
 +        if (queue[i].model >= 30001 && queue[i].model <= 32767)
 +        {
 +            int status = g_customModels ? g_customModels->LoadVehicleEntry(queue[i].model) : CUSTOM_VEHICLE_FAILED;
@@ -495,11 +499,11 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 diff --git a/source/game/game.cpp b/source/game/game.cpp
 --- a/source/game/game.cpp
 +++ b/source/game/game.cpp
-@@ -707,5 +707,16 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
+@@ -707,5 +707,17 @@ CVehicle* CGame::CreateVehicle(int model, float x, float y, float z, float rotation, BOOL siren)
  {
 -    // Native indexes this+model-0x122 without a model-range check.
-+    // GTA's keep-loaded flag is indexed by the base ID, not the custom ID.
 +    int baseModel = model;
++#if defined(DL_BUILD)
 +    if (model >= 30001 && model <= 32767)
 +    {
 +        DWORD base = 0;
@@ -508,6 +512,7 @@ diff --git a/source/game/game.cpp b/source/game/game.cpp
 +            return 0;
 +        baseModel = (int)base;
 +    }
++#endif
 +    if (baseModel < 400 || baseModel > 611)
 +        return 0;
      DWORD keepLoaded = 0;
