@@ -14,7 +14,7 @@ AddVehicleModel( baseModelId, customModelId, "vehicle.dff", "vehicle.txd" )
 
 - `customModelId` must be between `30001` and `32767`.
 - `baseModelId` must be a normal vehicle model ID from `400` through `611`.
-- Base models `449`, `537`, and `538` are excluded in this prototype because their special vehicle/train behavior has not been implemented.
+- Base models `449`, `537`, `538`, `569`, and `570` are excluded in this prototype because their special rail vehicle/train behavior has not been implemented.
 - Both files must exist and must be valid GTA San Andreas DFF/TXD assets.
 
 The base model ID supplies gameplay characteristics such as handling, seats,
