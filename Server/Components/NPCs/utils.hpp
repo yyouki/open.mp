@@ -601,16 +601,17 @@ inline float getAngleOfLine(float x, float y)
 
 inline Vector3 getVehicleSeatPos(IVehicle& vehicle, int seatId)
 {
-	// Get the seat position
+	// Seat geometry is defined by the handling/base model, not the visual replacement.
+	const int baseModelID = vehicle.getSpawnData().modelID;
 	Vector3 seatPosFromModelInfo;
 
 	if (seatId == 0 || seatId == 1)
 	{
-		Impl::getVehicleModelInfo(vehicle.getModel(), VehicleModelInfo_FrontSeat, seatPosFromModelInfo);
+		Impl::getVehicleModelInfo(baseModelID, VehicleModelInfo_FrontSeat, seatPosFromModelInfo);
 	}
 	else
 	{
-		Impl::getVehicleModelInfo(vehicle.getModel(), VehicleModelInfo_RearSeat, seatPosFromModelInfo);
+		Impl::getVehicleModelInfo(baseModelID, VehicleModelInfo_RearSeat, seatPosFromModelInfo);
 	}
 
 	// Adjust the seat vector

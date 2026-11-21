@@ -1463,7 +1463,7 @@ void NPC::enterVehicle(IVehicle& vehicle, uint8_t seatId, NPCMoveType moveType)
 		moveType = NPCMoveType_Jog;
 	}
 
-	int passengerSeats = Impl::getVehiclePassengerSeats(vehicle.getModel());
+	int passengerSeats = Impl::getVehiclePassengerSeats(vehicle.getSpawnData().modelID);
 	if (passengerSeats == 0xFF || (seatId > passengerSeats))
 	{
 		return;
@@ -1553,7 +1553,7 @@ bool NPC::putInVehicle(IVehicle& vehicle, uint8_t seat)
 		spawn();
 	}
 
-	auto maxPassengerSeats = getVehiclePassengerSeats(vehicle.getModel());
+	auto maxPassengerSeats = getVehiclePassengerSeats(vehicle.getSpawnData().modelID);
 	if (seat > maxPassengerSeats || maxPassengerSeats == 0xFF)
 	{
 		return false;
@@ -2291,7 +2291,7 @@ void NPC::sendDriverSync()
 		driverSync_.Siren = uint8_t(useVehicleSiren_);
 		driverSync_.LandingGear = vehicleGearState_;
 
-		int model = vehicle_->getModel();
+		int model = vehicle_->getSpawnData().modelID;
 		if (model == 520) // hydra model id
 		{
 			driverSync_.HydraThrustAngle = hydraThrusterDirection_;

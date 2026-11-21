@@ -157,11 +157,11 @@ bool NPCPlayback::process(NPC& npc, TimePoint now)
 					npc.useVehicleSiren(syncData.Siren != 0);
 					npc.setVehicleGearState(syncData.LandingGear);
 
-					if (vehicle->getModel() == 520) // Hydra
+					if (vehicle->getSpawnData().modelID == 520) // Hydra
 					{
 						npc.setVehicleHydraThrusters(static_cast<int>(syncData.HydraThrustAngle & 0xFFFF));
 					}
-					else if (vehicle->getModel() == 537 || vehicle->getModel() == 538 || vehicle->getModel() == 570 || vehicle->getModel() == 569 || vehicle->getModel() == 449) // Train models
+					else if (vehicle->getSpawnData().modelID == 537 || vehicle->getSpawnData().modelID == 538 || vehicle->getSpawnData().modelID == 570 || vehicle->getSpawnData().modelID == 569 || vehicle->getSpawnData().modelID == 449) // Train models
 					{
 						npc.setVehicleTrainSpeed(syncData.TrainSpeed);
 					}

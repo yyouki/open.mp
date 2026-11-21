@@ -11,6 +11,32 @@
 #include <Server/Components/Vehicles/vehicle_models.hpp>
 #include <Server/Components/Vehicles/vehicle_colours.hpp>
 #include <Server/Components/Vehicles/vehicle_seats.hpp>
+#include <Server/Components/CustomModels/model_types.hpp>
+
+namespace
+{
+int getBaseVehicleModel(int modelID)
+{
+	if (!CustomModels::isCustomVehicleModelId(modelID))
+	{
+		return modelID;
+	}
+
+	auto* models = ComponentManager::Get()->models;
+	if (!models)
+	{
+		return modelID;
+	}
+
+	uint32_t baseID = static_cast<uint32_t>(modelID);
+	uint32_t customID = 0;
+	if (models->getBaseModel(baseID, customID) && customID == static_cast<uint32_t>(modelID) && Impl::isValidVehicleModel(static_cast<int>(baseID)))
+	{
+		return static_cast<int>(baseID);
+	}
+	return modelID;
+}
+}
 
 OMP_CAPI(Vehicle_Create, objectPtr(int modelid, float x, float y, float z, float rotation, int color1, int color2, int respawnDelay, bool addSiren, int* id))
 {
@@ -52,7 +78,7 @@ OMP_CAPI(Vehicle_GetID, int(objectPtr vehicle))
 
 OMP_CAPI(Vehicle_GetMaxPassengerSeats, int(int modelid))
 {
-	int seats = Impl::getVehiclePassengerSeats(modelid);
+	int seats = Impl::getVehiclePassengerSeats(getBaseVehicleModel(modelid));
 	return seats;
 }
 
@@ -325,12 +351,12 @@ OMP_CAPI(Vehicle_GetComponentType, int(int componentid))
 
 OMP_CAPI(Vehicle_CanHaveComponent, bool(int modelid, int componentid))
 {
-	return Impl::isValidComponentForVehicleModel(modelid, componentid);
+	return Impl::isValidComponentForVehicleModel(getBaseVehicleModel(modelid), componentid);
 }
 
 OMP_CAPI(Vehicle_GetRandomColorPair, bool(int modelid, int* color1, int* color2, int* color3, int* color4))
 {
-	Impl::getRandomVehicleColour(modelid, *color1, *color2, *color3, *color4);
+	Impl::getRandomVehicleColour(getBaseVehicleModel(modelid), *color1, *color2, *color3, *color4);
 	return true;
 }
 
@@ -387,7 +413,7 @@ OMP_CAPI(Vehicle_UpdateDamageStatus, bool(objectPtr vehicle, int panels, int doo
 OMP_CAPI(Vehicle_GetModelInfo, bool(int vehiclemodel, int infotype, float* x, float* y, float* z))
 {
 	Vector3 pos = {};
-	Impl::getVehicleModelInfo(vehiclemodel, VehicleModelInfoType(infotype), pos);
+	Impl::getVehicleModelInfo(getBaseVehicleModel(vehiclemodel), VehicleModelInfoType(infotype), pos);
 	*x = pos.x;
 	*y = pos.y;
 	*z = pos.z;
@@ -483,6 +509,7 @@ OMP_CAPI(Vehicle_SetSpawnInfo, bool(objectPtr vehicle, int modelid, float x, flo
 
 OMP_CAPI(Vehicle_GetModelCount, int(int modelid))
 {
+	modelid = getBaseVehicleModel(modelid);
 	if (modelid < 400 || modelid > 611)
 		return 0;
 

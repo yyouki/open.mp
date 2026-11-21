@@ -692,7 +692,7 @@ struct Player final : public IPlayer, public PoolIDProvider, public NoCopy
 			NetCode::RPC::PlayCrimeReport rpc;
 			rpc.Suspect = suspect.getID();
 			rpc.InVehicle = 1;
-			rpc.VehicleModel = vehicle->getModel();
+			rpc.VehicleModel = vehicle->getSpawnData().modelID;
 			rpc.VehicleColour = colours.first;
 			rpc.CrimeID = crime;
 			rpc.Position = vehicle->getPosition();

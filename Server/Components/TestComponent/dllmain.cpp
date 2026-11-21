@@ -690,8 +690,8 @@ struct TestComponent : public IComponent, public PlayerDamageEventHandler, publi
 			if (data->getVehicle() && player.getState() == PlayerState_Driver)
 			{
 				Vector3 pos, size;
-				Impl::getVehicleModelInfo(data->getVehicle()->getModel(), VehicleModelInfo_FrontSeat, pos);
-				Impl::getVehicleModelInfo(data->getVehicle()->getModel(), VehicleModelInfo_Size, size);
+				Impl::getVehicleModelInfo(data->getVehicle()->getSpawnData().modelID, VehicleModelInfo_FrontSeat, pos);
+				Impl::getVehicleModelInfo(data->getVehicle()->getSpawnData().modelID, VehicleModelInfo_Size, size);
 				pos.z = size.z - 0.65f;
 				objects->create(18646, data->getVehicle()->getPosition(), Vector3(0.0f, 0.0f, 0.0f))->attachToVehicle(*data->getVehicle(), pos, Vector3(0.0f, 0.0f, 0.0f));
 			}
