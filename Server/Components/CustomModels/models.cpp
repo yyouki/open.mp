@@ -18,6 +18,7 @@
 #include <shared_mutex>
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include "utils.hpp"
 
 static auto rAddCharModel = std::regex(R"(AddCharModel\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
@@ -947,6 +948,30 @@ public:
 		if (!txd.size)
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. %.*s doesn't exist", PRINT_VIEW(txdName));
+			return false;
+		}
+
+		// The wire format stores each asset size in an unsigned 32-bit field.
+		if (dff.size > std::numeric_limits<uint32_t>::max() ||
+			txd.size > std::numeric_limits<uint32_t>::max())
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD size exceeds the supported 32-bit transfer limit.");
+			return false;
+		}
+
+		// Checksums key the download lookup. A DFF/TXD checksum collision would
+		// make the server return the wrong file type for a client request.
+		if (dff.checksum == txd.checksum)
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF and TXD have the same CRC32 checksum.");
+			return false;
+		}
+		const auto existingDffChecksum = checksums.find(dff.checksum);
+		const auto existingTxdChecksum = checksums.find(txd.checksum);
+		if ((existingDffChecksum != checksums.end() && existingDffChecksum->second.first != ModelDownloadType::DFF) ||
+			(existingTxdChecksum != checksums.end() && existingTxdChecksum->second.first != ModelDownloadType::TXD))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. CRC32 checksum is already registered for the opposite file type.");
 			return false;
 		}
 
