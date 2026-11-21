@@ -14,7 +14,7 @@ constexpr int MAX_CUSTOM_VEHICLE_MODEL_ID = 32767;
 
 inline bool isCustomVehicleModelId(int modelId)
 {
-  return modelId >= MIN_CUSTOM_VEHICLE_MODEL_ID &&
-         modelId <= MAX_CUSTOM_VEHICLE_MODEL_ID;
+	return modelId >= MIN_CUSTOM_VEHICLE_MODEL_ID &&
+		modelId <= MAX_CUSTOM_VEHICLE_MODEL_ID;
 }
 } // namespace CustomModels
