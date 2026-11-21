@@ -88,6 +88,9 @@ At minimum, the client-side implementation must:
    streaming, replacement, and streaming-out.
 5. Send RPC 186 only after all of the above paths are available.
 
+The detailed no-ASI client source integration plan is maintained in
+[ClientPatches/SA-MP-0.3.DL-R1/NO_ASI_INTEGRATION.md](../../../ClientPatches/SA-MP-0.3.DL-R1/NO_ASI_INTEGRATION.md).
+
 ## Test status
 
 The server implementation and protocol are still experimental. This branch
