@@ -11,20 +11,21 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 -    char digits[12];
 -    strncpy(digits, filename + 2, 8);
 -    return strtoul(digits, 0, 16);
-+    char digits[9];
-+    for (int i = 0; i < 8; ++i)
++    char digits[9] = {0};
++    int length = 0;
++    while (length < 8)
 +    {
-+        const char value = filename[i + 2];
++        const char value = filename[length + 2];
++        if (value == '.')
++            break;
 +        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F')))
 +            return 0;
-+        digits[i] = value;
++        digits[length++] = value;
 +    }
-+    digits[8] = '\0';
-+    char* end = 0;
-+    unsigned long value = strtoul(digits, &end, 16);
-+    if (end != digits + 8)
++    if (!length || filename[length + 2] != '.')
 +        return 0;
-+    return (DWORD)value;
++    digits[length] = '\0';
++    return (DWORD)strtoul(digits, 0, 16);
  }
 @@ -498,9 +509,18 @@ DWORD CCustomModels::AddRecord(DWORD index, const void* record)
  {
