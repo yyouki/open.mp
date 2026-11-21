@@ -412,6 +412,8 @@ private:
 				self.webServer->allowIPAddress(peer.getNetworkData().networkID.address.v4);
 			}
 
+			NetCode::RPC::ServerSupportsCustomVehicleModels response;
+			PacketHelper::send(response, peer);
 			self.sendCustomVehicleModels(peer);
 			return true;
 		}
