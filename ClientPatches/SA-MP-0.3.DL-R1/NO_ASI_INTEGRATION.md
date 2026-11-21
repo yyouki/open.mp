@@ -50,6 +50,20 @@ Relevant technical references:
 - GTA model-info vehicle allocation API:
   `https://github.com/DK22Pac/plugin-sdk/blob/master/plugin_sa/game_sa/CModelInfo.cpp`
 
+## Preparatory hardening patch
+
+The repository now contains
+[0001-client-hardening.patch](0001-client-hardening.patch), targeting the
+reference source SHA above. It fixes the unterminated cache-hash parse,
+prevents invalid or duplicate model records from leaking allocations, checks
+the 39-byte model-record and 63-byte vehicle-add payloads, adds vehicle-pool
+bounds checks, and invokes the existing waiting-list processor from the
+per-frame vehicle-pool update.
+
+This is deliberately only a preparation patch. It continues to accept model
+types 1 and 2 only, does not send RPC 186, and does not enable custom vehicles.
+It has not yet been applied to the external reference checkout or compiled.
+
 ## Client source changes required
 
 ### 1. Capability negotiation
@@ -69,9 +83,11 @@ In `source/net/netrpc.cpp`:
 
 ### 2. Safe model record parsing
 
-The RPC 179 wire record is 39 bytes after its 32-bit index and 32-bit count.
-Validate the packet bit length, index, count, type, base ID, and custom ID
-before allocating memory.
+The complete RPC 179 payload is **39 bytes total**: a 4-byte pool index, a
+4-byte record count, and a 31-byte model record. Validate the packet bit length,
+index, count, type, base ID, and custom ID before allocating memory. The
+vehicle-add RPC currently carries a 40-byte pool entry plus 23 bytes of tuning
+data (63 bytes total); validate that payload before reading either structure.
 
 For `CCustomModels::AddRecord`:
 
