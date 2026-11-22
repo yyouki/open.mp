@@ -164,7 +164,13 @@ configuration fields from the base model. The currently readable vehicle
 configuration members before the opaque region include plate material/text,
 plate type, game name, vehicle type, front/rear wheel sizes, wheel model
 index, handling ID, door count, vehicle class, flags, wheel-upgrade class,
-frequency, extra-component rules, and bike steer angle. Even these require
+frequency, extra-component rules, and bike steer angle. **Vehicle type must
+be validated and initialized before calling `SetClump`:** the native method
+indexes `ms_vehicleDescs[m_nVehicleType]` and dispatches renderer setup using
+that value. Leaving the `Init` default (`VEHICLE_TYPE_IGNORE`) or accepting an
+out-of-range enum can select invalid descriptor data. The handling ID must
+also be validated against the target handling table before the model is
+exposed to vehicle creation. Even these require
 range checks and semantic compatibility with the custom DFF; in particular,
 the plate-material pointer must not be inherited as an owned pointer without
 a separate ownership decision. Do not copy the 464-byte opaque region, dirt
