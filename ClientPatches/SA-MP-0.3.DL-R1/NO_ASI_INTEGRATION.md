@@ -168,12 +168,16 @@ index, handling ID, door count, vehicle class, flags, wheel-upgrade class,
 frequency, extra-component rules, and bike steer angle. **Vehicle type must
 be validated and initialized before calling `SetClump`:** the native method
 indexes `ms_vehicleDescs[m_nVehicleType]` and dispatches renderer setup using
-that value. Leaving the `Init` default (`VEHICLE_TYPE_IGNORE`) or accepting an
-out-of-range enum can select invalid descriptor data. The handling ID must
-also be validated against the target handling table before the model is
-exposed to vehicle creation. Even these require
-range checks and semantic compatibility with the custom DFF; in particular,
-the plate-material pointer must not be inherited as an owned pointer without
+that value. The descriptor table has 12 entries, and the supported
+`eVehicleType` values are exactly 0–11 (automobile through trailer);
+`VEHICLE_TYPE_IGNORE` is -1 and must not reach `SetClump`. The handling ID
+is also an unchecked array index: GTA reversed declares
+`m_aVehicleHandling` as an array of 210 entries, so the safe index range is
+0–209. Validate both values against the exact target executable before
+publishing the model. These numeric bounds are source-derived from GTA SA
+1.0 US and still require target-binary confirmation. In-range values must
+also be semantically compatible with the custom DFF; in particular, the
+plate-material pointer must not be inherited as an owned pointer without
 a separate ownership decision. Do not copy the 464-byte opaque region, dirt
 material pointers, base/clump pointers, collision pointers, TXD state, or
 vehicle-structure pointer. The color arrays, color-variation state, upgrade
@@ -218,6 +222,11 @@ SA-MP executable.
   calls `CClumpModelInfo::SetClump`. The latter installs the clump and calls
   `AddTexDictionaryRef()`. Therefore, do not add another TXD reference
   merely because `SetClump` succeeded.
+- `SetClump` indexes the 12-entry `ms_vehicleDescs` table using
+  `m_nVehicleType`; valid values are 0–11. `VEHICLE_TYPE_IGNORE` is -1
+  and must not reach this call. Vehicle component setup also indexes the
+  210-entry `m_aVehicleHandling` table using `m_nHandlingId`; validate
+  handling IDs to 0–209 before exposing the model.
 - `CClumpModelInfo::DeleteRwObject` destroys the clump and removes its TXD
   reference. It calls `DeleteCollisionModel()` only when the
   `bOwnsCollisionModel` flag is set. Separately,
@@ -275,6 +284,8 @@ Primary source references (GTA SA 1.0 US reconstruction):
 - [BaseModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/b9130a59447009672fff3cf161dddef6f3790d5f/source/game_sa/Models/BaseModelInfo.cpp)
 - [ModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/ef1398c260112b7cb28b24e58819044b0cdcadd9/source/game_sa/Models/ModelInfo.h)
 - [CollisionPlugin.cpp](https://github.com/gta-reversed/gta-reversed/blob/75dad5e24e5a79823ae7d815858c997bec0ad95f/source/game_sa/Plugins/CollisionPlugin/CollisionPlugin.cpp)
+- [eVehicleType.h](https://github.com/gta-reversed/gta-reversed/blob/master/source/game_sa/Enums/eVehicleType.h)
+- [cHandlingDataMgr.h](https://github.com/gta-reversed/gta-reversed/blob/55d57efa19a8501fdc7772b54067f821d65668f3/source/game_sa/cHandlingDataMgr.h)
 
 ## 6. Vehicle RPC, streaming, and pending downloads
 
