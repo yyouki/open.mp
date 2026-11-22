@@ -128,14 +128,24 @@ creates its own vehicle structure before processing the replacement clump.
 
 Load the custom DFF as an RW clump and publish it through the model-info
 virtual method at vtable slot 16. For a `CVehicleModelInfo`, that dispatches
-to its vehicle-specific `SetClump` implementation, which performs the vehicle
-render and hierarchy setup. Attach the downloaded TXD using the existing
-`GameAttachModelTxd` path.
+to its vehicle-specific `SetClump` implementation, which allocates a vehicle
+structure and performs vehicle render-callback, frame-ID, pipeline, and
+hierarchy setup.
 
-Do not treat a vehicle DFF as a ped or object model. The custom ID must resolve
-to a vehicle model-info instance whose handling, vehicle type, wheel data,
-seat geometry, door count, and component metadata originate from its base
-vehicle.
+The DFF reader must also reproduce the vehicle-specific context used by GTA's
+native `CFileLoader::LoadClumpFile` path. Before `RpClumpStreamRead`, set the
+active collision-plugin model to the custom model-info object and enable
+`CVehicleModelInfo::UseCommonVehicleTexDicationary`. After the read, clear the
+collision-plugin model and restore the previous texture-find callback. Do not
+reuse `GameLoadPedDff` for this operation: that helper disables the collision
+plugin stream callback by temporarily patching its entry point, so embedded
+vehicle collision data would be skipped. The client patch now adds a dedicated
+`GameLoadVehicleDff` helper for this path.
+
+Attach the downloaded TXD using the existing `GameAttachModelTxd` path. The
+custom ID must resolve to a vehicle model-info instance whose handling,
+vehicle type, wheel data, seat geometry, door count, and component metadata
+originate from its base vehicle.
 
 ### 5. Vehicle RPC, streaming, and pending downloads
 
