@@ -217,7 +217,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x000b19c0
  void* GameRwStreamOpen(int type, int access, const void* data)
  {
-@@ -1850,6 +1930,34 @@
+@@ -1850,6 +1930,42 @@
      return clump;
  }
  
@@ -248,14 +248,14 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +// Fail closed until independent CVehicleModelInfo initialization and field
 +// inheritance are validated against the exact target executable.
 +static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd)
-NaN
-NaN
-NaN
-NaN
-NaN
-NaN
-NaN
-NaN
++{
++    (void)base;
++    (void)model;
++    (void)name;
++    (void)dff;
++    (void)txd;
++    return FALSE;
++}
 +
  // 0x000b1bc0
  BOOL GameLoadObjectDff(const char* path, int model)
