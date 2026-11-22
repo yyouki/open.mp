@@ -57,7 +57,7 @@ Relevant technical references:
 The repository contains two ordered patches targeting the pinned source SHA:
 
 1. [0001-client-hardening.patch](0001-client-hardening.patch) fixes cache-hash parsing for the variable-width hexadecimal names used by the client, prevents invalid model records from leaking allocations, validates the 39-byte model-record and 63-byte vehicle-add payloads, adds vehicle-pool bounds checks, and invokes the existing waiting-list processor from the per-frame vehicle-pool update.
-2. [0002-client-custom-vehicle-models.patch](0002-client-custom-vehicle-models.patch) adds the opt-in RPC 186/187 handshake, accepts model type 3 only after acknowledgement, includes type-3 DFF/TXD resources in the download manager, clones a base `CVehicleModelInfo` and installs the DFF through vehicle `SetClump`, and queues vehicles until both assets are ready. It retains the original tuning payload for delayed vehicle creation and uses the base model only for keep-loaded bookkeeping.
+2. [0002-client-custom-vehicle-models.patch](0002-client-custom-vehicle-models.patch) adds the opt-in RPC 186/187 handshake, accepts model type 3 only after acknowledgement, includes type-3 DFF/TXD resources in the download manager, and queues vehicles until both assets are ready. It retains the original tuning payload for delayed vehicle creation and uses the base model only for keep-loaded bookkeeping. The registration routine now fails closed; it does not publish a custom `CVehicleModelInfo` until independent initialization and field inheritance are verified.
 
 Both patches are experimental. Their unified-diff hunk sizes and source contexts have been checked in sequence against the pinned source files. This source-level replay check is not a substitute for running `git apply --check` in a full checkout, compiling the DL client, or testing it in-game. Neither patch has been applied to the external reference repository or compiled.
 
@@ -133,9 +133,21 @@ state, animation index, and upgrade/remap arrays. Its virtual `Init` also
 initializes the inherited `CBaseModelInfo` / `CClumpModelInfo` state, including
 clearing the collision-model and RenderWare pointers and resetting model
 flags. A replacement object must receive equivalent independent
-initialization before any resources are attached. The constructor address
-and a complete target-binary-safe construction sequence have not yet been
-validated for the SA-MP 0.3.DL-R1 executable.
+initialization before any resources are attached. The class declaration and
+virtual ordering establish `Init` at vtable slot 6 and vehicle `SetClump` at
+slot 16 (17 total slots, including the virtual destructor). The GTA SA 1.0 US
+reference header labels `0x4C5920` as the destructor, not the constructor; the
+SA Plugin-SDK wrapper does not publish a constructor address. Do not call
+`0x4C5920` as a constructor.
+
+A possible construction route is to allocate a zeroed 0x308-byte object,
+install only the vehicle vtable pointer, invoke virtual `Init` at slot 6, then
+explicitly restore constructor-only defaults (`m_pVehicleStruct = nullptr`,
+color count/flags zero, animation index -1, and upgrade/remap arrays filled
+with -1). This is a source-derived candidate, not a verified target-binary
+implementation: exact object offsets, ABI, target vtable, and all constructor
+and base initialization side effects still require validation. Do not enable
+this route until those checks and the base-vehicle field map are complete.
 
 After independent initialization, copy only explicitly reviewed vehicle
 configuration fields from the base model. Do not copy pointer-bearing fields
@@ -152,8 +164,10 @@ active collision-plugin model to the custom model-info object and enable
 collision-plugin model and restore the previous texture-find callback. Do not
 reuse `GameLoadPedDff` for this operation: that helper disables the collision
 plugin stream callback by temporarily patching its entry point, so embedded
-vehicle collision data would be skipped. The client patch now adds a dedicated
-`GameLoadVehicleDff` helper for this path.
+vehicle collision data would be skipped. The client patch adds a dedicated
+`GameLoadVehicleDff` helper for this path. Its caller currently cannot reach
+successful model registration because `GameRegisterCustomVehicle`
+deliberately returns `FALSE` until object construction is safe.
 
 Attach the downloaded TXD using the existing `GameAttachModelTxd` path. The
 custom ID must resolve to a vehicle model-info instance whose handling,
@@ -201,9 +215,10 @@ SA-MP executable.
 
 ### Required changes before enabling vehicle registration
 
-1. Replace the whole-object `memcpy(info, source, 0x308)` with a separately
-   initialized instance. Do not publish it in the model-info table until
-   initialization and required metadata validation have succeeded.
+1. Keep registration fail-closed. Replace it only with a separately
+   initialized instance after the vtable-slot-6 `Init` route, constructor-only
+   defaults, and exact target ABI have been validated. Never restore the
+   whole-object `memcpy(info, source, 0x308)`.
 2. Establish the exact constructor/virtual-Init ABI for the target binary.
    Initialize upgrade and remap arrays to -1 and explicitly initialize every
    field not covered by virtual `Init`.
