@@ -367,9 +367,10 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      if (entry.id >= 2000 || !pool->Create(&entry))
          return;
-@@ -408,3 +452,7 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+@@ -420,4 +464,7 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
 -    WORD id;
--    stream.Read(id);
+-    if (!stream.Read(id))
+-        return;
 +    WORD id = 0xffff;
 +    if (!stream.Read(id) || id >= 2000)
 +        return;
