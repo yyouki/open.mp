@@ -504,3 +504,26 @@ Source references:
 - [Pool.h — allocation failure and pool capacity behavior](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Core/Pool.h)
 - [ModelInfo.cpp — fixed vehicle model-info store and shutdown iteration](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ModelInfo.cpp)
 - [ModelInfo.h — native vehicle model-info store capacity of 212](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ModelInfo.h)
+
+### 11. Streaming removal and loaded-vehicle bookkeeping audit
+
+The GTA SA 1.0 US reference implementation adds another integration requirement independent of model-info construction:
+
+- CStreaming::RemoveModel(modelId) resolves the model through CModelInfo::GetModelInfo(modelId) and calls the model-info object's virtual DeleteRwObject(). For a vehicle model, it then calls CStreaming::RemoveCarModel(modelId). A custom model-info pointer must remain published and valid for the entire period in which the streaming table can report the custom DFF as loaded. Removing the pointer from the custom lookup table before streaming removal runs would make cleanup unsafe.
+- CVehicleModelInfo::DeleteRwObject() releases its pool-backed CVehicleStructure and delegates to CClumpModelInfo::DeleteRwObject(), which destroys the clump, releases the TXD reference, and conditionally releases an owned collision model. Streaming removal is the normal place where this must happen. A custom registry must not separately destroy those resources and then allow CStreaming::RemoveModel to invoke virtual cleanup a second time.
+- On successful DFF load, CStreaming calls CStreaming::AddToLoadedVehiclesList(modelId) for vehicle model-info types. That routine obtains the vehicle model-info pointer, resets its usage count, adds the ID to a population loaded-car group, and adds it to ms_vehiclesLoaded. On removal, RemoveCarModel removes the ID from those groups and the loaded-vehicle list, and removes specific driver-model associations. The custom-ID path must verify that all these collections, their ID widths, and adjacent group/zone lookup code safely accept IDs 30001–32767.
+- CStreaming::RemoveModel uses GetModelType(modelId) to select DFF/TXD/etc. handling before resolving the model-info object. Adding a custom model-info pointer alone is insufficient: streaming metadata for the custom ID must consistently identify it as a DFF and carry valid loaded, requested, and in-progress state. A mismatch can skip cleanup or route the ID into the wrong resource-removal path.
+
+Implementation requirements:
+
+1. Keep the custom model-info pointer registered until the streaming entry is no longer loaded or being read, and until native virtual cleanup has completed. Unpublish it only after streaming state is safely detached.
+2. Ensure the custom model ID is represented consistently in both custom model-info lookup and streaming metadata lookup. Test load failure, retry, stream-out, stream-in, and reconnect transitions.
+3. Audit CStreaming::AddToLoadedVehiclesList, RemoveCarModel, population loaded-car groups, zone/group membership checks, and specific-driver bookkeeping with IDs 30001–32767. Do not assume the loaded lists prove every adjacent population array is extension-safe.
+4. Make cleanup idempotent at the registry boundary: one streaming removal must invoke vehicle virtual cleanup once; registry teardown must not race or duplicate that operation.
+5. Keep registration fail-closed until the exact target binary confirms custom streaming-table mapping, model-info pointer lifetime, and vehicle population bookkeeping.
+
+Source references (GTA SA 1.0 US reconstruction):
+
+- [Streaming.cpp — RemoveModel and loaded-vehicle bookkeeping](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Streaming.cpp)
+- [ClumpModelInfo.cpp — Shutdown and DeleteRwObject](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ClumpModelInfo.cpp)
+- [VehicleModelInfo.cpp — vehicle virtual cleanup](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/VehicleModelInfo.cpp)
