@@ -373,8 +373,9 @@ The GTA SA 1.0 US reference implementation shows:
   `new CVehicleStructure()` before processing the clump. This is not an
   ordinary heap allocation: the nested class overloads `operator new` and
   `operator delete` to use the global `m_pInfoPool` pool at `0xB4E680`.
-  The pool is created by vehicle-model setup (`new CPool<CVehicleStructure>(50,
-  "VehicleStruct")`). Therefore, calling `SetClump` for custom models is
+  The pool is created late in `CVehicleModelInfo::SetupCommonData`
+  (`new CPool<CVehicleStructure>(50, "VehicleStruct")`), after vehicle colour,
+  upgrade, environment-map, and common vehicle-TXD setup. Therefore, calling `SetClump` for custom models is
   unsafe until the target's pool has been initialized and its capacity/
   exhaustion behavior is understood. The reference pool is sized for 50
   structures; that is not evidence that 50 extra structures are available
@@ -402,7 +403,8 @@ The GTA SA 1.0 US reference implementation shows:
   the model's own clump by the reference implementation's optional
   `FindDirtMaterials` helper. The helper first clears the entire array to
   null, then stores pointers to matching materials found while traversing
-  clump atomics. These are borrowed pointers into RenderWare-owned clump
+  clump atomics and the extra atomics removed from the clump during
+  `PreprocessHierarchy`. These are borrowed pointers into RenderWare-owned clump
   material data, not separately allocated materials; do not copy the base
   vehicle's entries and do not individually destroy them. Clearing them
   before loading and invalidating them with clump teardown avoids stale
