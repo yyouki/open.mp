@@ -68,10 +68,11 @@ Both patches are experimental. Their unified-diff hunk sizes and source contexts
 In `source/net/netrpc.cpp`:
 
 - Add outbound RPC 186, `ClientSupportsCustomVehicleModels`.
-- Send it once after the client has received its game initialization and the
-  RakNet connection is active. Sending it earlier is preferable, but the
-  server also supports a late capability message by appending vehicle records
-  to the already received native manifest.
+- Send it after the client has received its game initialization and the
+  RakNet connection is active. Mark the capability as advertised only when
+  RakNet accepts the RPC send, avoiding a stale success flag if the send call
+  fails. The server also supports a late capability message by appending
+  vehicle records to the already received native manifest.
 - Register inbound RPC 187,
   `ServerSupportsCustomVehicleModels`, and set a per-session acknowledgement
   flag.
