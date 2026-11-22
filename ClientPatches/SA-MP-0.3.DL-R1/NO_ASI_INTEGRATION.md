@@ -32,13 +32,15 @@ The client source already contains the native 0.3.DL artwork pipeline:
 RPC 179 records, RPC 181/182 resource requests, RPC 183 download URLs,
 checksum-based DFF/TXD caching, and the download completion barrier.
 
-The missing part is model category `3` and vehicle-model registration. The
-client already uses an extended model-info table for custom artwork IDs. The
-GTA San Andreas vehicle model-info class can be cloned from a supported base
-vehicle, then its clump can be installed through its virtual `SetClump`
-method. The vehicle implementation handles the vehicle-specific setup,
-including render callbacks, frame IDs, component hierarchy, and wheel/extra
-processing. This avoids writing a parallel vehicle renderer.
+The missing part is model category `3` and vehicle-model registration.
+The client already uses an extended model-info table for custom artwork IDs.
+The GTA vehicle `SetClump` path is reusable, but the current implementation's
+whole-object `memcpy` from a base vehicle is **not safe**: it duplicates
+collision-model, RenderWare, texture-dictionary, and vehicle-structure state.
+A correct implementation needs an independently initialized
+`CVehicleModelInfo` instance and a reviewed list of scalar/configuration
+fields to inherit from the base vehicle. The no-ASI approach remains viable,
+but the current registration patch is blocked pending that lifecycle work.
 
 Relevant technical references:
 
@@ -121,15 +123,26 @@ not cause an endless retry every frame.
 
 ### 4. Register the vehicle model with GTA
 
-Use the base vehicle's `CVehicleModelInfo` as the template for the custom
-model-info entry. The verified Plugin-SDK layout is 0x308 bytes. The vehicle
-structure pointer is at offset 0x5C; the native vehicle `SetClump` implementation
-creates its own vehicle structure before processing the replacement clump.
+The verified GTA SA 1.0 US `CVehicleModelInfo` layout is 0x308 bytes,
+and vtable slot 16 is the vehicle-specific `SetClump`. However, **do not
+clone the complete 0x308-byte base object**. The current experimental
+`GameRegisterCustomVehicle` does exactly that and is not safe to run.
 
-Load the custom DFF as an RW clump and publish it through the model-info
-virtual method at vtable slot 16. For a `CVehicleModelInfo`, that dispatches
-to its vehicle-specific `SetClump` implementation, which allocates a vehicle
-structure and performs vehicle render-callback, frame-ID, pipeline, and
+The class constructor initializes its own vehicle-structure pointer, color
+state, animation index, and upgrade/remap arrays. Its virtual `Init` also
+initializes the inherited `CBaseModelInfo` / `CClumpModelInfo` state, including
+clearing the collision-model and RenderWare pointers and resetting model
+flags. A replacement object must receive equivalent independent
+initialization before any resources are attached. The constructor address
+and a complete target-binary-safe construction sequence have not yet been
+validated for the SA-MP 0.3.DL-R1 executable.
+
+After independent initialization, copy only explicitly reviewed vehicle
+configuration fields from the base model. Do not copy pointer-bearing fields
+or ownership flags. The current header exposes a large opaque region, so the
+field-by-field inheritance map is still incomplete. Only then should the DFF
+be published through vtable slot 16. Vehicle `SetClump` allocates a new
+`CVehicleStructure` and performs render-callback, frame-ID, pipeline, and
 hierarchy setup.
 
 The DFF reader must also reproduce the vehicle-specific context used by GTA's
@@ -147,7 +160,80 @@ custom ID must resolve to a vehicle model-info instance whose handling,
 vehicle type, wheel data, seat geometry, door count, and component metadata
 originate from its base vehicle.
 
-### 5. Vehicle RPC, streaming, and pending downloads
+### 5. Lifecycle audit — current registration is blocked
+
+The following findings were checked against the GTA reversed source files
+listed below. They describe the GTA SA 1.0 US implementation; they do not
+by themselves prove that every call site or address is identical in the target
+SA-MP executable.
+
+- `CVehicleModelInfo` is 0x308 bytes. Its constructor initializes
+  `m_pVehicleStruct` to null, sets color/flag defaults, initializes the
+  animation index, and fills upgrade/remap arrays with -1.
+- Its virtual `Init` calls `CClumpModelInfo::Init`, then sets vehicle type,
+  wheel model index, and bike steer angle. The inherited initialization
+  clears `m_pColModel` and `m_pRwObject`, clears the TXD index, and resets
+  base-model flags.
+- `CVehicleModelInfo::SetClump` allocates a new `CVehicleStructure`, then
+  calls `CClumpModelInfo::SetClump`. The latter installs the clump and calls
+  `AddTexDictionaryRef()`. Therefore, do not add another TXD reference
+  merely because `SetClump` succeeded.
+- `CClumpModelInfo::DeleteRwObject` destroys the clump and removes its TXD
+  reference. It calls `DeleteCollisionModel()` only when the
+  `bOwnsCollisionModel` flag is set. Separately,
+  `CBaseModelInfo::Shutdown` calls `DeleteCollisionModel()`; that routine
+  deletes the collision model when `m_pColModel` is non-null and
+  `bIsLod` is set.
+- The collision-plugin stream reader associates the active model-info with
+  the incoming collision chunk and calls `SetColModel(model, true)`. A
+  shallow copy of a base model can therefore share a collision pointer and
+  the related deletion state with the base model. This is a concrete
+  double-free/use-after-free risk on shutdown, not merely a cosmetic
+  metadata issue.
+- The native vehicle-model store has 212 entries. Calling
+  `CModelInfo::AddVehicleModel()` is not a general-purpose allocator for
+  arbitrary custom IDs; the stock store is fixed-capacity. A separate
+  allocation strategy must preserve constructor/Init and shutdown semantics.
+- GTA reversed reports `UseCommonVehicleTexDicationary` at 0x4C75A0 and
+  `StopUsingCommonVehicleTexDicationary` at 0x4C75C0. These addresses are
+  corroborated by that repository's hook declarations, but still need
+  verification against the exact target executable before shipping.
+
+### Required changes before enabling vehicle registration
+
+1. Replace the whole-object `memcpy(info, source, 0x308)` with a separately
+   initialized instance. Do not publish it in the model-info table until
+   initialization and required metadata validation have succeeded.
+2. Establish the exact constructor/virtual-Init ABI for the target binary.
+   Initialize upgrade and remap arrays to -1 and explicitly initialize every
+   field not covered by virtual `Init`.
+3. Produce a field-by-field inheritance map. At minimum, distinguish scalar
+   vehicle configuration from pointers to RenderWare materials, clumps,
+   collision models, TXD state, animation state, and vehicle structures.
+4. Define collision ownership explicitly. The custom model must own only its
+   own collision model. On every failure path, release a collision model
+   created for the custom model without touching the base model's collision.
+5. Make TXD registration transactional: check the TXD load result, track
+   whether a slot was newly created or reused, and roll back only resources
+   owned by this registration. Let `SetClump` perform its one TXD reference
+   increment; pair it with the native deletion path.
+6. Add pending-vehicle cancellation by vehicle ID. A remove RPC must cancel
+   a not-yet-created queue entry, otherwise a completed download can recreate
+   a vehicle that the server already removed.
+7. Preserve and restore collision-plugin and common-vehicle-texture context
+   on all normal return paths. Verify the stream callback and function ABI
+   against the exact SA-MP 0.3.DL-R1 executable.
+
+Primary source references (GTA SA 1.0 US reconstruction):
+
+- [VehicleModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/56181bad17f7bb7bb63cf28ea6b18b97db0102e2/source/game_sa/Models/VehicleModelInfo.cpp)
+- [VehicleModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/5f235cf42318044fc28c22692ad36a67a1697269/source/game_sa/Models/VehicleModelInfo.h)
+- [ClumpModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/b266067488725f62fe91b2c7cad2ae3750dcb88b/source/game_sa/Models/ClumpModelInfo.cpp)
+- [BaseModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/b9130a59447009672fff3cf161dddef6f3790d5f/source/game_sa/Models/BaseModelInfo.cpp)
+- [ModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/ef1398c260112b7cb28b24e58819044b0cdcadd9/source/game_sa/Models/ModelInfo.h)
+- [CollisionPlugin.cpp](https://github.com/gta-reversed/gta-reversed/blob/75dad5e24e5a79823ae7d815858c997bec0ad95f/source/game_sa/Plugins/CollisionPlugin/CollisionPlugin.cpp)
+
+## 6. Vehicle RPC, streaming, and pending downloads
 
 In `ScrWorldVehicleAdd` and `CVehiclePool`:
 
@@ -169,7 +255,7 @@ In `CGame::CreateVehicle`, use the custom record's base model ID when indexing
 command so the model-info table resolves the custom visual. Never index the
 212-element keep-loaded array with a custom ID.
 
-### 6. Backward compatibility
+### 7. Backward compatibility
 
 A stock 0.3.DL client does not send RPC 186. The open.mp server must therefore
 continue sending that client only native skin/object model records and base
@@ -180,7 +266,7 @@ If it does not receive the acknowledgement, it must not interpret type 3.
 This keeps the extension opt-in and prevents stock clients from receiving an
 unknown model category.
 
-## Test matrix
+## 8. Test matrix
 
 The following tests are required before enabling the feature on a public server:
 
@@ -198,13 +284,15 @@ The following tests are required before enabling the feature on a public server:
    DFF/TXD files are rejected without memory leaks or an endless queue.
 10. Multiple custom models using the same base vehicle can be loaded together.
 
-## Current status
+## 9. Current status
 
 The server-side branch contains the experimental protocol and the latest
 manifest, HTTP-endpoint, and download-state fixes. The client-side model type-3
-implementation is drafted in the two patches above, but has not been applied to
-an external checkout, compiled, or tested in-game. Treat this as an unverified
-experimental patch series, not a release-ready client.
+implementation is drafted in the two patches above, but the vehicle registration
+path is currently **blocked** because it shallow-copies a live
+`CVehicleModelInfo`. It has not been applied to an external checkout, compiled,
+or tested in-game. Treat this as an unverified experimental patch series, not
+a release-ready client.
 
 To test it in a separate checkout, first check out the exact baseline SHA above,
 then run:
