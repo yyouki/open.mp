@@ -367,6 +367,16 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +        return;
      if (entry.id >= 2000 || !pool->Create(&entry))
          return;
+@@ -408,3 +452,7 @@ void ScrWorldVehicleRemove(RPCParameters* parameters)
+-    WORD id;
+-    stream.Read(id);
++    WORD id = 0xffff;
++    if (!stream.Read(id) || id >= 2000)
++        return;
++#if defined(DL_BUILD)
++    vehicles->CancelQueuedVehicle(id);
++#endif // DL_BUILD
+     CVehicle* vehicle = vehicles->Get(id);
 @@ -1270,3 +1312,5 @@ void UnRegisterRPCs(RakClientInterface* client)
  void UnRegisterRPCs(RakClientInterface* client)
  {
@@ -402,12 +412,14 @@ diff --git a/source/net/netrpc.h b/source/net/netrpc.h
 diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
 --- a/source/net/vehiclepool.h
 +++ b/source/net/vehiclepool.h
-@@ -55,5 +55,9 @@ class CVehiclePool
+@@ -55,5 +55,10 @@ class CVehiclePool
      // 0x0001e7d0
      void Queue(const VehiclePoolQueueEntry* entry);
 +#if defined(DL_BUILD)
 +    // Stores the existing 23-byte vehicle tuning payload beside a custom pending entry.
 +    void QueueCustomVehicle(const VehiclePoolQueueEntry* entry, const BYTE* tuning);
++    // Removes a queued vehicle when its server-side remove RPC arrives.
++    void CancelQueuedVehicle(WORD id);
 +#endif // DL_BUILD
      // Native ID overload has no bounds check.
      // 0x0001e680
@@ -496,7 +508,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
          }
 +    }
  }
-@@ -420,2 +420,39 @@
+@@ -420,2 +420,54 @@
      queue[slot] = *entry;
  }
 +#if defined(DL_BUILD)
@@ -534,6 +546,22 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +    queueActive[slot] = 1;
 +    memcpy(g_customVehicleQueueTuning[slot], tuning, 23);
 +    g_customVehicleQueueHasTuning[slot] = 1;
++}
++
++// Cancel pending creation even when the vehicle has not reached the live pool.
++void CVehiclePool::CancelQueuedVehicle(WORD id)
++{
++    if (id >= 2000)
++        return;
++    for (int i = 0; i < 100; ++i)
++    {
++        if (queueActive[i] && queue[i].id == id)
++        {
++            queueActive[i] = 0;
++            g_customVehicleQueueHasTuning[i] = 0;
++            memset(g_customVehicleQueueTuning[i], 0, sizeof(g_customVehicleQueueTuning[i]));
++        }
++    }
 +}
 +#endif // DL_BUILD
 
