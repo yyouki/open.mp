@@ -140,20 +140,39 @@ reference header labels `0x4C5920` as the destructor, not the constructor; the
 SA Plugin-SDK wrapper does not publish a constructor address. Do not call
 `0x4C5920` as a constructor.
 
-A possible construction route is to allocate a zeroed 0x308-byte object,
-install only the vehicle vtable pointer, invoke virtual `Init` at slot 6, then
-explicitly restore constructor-only defaults (`m_pVehicleStruct = nullptr`,
-color count/flags zero, animation index -1, and upgrade/remap arrays filled
-with -1). This is a source-derived candidate, not a verified target-binary
-implementation: exact object offsets, ABI, target vtable, and all constructor
-and base initialization side effects still require validation. Do not enable
-this route until those checks and the base-vehicle field map are complete.
+The constructor and `Init` are not interchangeable. The source shows
+that the constructor sets `m_pVehicleStruct = nullptr`, initializes the color
+variation count and vehicle flags to zero, sets the animation-block index to
+-1, and fills the 18 upgrade and 4 remap entries with -1. Virtual `Init`
+does **not** perform those vehicle-specific steps; it initializes the base
+model state and sets vehicle type to IGNORE, wheel model index to -1, and bike
+steer angle to 999.99. `SetClump` then allocates a fresh
+`CVehicleStructure`, so the structure pointer must be null before that call.
+
+The header also exposes an opaque `field_60[464]` region and 32 dirt-material
+pointers. Their semantics and lifecycle are not sufficiently mapped to copy
+from a base vehicle. The candidate remains a zeroed 0x308-byte allocation,
+vehicle-vtable installation, virtual `Init` at slot 6, and explicit
+constructor-only defaults before copying only reviewed scalar configuration.
+This is still a source-derived hypothesis, not a verified target-binary
+implementation: exact offsets, ABI, target vtable, base initialization side
+effects, and the opaque region must be audited before enabling it. The
+registration routine therefore remains fail-closed.
 
 After independent initialization, copy only explicitly reviewed vehicle
-configuration fields from the base model. Do not copy pointer-bearing fields
-or ownership flags. The current header exposes a large opaque region, so the
-field-by-field inheritance map is still incomplete. Only then should the DFF
-be published through vtable slot 16. Vehicle `SetClump` allocates a new
+configuration fields from the base model. The currently readable vehicle
+configuration members before the opaque region include plate material/text,
+plate type, game name, vehicle type, front/rear wheel sizes, wheel model
+index, handling ID, door count, vehicle class, flags, wheel-upgrade class,
+frequency, extra-component rules, and bike steer angle. Even these require
+range checks and semantic compatibility with the custom DFF; in particular,
+the plate-material pointer must not be inherited as an owned pointer without
+a separate ownership decision. Do not copy the 464-byte opaque region, dirt
+material pointers, base/clump pointers, collision pointers, TXD state, or
+vehicle-structure pointer. The color arrays, color-variation state, upgrade
+and remap arrays, and animation-block union need explicit per-field
+initialization or validated copying rules. Only then should the DFF be
+published through vtable slot 16. Vehicle `SetClump` allocates a new
 `CVehicleStructure` and performs render-callback, frame-ID, pipeline, and
 hierarchy setup.
 
