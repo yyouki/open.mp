@@ -217,10 +217,34 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x000b19c0
  void* GameRwStreamOpen(int type, int access, const void* data)
  {
-@@ -1850,6 +1930,51 @@ void* GameLoadPedDff(const char* path)
+@@ -1850,6 +1930,74 @@ void* GameLoadPedDff(const char* path)
      return clump;
  }
  
++// Vehicle DFFs must retain the native collision-plugin and common vehicle-TXD context.
++static void* GameLoadVehicleDff(const char* path, void* modelInfo)
++{
++    void* stream = GameRwStreamOpen(2, 1, path);
++    if (!stream)
++        return 0;
++    if (!GameRwFindChunk(stream, 0x10, 0, 0))
++    {
++        GameRwStreamClose(stream, 0);
++        return 0;
++    }
++
++    // Match CFileLoader::LoadClumpFile vehicle setup before RpClumpStreamRead.
++    ((void(__cdecl*)(void*))0x41b350)(modelInfo); // CCollisionPlugin::SetModelInfo
++    ((void(__cdecl*)())0x4c75a0)(); // CVehicleModelInfo::UseCommonVehicleTexDicationary
++    g_gameCustomStreamRead = true;
++    void* clump = GameRwReadClump(stream);
++    g_gameCustomStreamRead = false;
++    ((void(__cdecl*)(void*))0x41b350)(0); // Clear collision-plugin context
++    ((void(__cdecl*)())0x4c75c0)(); // CVehicleModelInfo::StopUsingCommonVehicleTexDicationary
++    GameRwStreamClose(stream, 0);
++    return clump;
++}
++
 +// Clone the full GTA CVehicleModelInfo and install its clump through VMT slot 16.
 +static BOOL GameRegisterCustomVehicle(int base, int model, const char* name, const char* dff, const char* txd)
 +{
@@ -252,7 +276,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +
 +    DWORD previousLoadingModel = g_gameLoadingCustomModel;
 +    g_gameLoadingCustomModel = model;
-+    void* clump = GameLoadPedDff(dff);
++    void* clump = GameLoadVehicleDff(dff, info);
 +    g_gameLoadingCustomModel = previousLoadingModel;
 +    if (!clump)
 +    {
@@ -261,7 +285,6 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +        return FALSE;
 +    }
 +
-+    *(void**)((BYTE*)info + 0x1c) = clump;
 +    ((void(__fastcall*)(void*, void*, void*))vtable[16])(info, 0, clump);
 +    return TRUE;
 +}
