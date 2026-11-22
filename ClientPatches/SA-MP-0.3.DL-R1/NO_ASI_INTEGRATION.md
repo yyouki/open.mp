@@ -362,3 +362,73 @@ The commands above are instructions only; they have not been run here. Build
 with the source repository's documented Visual Studio .NET 2003 RTM and
 DirectX 9.0 SDK April 2005 toolchain, then run the test matrix below before
 enabling the server option.
+
+
+### 9. Vehicle-structure and dirt-material ownership audit
+
+A further source pass resolves important parts of the previously opaque lifecycle.
+The GTA SA 1.0 US reference implementation shows:
+
+- `CVehicleModelInfo::SetClump` allocates `CVehicleStructure` with
+  `new CVehicleStructure()` before processing the clump. This is not an
+  ordinary heap allocation: the nested class overloads `operator new` and
+  `operator delete` to use the global `m_pInfoPool` pool at `0xB4E680`.
+  The pool is created by vehicle-model setup (`new CPool<CVehicleStructure>(50,
+  "VehicleStruct")`). Therefore, calling `SetClump` for custom models is
+  unsafe until the target's pool has been initialized and its capacity/
+  exhaustion behavior is understood. The reference pool is sized for 50
+  structures; that is not evidence that 50 extra structures are available
+  after native models have consumed pool entries.
+- The structure constructor initializes all 15 dummy positions to zero,
+  all 18 upgrade parent-component IDs to -1, all six extra-atomic pointers to
+  null, the extra count to zero, and the damageable-component mask to zero.
+  Do not shallow-copy a `CVehicleStructure` from the base model.
+- The structure destructor iterates only the first `m_nNumExtras` entries,
+  destroys each stored extra `RpAtomic`, and destroys its associated
+  `RwFrame`. Thus those extras are owned resources. A duplicated structure
+  pointer or duplicated extra pointers would cause double destruction.
+- `CVehicleModelInfo::DeleteRwObject` deletes `m_pVehicleStruct`, clears
+  the pointer, and then delegates to `CClumpModelInfo::DeleteRwObject`.
+  The custom model's shutdown path must reach this virtual cleanup exactly
+  once while the vehicle-structure pool remains alive. A partial registration
+  failure after `SetClump` must use the same cleanup path; simply freeing the
+  model-info allocation is insufficient.
+- `SetClump` also invokes `PreprocessHierarchy`, which populates the
+  vehicle structure from the custom clump. Its resulting extra atomics and
+  frames are subsequently owned by the structure destructor. This makes
+  successful hierarchy preprocessing and its rollback path part of the
+  registration transaction.
+- The 32 `m_apDirtMaterials` entries are material pointers discovered from
+  the model's own clump by the reference implementation's optional
+  `FindDirtMaterials` helper. The helper first clears the entire array to
+  null, then stores pointers to matching materials found while traversing
+  clump atomics. These are borrowed pointers into RenderWare-owned clump
+  material data, not separately allocated materials; do not copy the base
+  vehicle's entries and do not individually destroy them. Clearing them
+  before loading and invalidating them with clump teardown avoids stale
+  references. Note that this material-discovery helper is marked NOTSA in
+  the reconstruction and may not execute in the retail target; the target's
+  original dirt-material behavior must be checked separately.
+
+Consequences for the no-ASI implementation:
+
+1. Keep `GameRegisterCustomVehicle` fail-closed. The pool-backed structure
+   allocation is an additional prerequisite beyond object initialization.
+2. Before any custom `SetClump`, verify that the exact target initializes
+   `CVehicleStructure::m_pInfoPool`, determine current pool occupancy and
+   exhaustion behavior, and prove that custom entries cannot exceed capacity.
+3. On successful registration, register the model-info object with a
+   destruction route that invokes `CVehicleModelInfo::DeleteRwObject`
+   exactly once before freeing the object storage. Do not call both
+   `DeleteRwObject` and an equivalent manual clump/structure destructor.
+4. On failure after `SetClump`, unwind the custom model through the native
+   virtual deletion path while the structure pool and TXD system are valid;
+   then release only the TXD slot/reference and collision data owned by that
+   custom registration.
+5. Never copy `m_pVehicleStruct` or `m_apDirtMaterials` from the base
+   model. Let the custom clump's own hierarchy populate its structure and
+   its own dirt-material scan populate any supported material cache.
+
+Source reference:
+- [VehicleModelInfo.cpp — structure allocation, destruction, and dirt materials](https://github.com/gta-reversed/gta-reversed/blob/56181bad17f7bb7bb63cf28ea6b18b97db0102e2/source/game_sa/Models/VehicleModelInfo.cpp)
+- [VehicleModelInfo.h — pool-backed structure and model layout](https://github.com/gta-reversed/gta-reversed/blob/5f235cf42318044fc28c22692ad36a67a1697269/source/game_sa/Models/VehicleModelInfo.h)
