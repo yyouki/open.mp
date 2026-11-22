@@ -299,9 +299,9 @@ diff --git a/source/net/netrpc.cpp b/source/net/netrpc.cpp
 +    if (!client)
 +        return;
 +    RakNet::BitStream stream;
-+    client->RPC((int*)&g_rpcClientSupportsCustomVehicleModels, &stream,
-+                HIGH_PRIORITY, RELIABLE_ORDERED, 0, false);
-+    g_customVehicleModelsAdvertised = TRUE;
++    if (client->RPC((int*)&g_rpcClientSupportsCustomVehicleModels, &stream,
++                    HIGH_PRIORITY, RELIABLE_ORDERED, 0, false))
++        g_customVehicleModelsAdvertised = TRUE;
 +}
  #endif // DL_BUILD
 @@ -298,3 +325,6 @@ void ScrInitGame(RPCParameters* parameters)
