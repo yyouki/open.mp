@@ -434,3 +434,73 @@ Consequences for the no-ASI implementation:
 Source reference:
 - [VehicleModelInfo.cpp — structure allocation, destruction, and dirt materials](https://github.com/gta-reversed/gta-reversed/blob/56181bad17f7bb7bb63cf28ea6b18b97db0102e2/source/game_sa/Models/VehicleModelInfo.cpp)
 - [VehicleModelInfo.h — pool-backed structure and model layout](https://github.com/gta-reversed/gta-reversed/blob/5f235cf42318044fc28c22692ad36a67a1697269/source/game_sa/Models/VehicleModelInfo.h)
+
+
+### 10. Pool exhaustion, initialization order, and model-store separation
+
+The follow-up audit establishes the following additional constraints from the
+GTA SA 1.0 US reference implementation:
+
+- `CVehicleModelInfo::SetupCommonData` is called from the first IPL-loading
+  initialization path, after object data initialization and before
+  `CStreaming::Init2`. It creates `CVehicleStructure::m_pInfoPool` only
+  after vehicle colours, upgrades, environment maps, and the common
+  `vehicle.txd` have been initialized. A custom model must not call
+  `SetClump` before this stage has completed.
+- The pool has 50 slots, but `CModelInfo` separately owns a fixed
+  `CStore<CVehicleModelInfo, 212>` for vehicle model-info objects. The 212
+  model-info capacity and the 50 vehicle-structure capacity are different
+  resources. Increasing or bypassing the 212-entry store does not increase
+  the structure pool.
+- `CModelInfo::ShutDown` calls `Shutdown` on each registered vehicle model
+  info and resets the vehicle-store count. It does not, in the inspected
+  implementation, show a corresponding `m_pInfoPool` destruction call.
+  The exact retail target's global shutdown sequence and pool lifetime remain
+  unverified; custom cleanup must not assume the pool is safe to use after
+  model/streaming shutdown.
+- In the inspected `CPool::New` implementation, allocation searches for a
+  free slot and returns null if none exists. The failure branch can also
+  trigger a debug break when the pool is not configured to tolerate
+  allocation failure. `CVehicleStructure::operator new` forwards directly
+  to this pool allocator. This is a concrete exhaustion path, not a normal
+  heap fallback. The exact retail executable's allocator behavior must still
+  be confirmed before relying on this reconstructed implementation.
+- The pool is used by loaded vehicle clumps, not one permanent structure per
+  model-info object: `SetClump` allocates a structure, while
+  `CVehicleModelInfo::DeleteRwObject` deletes it when the clump is removed.
+  Consequently, a model-info object may exist while its structure slot is
+  free, and streaming several additional custom clumps can exhaust the
+  shared 50-slot pool even when the custom model-info table has room.
+- The native model-info store has capacity 212. `CModelInfo::AddVehicleModel`
+  appends to that store, calls `Init`, and publishes the pointer under the
+  requested model ID. It is therefore not an extension allocator for IDs
+  outside the native store, and it must not be called for each custom ID
+  without proving available store capacity and preserving shutdown iteration.
+
+Implementation requirements:
+
+1. Gate custom clump registration on completed common vehicle initialization.
+2. Treat 50 as a hard shared pool capacity until exact-target testing proves
+   otherwise. Do not reserve all remaining slots blindly: native streaming
+   also needs them.
+3. Before attempting allocation, use a target-verified free-slot check or a
+   controlled allocator wrapper. A pre-check alone is not sufficient if
+   another thread or callback can allocate between the check and
+   `SetClump`; serialize the operation with the native model-loading path.
+4. If the pool is full, reject/defer the custom clump without invoking
+   `SetClump`. Do not allow a null structure pointer to reach
+   `PreprocessHierarchy`, `CreateInstance`, or vehicle rendering.
+5. Keep the custom model-info registry separate from
+   `CModelInfo::ms_vehicleModelInfoStore` unless a verified store extension
+   also updates its capacity, iteration, shutdown, and pointer-registration
+   invariants.
+6. Confirm the target's shutdown order before releasing any custom model
+   whose cleanup requires `m_pInfoPool`. Destruction of the pool must occur
+   only after all custom and native vehicle structures have been returned.
+
+Source references:
+- [FileLoader.cpp — common vehicle setup before streaming initialization](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/FileLoader.cpp)
+- [VehicleModelInfo.cpp — pool construction and SetClump/DeleteRwObject lifecycle](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/VehicleModelInfo.cpp)
+- [Pool.h — allocation failure and pool capacity behavior](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Core/Pool.h)
+- [ModelInfo.cpp — fixed vehicle model-info store and shutdown iteration](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ModelInfo.cpp)
+- [ModelInfo.h — native vehicle model-info store capacity of 212](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ModelInfo.h)
