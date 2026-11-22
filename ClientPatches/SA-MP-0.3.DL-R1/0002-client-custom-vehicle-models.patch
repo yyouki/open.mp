@@ -412,7 +412,7 @@ diff --git a/source/net/netrpc.h b/source/net/netrpc.h
 diff --git a/source/net/vehiclepool.h b/source/net/vehiclepool.h
 --- a/source/net/vehiclepool.h
 +++ b/source/net/vehiclepool.h
-@@ -55,5 +55,10 @@ class CVehiclePool
+@@ -55,5 +55,11 @@ class CVehiclePool
      // 0x0001e7d0
      void Queue(const VehiclePoolQueueEntry* entry);
 +#if defined(DL_BUILD)
@@ -508,7 +508,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
          }
 +    }
  }
-@@ -420,2 +420,54 @@
+@@ -420,2 +420,55 @@
      queue[slot] = *entry;
  }
 +#if defined(DL_BUILD)
