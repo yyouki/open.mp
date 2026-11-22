@@ -160,7 +160,7 @@ custom ID must resolve to a vehicle model-info instance whose handling,
 vehicle type, wheel data, seat geometry, door count, and component metadata
 originate from its base vehicle.
 
-### 5. Lifecycle audit — current registration is blocked
+## 5. Lifecycle audit — current registration is blocked
 
 The following findings were checked against the GTA reversed source files
 listed below. They describe the GTA SA 1.0 US implementation; they do not
@@ -257,7 +257,7 @@ In `CGame::CreateVehicle`, use the custom record's base model ID when indexing
 command so the model-info table resolves the custom visual. Never index the
 212-element keep-loaded array with a custom ID.
 
-### 7. Backward compatibility
+## 7. Backward compatibility
 
 A stock 0.3.DL client does not send RPC 186. The open.mp server must therefore
 continue sending that client only native skin/object model records and base
