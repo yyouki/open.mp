@@ -217,9 +217,11 @@ SA-MP executable.
    whether a slot was newly created or reused, and roll back only resources
    owned by this registration. Let `SetClump` perform its one TXD reference
    increment; pair it with the native deletion path.
-6. Add pending-vehicle cancellation by vehicle ID. A remove RPC must cancel
-   a not-yet-created queue entry, otherwise a completed download can recreate
-   a vehicle that the server already removed.
+6. Pending-vehicle cancellation is now included in the experimental patch:
+   `CVehiclePool::CancelQueuedVehicle` removes matching waiting entries and
+   clears their retained tuning data, and `ScrWorldVehicleRemove` invokes it
+   before checking the live vehicle pool. This hunk still needs replay against
+   a full checkout and compile/runtime testing.
 7. Preserve and restore collision-plugin and common-vehicle-texture context
    on all normal return paths. Verify the stream callback and function ABI
    against the exact SA-MP 0.3.DL-R1 executable.
