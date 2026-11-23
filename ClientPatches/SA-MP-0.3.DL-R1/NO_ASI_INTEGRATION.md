@@ -575,3 +575,107 @@ Required design decision before enabling custom registration:
 Additional source reference:
 
 - [Streaming.cpp — RemoveLoadedVehicle, load-count decision, and ReclassifyLoadedCars](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
+
+### 14. Remaining loaded-car-group consumers and extension design
+
+The follow-up audit of `LoadedCarGroup.cpp`, `Population.cpp`,
+`CarGenerator.cpp`, and `CarCtrl.cpp` finds additional consumers that
+must be considered if custom IDs are inserted into native loaded-car groups:
+
+- `CLoadedCarGroup::SortBasedOnUsage()` orders entries by reading
+  `CModelInfo::GetVehicleModelInfo(modelId)->m_nTimesUsed`. A custom ID
+  must resolve through the vehicle-model-info lookup for every entry, not
+  merely through the streaming table. A null or stale custom pointer can
+  crash eviction sorting.
+- `CLoadedCarGroup::PickRandomCar()` reads vehicle-model metadata including
+  frequency and filters candidates using model references and vehicle
+  classification. If custom IDs are exposed to this API, their model-info
+  fields and reference counts must satisfy the same invariants as native
+  vehicles.
+- `CPopulation::PickRiotRoadBlockCar()` iterates the appropriate and
+  inappropriate loaded groups and reads each model's vehicle class. This is
+  another direct consumer of model-info lookup for IDs in those groups.
+- `CCarGenerator` chooses a random model from
+  `m_AppropriateLoadedCars`, then reads its vehicle model-info and bounding
+  box before creating a parked vehicle. Custom IDs must therefore have valid
+  bounding-box and vehicle metadata if they are ever made eligible for this
+  path.
+- `CPopulation::PickGangCar()` reads one of the ten loaded gang groups.
+  `AddToLoadedVehiclesList()` populates those groups only when the model ID
+  is present in the corresponding static `m_CarGroups` source array. Merely
+  inheriting a gang vehicle's base model metadata does not make a custom ID a
+  member of that gang's population group.
+- `CCarCtrl::ReInit()` clears the native loaded gang, appropriate,
+  inappropriate, and boat groups. Any separate extension registry must have
+  an explicit reset/rebuild lifecycle at the same transition; otherwise it
+  can retain stale IDs after the native groups have been cleared.
+
+#### Recommended integration boundary
+
+Do not widen `CLoadedCarGroup` in-place without a complete executable-level
+layout and call-site audit. Its fixed 0x2E layout is embedded in global
+storage, and changing its size would shift or overwrite adjacent game data.
+
+Prefer a separate custom-loaded-vehicle registry with these properties:
+
+1. Store custom model IDs in a dynamically sized or explicitly bounded
+   container whose capacity is independent of the native 23-entry groups.
+   Keep native stock groups unchanged.
+2. Treat the registry as authoritative for custom loaded IDs. Add an ID only
+   after the custom DFF has completed loading and native vehicle bookkeeping
+   has accepted the model-info pointer. Remove it on every stream-out,
+   failed-load rollback, model replacement, reconnect, and global reinit path.
+3. Extend the loaded-vehicle count used by streaming load-target decisions
+   with the number of custom entries, rather than trying to stuff custom IDs
+   into the 23-slot `ms_vehiclesLoaded` group. Avoid double-counting if a
+   future design intentionally allows a custom ID into a native group.
+4. Extend eviction to inspect custom entries in addition to the native
+   appropriate/inappropriate/boat groups. Apply the same candidate predicate
+   (loaded, zero references, not mission/game required), and remove a selected
+   custom model through the normal streaming removal route so virtual
+   `DeleteRwObject`, TXD release, collision cleanup, and vehicle bookkeeping
+   still run once.
+5. Keep the registry synchronized from the streaming lifecycle, not from the
+   network vehicle pool. A network vehicle instance can be deleted while its
+   model remains cached, and a model can be streamed out while its network
+   record remains known.
+6. Do not add custom IDs to the gang, boat, or random-population groups in the
+   first implementation. That avoids introducing custom IDs into
+   `PickRandomCar`, `PickGangCar`, `PickRiotRoadBlockCar`, and
+   `CCarGenerator` until their model metadata, classification, weighting,
+   bounding boxes, and population membership have a separate design.
+7. If custom vehicles must participate in ambient population later, add an
+   explicit opt-in population mapping and audit every consumer above,
+   including group capacity, duplicate behavior, model-info lookup, and
+   reinitialization. Do not infer population membership from the base model.
+
+#### Required regression coverage
+
+- Load more than 23 total vehicle models while mixing stock and custom IDs;
+  verify the streaming count reflects the real total and repeated load
+  requests do not bypass eviction.
+- Make every unreferenced custom model eligible in turn; verify eviction
+  finds it, calls native cleanup once, removes it from the extension registry,
+  and permits a later reload.
+- Keep a custom model referenced by an entity or mission/game-required flag;
+  verify eviction skips it.
+- Reclassify native stock groups repeatedly while custom models are loaded;
+  verify custom registry membership remains stable and no custom ID is lost
+  or duplicated.
+- Run `CCarCtrl::ReInit()`, reconnect, failed DFF load, and TXD rollback;
+  verify the extension registry is cleared or rebuilt without stale pointers.
+- If ambient population is later enabled, separately test random-car
+  selection, parked-car generators, riot roadblocks, gang selection, and
+  boat exclusion.
+
+These findings are derived from the GTA SA 1.0 US reconstruction at commit
+`81ee79f984f0d049a8475d7badb7279a0049d78c`. They are design constraints,
+not confirmation that the same addresses, layouts, or ABI are present in
+SA-MP 0.3.DL-R1. Exact-target validation is still mandatory.
+
+Additional source references (GTA SA 1.0 US reconstruction):
+
+- [LoadedCarGroup.cpp — sorting and random selection](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/LoadedCarGroup.cpp)
+- [Population.cpp — riot roadblock and gang model selection](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Population.cpp)
+- [CarGenerator.cpp — parked-car model selection](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/CarGenerator.cpp)
+- [CarCtrl.cpp — population loaded-group reinitialization](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/CarCtrl.cpp)
