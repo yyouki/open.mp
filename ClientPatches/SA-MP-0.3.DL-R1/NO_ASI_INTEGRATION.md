@@ -1164,3 +1164,52 @@ Source: GTA reversed, pinned at
 `source/game_sa/FileLoader.cpp` (`CFileLoader::LoadLevel()`),
 `source/game_sa/Models/VehicleModelInfo.cpp` (`SetupCommonData()`), and
 `source/game_sa/Models/ModelInfo.cpp` (`CModelInfo::ShutDown()`).
+
+## 22. Model-info shutdown does invoke vehicle structure cleanup
+
+The previous lifecycle review is now resolved at the reconstructed source level.
+`CModelInfo::ShutDown()` iterates the native vehicle model-info store and calls
+`Shutdown()` on each entry. The virtual shutdown chain is:
+
+1. `CClumpModelInfo::Shutdown()` delegates to `CBaseModelInfo::Shutdown()`.
+2. `CBaseModelInfo::Shutdown()` calls the virtual `DeleteRwObject()` first.
+3. For a vehicle model info, virtual dispatch reaches
+   `CVehicleModelInfo::DeleteRwObject()`.
+4. The vehicle override deletes `m_pVehicleStruct`, sets it to `nullptr`,
+   then calls `CClumpModelInfo::DeleteRwObject()`.
+5. The clump cleanup destroys the clump when present, clears the RW pointer,
+   removes its TXD reference, removes an animation-block reference when
+   applicable, and deletes an owned collision model.
+6. `CBaseModelInfo::Shutdown()` then calls `DeleteCollisionModel()` and
+   resets base metadata. `DeleteCollisionModel()` clears `m_pColModel` after
+   deleting it only when the model owns it (and it is not an LOD alias).
+
+This means normal model-info shutdown does reach the vehicle-structure
+destructor and returns its pool slot through `CVehicleStructure::operator
+delete`. The second collision cleanup is guarded by the cleared pointer, so
+the normal clump-owned collision cleanup is not repeated on a dangling
+pointer in the reconstructed implementation.
+
+Additional implications:
+
+- `CVehicleModelInfo::DeleteRwObject()` deletes the structure even when the
+  clump base cleanup later finds no RW object. The structure pointer is
+  nulled, making repeated calls safe for that member in this source model.
+- A custom model must remain valid and correctly constructed until its
+  virtual shutdown/delete path has completed. Unpublishing its custom-ID
+  lookup entry is not a substitute for releasing its resources.
+- Do not manually delete `m_pVehicleStruct` and then call the normal
+  `DeleteRwObject()`/`Shutdown()` path unless the pointer is first safely
+  nulled; otherwise the normal path can double-delete it.
+- This source-level virtual-dispatch behavior must still be checked against
+  the exact SA-MP 0.3.DL R1 vtable and shutdown call sites before using
+  reconstructed addresses or ABI assumptions in the client patch.
+
+Source: GTA reversed, pinned at
+`81ee79f984f0d049a8475d7badb7279a0049d78c`,
+`source/game_sa/Models/ModelInfo.cpp` (`CModelInfo::ShutDown()`),
+`source/game_sa/Models/BaseModelInfo.cpp` (`Shutdown()` and
+`DeleteCollisionModel()`), `source/game_sa/Models/ClumpModelInfo.cpp`
+(`Shutdown()` and `DeleteRwObject()`), and
+`source/game_sa/Models/VehicleModelInfo.cpp` (`DeleteRwObject()` and
+`CVehicleStructure::operator delete`).
