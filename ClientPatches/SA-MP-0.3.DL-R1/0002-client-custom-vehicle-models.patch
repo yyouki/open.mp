@@ -236,7 +236,7 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
  // 0x000b19c0
  void* GameRwStreamOpen(int type, int access, const void* data)
  {
-@@ -1850,6 +1930,42 @@
+@@ -1850,6 +1949,42 @@
      return clump;
  }
  
