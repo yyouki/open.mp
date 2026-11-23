@@ -426,7 +426,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +static BYTE g_customVehicleQueueTuning[100][23];
 +static BYTE g_customVehicleQueueHasTuning[100];
 +#endif // DL_BUILD
-
+ 
  // 0x00002df0
  void CVehiclePool::SetUnoccupiedSyncOwner(WORD vehicle, WORD player)
  {
