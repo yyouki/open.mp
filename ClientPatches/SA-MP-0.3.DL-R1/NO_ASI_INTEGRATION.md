@@ -1075,3 +1075,44 @@ Source: GTA reversed, pinned at
 `source/game_sa/Models/VehicleModelInfo.cpp` (SetupCommonData,
 SetClump, and CVehicleStructure allocation operators) and
 `source/game_sa/Models/VehicleModelInfo.h` (pool declaration).
+
+## 20. Pool exhaustion is not safely handled by vehicle SetClump
+
+The pinned reconstructed `CPool<T>::New()` implementation searches for a free
+slot. When no slot exists, its behavior depends on the pool's
+`CanDealWithNoMemory()` setting: it logs an allocation failure or triggers a
+debug break, then returns `nullptr`. The vehicle-specific `SetClump()`
+performs `new CVehicleStructure()` and immediately continues with clump
+initialization; it does not test the resulting pointer before subsequent
+vehicle-structure use.
+
+The reconstructed pool API also exposes `GetSize()`,
+`GetNoOfUsedSpaces()`, and `GetNoOfFreeSpaces()`. These are useful source-level
+interfaces, but their presence in the current reversed project does not prove
+that matching callable methods or identical object layout exist in the
+SA-MP 0.3.DL R1 target binary.
+
+Implementation constraints:
+
+- Treat a full pool as a hard registration failure; do not call vehicle
+  `SetClump()` and hope its allocator handles exhaustion.
+- Do not infer the pool's free count from its nominal capacity alone. Native
+  models and other active model infos consume the same 50 slots.
+- Do not call reconstructed helper methods by guessed addresses. Resolve the
+  target pool layout, slot-state representation, and callable entry points
+  against the exact executable before using them.
+- A preflight free-slot check is only safe if allocation and registration are
+  serialized on the game thread and no intervening operation can consume a
+  slot. Otherwise the check has a time-of-check/time-of-use race.
+- Even with a preflight check, preserve a rollback path for every later
+  failure after structure allocation.
+
+This audit confirms a failure mode in the reconstructed source; it does not
+establish the exact 0.3.DL R1 pool implementation or its no-memory policy.
+Vehicle registration remains disabled until the target binary and lifecycle
+are verified.
+
+Source: GTA reversed, pinned at
+`81ee79f984f0d049a8475d7badb7279a0049d78c`,
+`source/game_sa/Core/Pool.h` (New and free/used-space helpers) and
+`source/game_sa/Models/VehicleModelInfo.cpp` (SetClump).
