@@ -883,24 +883,27 @@ Observed lifecycle in the experimental patch:
    behavior until vehicle model-info ownership and streaming integration are
    solved.
 
-Newly introduced path construction risk:
+Bounded path construction added to the experimental patch:
 
-- `LoadVehicleModel()` declares `char txd[264]` and `char dff[264]`, then
-  uses unbounded `sprintf()` with a cache-directory prefix and a filename
-  suffix. The cache-directory fields are formatted separately with a
-  260-character limit, so their maximum stored length plus
-  `\\0xFFFFFFFF.dff` or `\\0xFFFFFFFF.txd` and the terminator can exceed
-  the 264-byte destination.
-- The same path-building pattern exists in the older ped/object loaders, but
-  adding another copy would propagate that defect into the new vehicle path.
-- Replace this with one shared bounded path builder before enabling vehicle
-  loading. It must check the formatter's return value, reject truncation,
-  explicitly guarantee NUL termination for the supported MSVC runtime, and
-  verify the resulting path refers to the intended cache root. Do not silently
-  truncate a hash filename or fall through to a different cache root.
-- Apply the helper consistently to the DFF and TXD paths in the new vehicle
-  loader. Audit existing ped/object call sites separately before broadening
-  the change, so unrelated behavior is not changed without tests.
+- `LoadVehicleModel()` now builds both DFF and TXD paths through
+  `GameBuildCustomAssetPath()` instead of unbounded `sprintf()`. The helper
+  rejects null/empty inputs, uses the target-era `_snprintf()` interface,
+  rejects a negative or capacity-reaching return value, and explicitly writes
+  the terminating NUL on both success and truncation.
+- The 264-byte destination is therefore never passed to `GameFileExists()`
+  after a truncated format. If the primary path cannot be represented or its
+  file is absent, the loader tries the fallback root using the same checked
+  helper; it never tests a truncated path.
+- This helper only bounds and formats the generated filename. It does not
+  canonicalize or authorize arbitrary cache roots; the two roots are read from
+  the existing fixed client cache fields. Their initialization, termination,
+  and trust boundary still require exact-target validation.
+- The older ped/object loaders retain their pre-existing path construction
+  and have not been changed by this patch. Their audit should remain separate
+  to avoid broadening behavior without regression coverage.
+- This change is source-level only. The VS2003 CRT behavior, include
+  availability, unified-patch application, and runtime boundary cases still
+  require verification in the target toolchain.
 
 Lifecycle/rollback gaps that remain unproven:
 
@@ -941,6 +944,7 @@ Required tests before enabling this path:
   downloads are pending or assets are loaded.
 
 Current decision: do not enable custom vehicle registration or the vehicle DFF
-reader yet. First implement and test the bounded path helper, then design
-transactional model-info/TXD/clump ownership and a streaming-independent
-custom asset lifecycle.
+reader yet. The source patch now contains a bounded path builder, but it has not
+been compiled or tested in the target toolchain. Next design transactional
+model-info/TXD/clump ownership and a streaming-independent custom asset
+lifecycle, then validate the path helper and failure paths on the exact client.
