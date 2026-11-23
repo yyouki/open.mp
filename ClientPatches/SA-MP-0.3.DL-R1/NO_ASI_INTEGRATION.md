@@ -679,3 +679,99 @@ Additional source references (GTA SA 1.0 US reconstruction):
 - [Population.cpp — riot roadblock and gang model selection](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Population.cpp)
 - [CarGenerator.cpp — parked-car model selection](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/CarGenerator.cpp)
 - [CarCtrl.cpp — population loaded-group reinitialization](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/CarCtrl.cpp)
+
+### 15. Extended model-info lookup is not extended streaming metadata
+
+The pinned reconstructed SA-MP source already contains a general model-info
+table extension for the existing 0.3.DL custom skin/object pipeline. This is
+useful groundwork for vehicle IDs, but it must not be mistaken for a complete
+extension of GTA's model system.
+
+#### What the existing table extension actually provides
+
+- `g_gameModelInfoTable` points to a 32,768-entry pointer bank beginning at
+  `g_gameCustomModelInfo`. The adjacent prefix buffer and enable flag are
+  separate allocations: the 32,767-DWORD prefix buffer ends exactly where the
+  pointer bank begins, and the enable flag follows the pointer bank.
+- `GameInitializeCustomModelInfo()` clears the extension storage, copies the
+  original 20,000 model-info pointers from GTA address `0x00A9B0C8` into the
+  beginning of the extended bank, patches 707 recorded model-info table
+  references, and installs a hook at GTA address `0x004087EA`.
+- `GamePatchModelInfoReferences()` rewrites the table operand only when the
+  expected opcode matches one of the recorded US/EU sites. It does not prove
+  that every model-info table access in the executable has been found. The
+  patched-reference list is therefore a finite set of known call sites, not a
+  universal guarantee that every engine subsystem uses the extended bank.
+- The hook installed at `0x004087EA` rejects negative EBP model IDs and
+  resumes the native table-index calculation for nonnegative IDs. It does
+  not itself establish a safe upper bound. The model-info bank has 32,768
+  entries, so the intended custom-ID ceiling of 32,767 is consistent with
+  that allocation, but all callers must still validate their IDs.
+- `GameGetModelInfo()` switches to `g_gameModelInfoTable[model]` whenever
+  `g_gameUseCustomModelInfo` is set. In the inspected baseline this direct
+  array access has no lower- or upper-bound check. `GameHasModelInfo()`
+  simply calls it, so it inherits that risk. Any new custom-vehicle path must
+  reject IDs outside 0–32767 before calling this helper; a hardened helper
+  should also enforce that range centrally.
+- The reconstructed `CGame::IsModelAvailable()` only invokes the native
+  scripting availability command for IDs 0–20000 and returns TRUE for other
+  values. Therefore, its success result is not proof that a custom ID has a
+  registered model-info object, a loaded DFF, or valid streaming state.
+
+#### What it does not provide
+
+The extended pointer bank does not automatically resize or remap:
+
+- GTA's per-model streaming metadata (model type, requested/loaded flags,
+  streaming offsets, resource sizes, and in-progress state);
+- the native vehicle model-info object store or its shutdown iteration;
+- collision-plugin registration/ownership state;
+- loaded-vehicle population groups, eviction lists, or vehicle structure pool;
+- other model-indexed arrays, caches, zone/group membership tables, or
+  code paths that retain direct pointers to the original
+  `0x00A9B0C8` bank.
+
+The 707 patched references cover only the sites recorded by the
+reconstructed SA-MP source. Before relying on the table for custom vehicles,
+the remaining direct references to the original model-info bank must be
+enumerated from the exact target executable and classified as either safe
+because they use a patched operand, irrelevant to custom vehicle IDs, or
+requiring an additional hook. The reference list itself is not evidence that
+the streaming metadata arrays are extended.
+
+#### Required lookup and metadata contract
+
+1. Enforce `0 <= modelId <= 32767` before every access to the extended
+   model-info bank. Reject negative IDs and IDs at or above 32768 before
+   pointer arithmetic or table indexing.
+2. Keep the stock model-info entries 0–19999 initialized from the original
+   bank. Do not assume entries 20000–32767 are valid merely because the
+   pointer bank has capacity; each custom entry must be published only after
+   its model-info allocation and initialization succeed.
+3. Audit the 707 patched sites against both US and EU executable variants.
+   Record opcode mismatches rather than silently treating a skipped patch as
+   success. Validate that every rewritten operand points to the same extended
+   bank and that no unpatched direct table access is reachable for custom
+   vehicle operations.
+4. Independently extend or hook streaming metadata for custom IDs. A valid
+   model-info pointer must never be used as a substitute for a DFF model type,
+   loaded state, request state, or streaming lifecycle record.
+5. Make model-info lookup failure explicit before any field dereference.
+   Several reconstructed helpers intentionally retain native unchecked
+   dereferences (for example collision and reference-count accessors); do not
+   feed them an invalid or unpublished custom ID.
+6. Test boundary IDs 19999, 20000, 30000, 30001, 32767, 32768, -1, and the
+   largest signed/unsigned values accepted by each RPC parser. Verify no
+   out-of-range access occurs and that stock lookup behavior is unchanged.
+7. Do not enable vehicle registration until exact-target disassembly confirms
+   the table bank addresses, patched call sites, hook ABI, streaming metadata
+   layout, and cleanup paths for the target SA-MP 0.3.DL-R1 binary.
+
+Source references (reconstructed SA-MP baseline
+`118956c2e6c67527395dce47f3e655fad4352a12`):
+
+- [custommodels.cpp — model-info bank initialization and reference patching](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/custommodels.cpp)
+- [util.cpp — GameGetModelInfo direct extended-table lookup](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/util.cpp)
+- [hooks.cpp — model-info lookup hook](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/hooks.cpp)
+- [game.h — extended model-info storage declarations](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/game.h)
+- [game.cpp — model availability and lookup wrappers](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/game.cpp)
