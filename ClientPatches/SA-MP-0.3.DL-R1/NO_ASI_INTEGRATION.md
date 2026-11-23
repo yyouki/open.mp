@@ -943,6 +943,89 @@ Required tests before enabling this path:
 - Disconnect, reconnect, model-record replacement, and client shutdown while
   downloads are pending or assets are loaded.
 
+
+## 18. CVehicleModelInfo construction and SetClump transaction boundary
+
+The reconstructed GTA SA 1.0 US source was rechecked at
+`gta-reversed/gta-reversed` commit
+`81ee79f984f0d049a8475d7badb7279a0049d78c`, specifically
+`source/game_sa/Models/VehicleModelInfo.cpp`,
+`VehicleModelInfo.h`, and `BaseModelInfo.cpp`.
+
+Confirmed class lifecycle:
+
+- `CVehicleModelInfo` has a real C++ constructor. It first constructs
+  `CClumpModelInfo`, then initializes `m_pVehicleStruct = nullptr`,
+  color-variation count and flags to zero, animation-block index to -1, and
+  all 18 upgrade plus 4 remap indices to -1. The exact constructor entry point
+  for the 0.3.DL R1 executable has not been established. The known
+  `0x4C5920` address is the destructor, not a constructor.
+- Calling virtual `Init()` is not equivalent to construction. It invokes
+  `CClumpModelInfo::Init()`, which invokes `CBaseModelInfo::Init()`, and
+  then sets vehicle type to IGNORE, wheel model index to -1, and bike steer
+  angle to 999.99. It does not establish every constructor-only vehicle
+  default.
+- `CBaseModelInfo::Init()` resets refcount, collision-model pointer,
+  TXD index, 2D-effect state, object-info index, draw distance, RW object
+  pointer, flags, and selected base flags. It is a state initializer, not a
+  replacement for the C++ constructor/vtable and base-subobject construction.
+- `CClumpModelInfo::SetClump()` publishes the clump pointer, updates 2D
+  effect accounting, registers visibility-plugin model info, adds a TXD
+  reference, optionally adds an animation-block reference, and runs lighting
+  setup. It has no success return value and is not a transactional API.
+- `CVehicleModelInfo::SetClump()` allocates `CVehicleStructure` first, then
+  calls the clump base setter and performs vehicle callback setup, frame-ID
+  assignment, render-pipeline setup, hierarchy preprocessing, material
+  reduction, plate setup, and dirt-material discovery. Several operations
+  mutate the clump and global RenderWare state. A failure partway through
+  cannot be handled by merely clearing the model-info pointer.
+- The vehicle structure allocation uses the fixed pool at `0xB4E680`.
+  Its constructor initializes dummy positions, upgrade parent IDs, extras,
+  and component-damage mask. Its destructor destroys owned extra atomics and
+  their frames. Pool readiness/capacity must be checked before invoking the
+  vehicle setter; do not assume ordinary heap allocation or that pool
+  exhaustion is recoverable inside `SetClump()`.
+- `DeleteRwObject()` deletes the vehicle structure, then delegates to
+  `CClumpModelInfo::DeleteRwObject()`. That base cleanup destroys the clump,
+  removes the TXD reference, removes an animation-block reference when
+  present, and deletes the collision model only when the ownership flag says
+  it owns it. The separate base `Shutdown()` path also invokes collision
+  cleanup and resets base metadata.
+
+Registration prerequisites now established:
+
+1. Do not construct the model by zeroing `0x308` bytes, copying a base
+   vehicle, assigning only a vtable, or calling `Init()` on unconstructed
+   storage. Obtain and verify the exact target constructor/destructor ABI and
+   allocator strategy first. If no safe constructor entry point is available,
+   a small target-compiled placement-construction shim is required; calling
+   an unverified address is not acceptable.
+2. Initialize metadata before `SetClump()`: a valid vehicle type in
+   `[0, 11]`, handling ID in `[0, 209]`, valid TXD slot, and any required
+   vehicle class/door/wheel/color fields. The IGNORE type (-1) is invalid for
+   `SetClump()`, because it indexes `ms_vehicleDescs[m_nVehicleType]`.
+3. Validate the vehicle structure pool is initialized and has a free slot,
+   and ensure all vehicle descriptor tables and RenderWare pipeline globals
+   are initialized. A type/handling range check alone does not prove the
+   chosen metadata is semantically compatible with the DFF.
+4. Parse and validate the clump and collision data into privately owned
+   staging resources. Validate required hierarchy/frame names and all
+   metadata-dependent assumptions before calling the void `SetClump()`.
+5. Treat `SetClump()` as the publication boundary. Only after all preflight
+   checks pass may it attach the clump and TXD reference. If any callback or
+   preprocessing operation can fail or raise an access violation, the current
+   native setter cannot provide rollback; implement a reviewed staged/manual
+   equivalent or keep registration disabled.
+6. Publish the custom model-info pointer in the custom ID bank only after
+   model-info construction, clump setup, collision ownership, and TXD
+   reference accounting have completed. On removal, unpublish first to stop
+   new lookups, then release owned resources exactly once and clear the slot.
+
+This confirms why the current stub must continue returning `FALSE`. The
+reconstructed source establishes class semantics but does not establish the
+exact 0.3.DL R1 constructor entry point, allocator ABI, pool lifecycle, or
+safe rollback behavior. No registration code was enabled by this audit.
+
 Current decision: do not enable custom vehicle registration or the vehicle DFF
 reader yet. The source patch now contains a bounded path builder, but it has not
 been compiled or tested in the target toolchain. Next design transactional
