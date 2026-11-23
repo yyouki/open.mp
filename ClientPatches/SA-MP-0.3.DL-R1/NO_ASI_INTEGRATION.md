@@ -1116,3 +1116,51 @@ Source: GTA reversed, pinned at
 `81ee79f984f0d049a8475d7badb7279a0049d78c`,
 `source/game_sa/Core/Pool.h` (New and free/used-space helpers) and
 `source/game_sa/Models/VehicleModelInfo.cpp` (SetClump).
+
+## 21. Vehicle pool initialization order in the reconstructed game flow
+
+The pinned `FileLoader.cpp` source shows the first-IPL initialization sequence inside
+`CFileLoader::LoadLevel()`. The sequence is guarded by the local
+`hasLoadedAnyIPLs` flag and runs before the first scene is loaded:
+
+1. Initialize object data.
+2. Call `CVehicleModelInfo::SetupCommonData()`.
+3. Call `CStreaming::Init2()`.
+4. Load collision bounding boxes.
+5. Convert animation-block indices for all published model infos.
+6. Mark `hasLoadedAnyIPLs` true, then continue to `LoadScene(path)`.
+
+Inside `SetupCommonData()`, the vehicle-structure pool is allocated after
+vehicle colors, upgrades, environment maps, and the common vehicle TXD/light
+textures are initialized. Therefore, in this reconstructed flow, the pool is
+ready before `CStreaming::Init2()` and before IPL scene loading starts.
+This gives a useful lifecycle ordering constraint, but it does not prove the
+same call sequence or timing in the SA-MP 0.3.DL R1 process.
+
+`CModelInfo::ShutDown()` iterates and shuts down model-info stores, then
+resets their counts. The inspected implementation does not itself delete or
+null `CVehicleStructure::m_pInfoPool`. A repository-wide code search did not
+find an explicit `delete CVehicleStructure::m_pInfoPool` or pool `Flush()`
+call. Treat that as an observation about the pinned reconstructed source,
+not proof that the target client has no teardown path: the target's shutdown
+sequence and any out-of-line/indirect cleanup still require binary-level
+verification.
+
+Registration constraints from this lifecycle audit:
+
+- Do not initialize custom vehicle structures during early DLL attach or
+  before the game's vehicle common-data setup has completed.
+- Prefer a game-thread registration point after the normal IPL/common-data
+  initialization boundary; do not infer readiness solely from a non-null
+  global pointer unless the target binary confirms its initialization.
+- Do not add a second pool or replace the game's pool as a workaround. Native
+  vehicle model infos use the same global pool.
+- Before adding teardown code, establish whether the exact target owns the
+  pool for process lifetime or has a later cleanup path. Deleting it
+  speculatively could invalidate live native vehicle model infos.
+
+Source: GTA reversed, pinned at
+`81ee79f984f0d049a8475d7badb7279a0049d78c`,
+`source/game_sa/FileLoader.cpp` (`CFileLoader::LoadLevel()`),
+`source/game_sa/Models/VehicleModelInfo.cpp` (`SetupCommonData()`), and
+`source/game_sa/Models/ModelInfo.cpp` (`CModelInfo::ShutDown()`).
