@@ -553,3 +553,25 @@ Source references (GTA SA 1.0 US reconstruction):
 - [Streaming.cpp — loaded vehicle insertion/removal](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
 - [Streaming.h — ms_vehiclesLoaded storage](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.h)
 - [Population.h — loaded-car groups and CARGRP arrays](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Population.h)
+
+### 13. Streaming eviction depends on the bounded loaded-car groups
+
+A follow-up consumer audit shows that the 23-entry limit is not merely a population display/selection limitation:
+
+- `CStreaming::RemoveLoadedVehicle()` chooses eviction candidates from `m_InAppropriateLoadedCars`, `m_LoadedBoats`, and a sorted copy of `m_AppropriateLoadedCars`. It does not scan the global streaming table for every loaded vehicle model.
+- `CStreaming::RemoveModel()` is called by this eviction path, and the vehicle bookkeeping is removed from the same bounded groups. A custom vehicle that failed to enter its group because all 23 slots were occupied can therefore remain loaded but is not discoverable by this normal vehicle-eviction candidate scan.
+- The streaming load decision compares `ms_vehiclesLoaded.CountMembers()` against `desiredNumVehiclesLoaded` and may call `RemoveLoadedVehicle()` to make room. Since `ms_vehiclesLoaded` is also a 23-entry `CLoadedCarGroup`, its count saturates at 23. If an insertion is dropped, the count no longer represents the actual number of loaded vehicle DFFs. This can undermine the native loaded-vehicle target and eviction policy.
+- `ReclassifyLoadedCars()` copies entries from the two 23-entry groups into fresh 23-entry groups. If the aggregate entries exceed the destination capacity, the reclassification pass can also drop entries. It does not independently recover missing vehicles from streaming metadata.
+
+This establishes a concrete correctness risk: custom vehicle registration cannot simply rely on the native `AddToLoadedVehiclesList()` returning true. That function returns true after calling `AddMember()` even though `AddMember()` can fail to insert because the fixed group is full. The loader can therefore believe bookkeeping succeeded when the ID was not recorded.
+
+Required design decision before enabling custom registration:
+
+1. Either modify the loaded-car bookkeeping and eviction logic to use extension-capable storage that includes custom IDs, or reserve native group slots with a provable global cap that accounts for already-loaded stock vehicles and all groups.
+2. If using extension-capable storage, update every producer and consumer together: `AddToLoadedVehiclesList`, `RemoveCarModel`, `RemoveLoadedVehicle`, `ReclassifyLoadedCars`, count/target calculations, and any population selection that consumes these groups. Do not patch insertion alone.
+3. Add a regression test where more than 23 eligible vehicle IDs are simultaneously loaded, including stock and custom vehicles, then verify each can be selected for eviction, removed exactly once, and loaded again.
+4. Keep the current client integration fail-closed. The 23-entry finding is source-derived from a GTA SA 1.0 US reconstruction; validate structure sizes, function behavior, and addresses against the exact target executable before implementing binary hooks.
+
+Additional source reference:
+
+- [Streaming.cpp — RemoveLoadedVehicle, load-count decision, and ReclassifyLoadedCars](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
