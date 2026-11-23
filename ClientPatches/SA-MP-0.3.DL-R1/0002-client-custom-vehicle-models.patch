@@ -421,7 +421,7 @@ diff --git a/source/net/vehiclepool.cpp b/source/net/vehiclepool.cpp
 +#include "game/custommodels.h"
  #include "d3dhook/IDirect3DDevice9Hook.h"
  #include "game/game.h"
-@@ -22,3 +22,7 @@ const char g_vehiclePoolQueueFullMessage[] = "All vehicle waiting slots are consumed!";
+@@ -22,4 +22,8 @@ const char g_vehiclePoolQueueFullMessage[] = "All vehicle waiting slots are consumed!";
 +#if defined(DL_BUILD)
 +static BYTE g_customVehicleQueueTuning[100][23];
 +static BYTE g_customVehicleQueueHasTuning[100];
