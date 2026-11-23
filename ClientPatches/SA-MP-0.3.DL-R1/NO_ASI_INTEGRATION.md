@@ -775,3 +775,74 @@ Source references (reconstructed SA-MP baseline
 - [hooks.cpp — model-info lookup hook](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/hooks.cpp)
 - [game.h — extended model-info storage declarations](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/game.h)
 - [game.cpp — model availability and lookup wrappers](https://github.com/1therealcloud/samp/blob/118956c2e6c67527395dce47f3e655fad4352a12/source/game/game.cpp)
+
+
+## 16. GTA streaming metadata is a separate, smaller index domain
+
+The reconstructed GTA SA 1.0 US streaming implementation has a separate
+metadata table from the SA-MP custom model-info pointer bank described above.
+The two tables must not be conflated.
+
+At the pinned `gta-reversed` source revision
+`81ee79f984f0d049a8475d7badb7279a0049d78c`:
+
+- `CStreaming::ms_aInfoForModel` is declared as
+  `std::array<CStreamingInfo, 26316>`, at address `0x8E4CC0`.
+- `CStreamingInfo` is `0x14` bytes. The array therefore occupies
+  `26316 * 0x14 = 0x51030` bytes in this reconstructed layout.
+- Resource IDs are partitioned, not a generic 32K model namespace:
+  DFF 0–19999; TXD 20000–24999; COL 25000–25254; IPL 25255–25510;
+  DAT 25511–25574; IFP 25575–25754; RRR 25755–26229; SCM 26230–26311.
+  IDs 26312–26315 are four internal loaded/requested-list sentinel entries.
+- `CStreaming::Init2()` initializes all 26,316 records and sets
+  `CStreamingInfo::ms_pArrayBase` to entry zero. It then links the sentinel
+  records into the loaded and requested lists.
+- Inline `GetInfo(modelId)` only asserts that the ID is non-negative before
+  indexing `ms_aInfoForModel[modelId]`. `IsModelLoaded(model)` indexes it
+  without a range check. `RequestModel()`, `RequestFile()`,
+  `ConvertBufferToObject()`, `RemoveModel()`, and
+  `IsObjectInCdImage()` obtain metadata through this unchecked accessor.
+- Streaming operations also derive resource type from the fixed ID ranges,
+  traverse requested/loaded lists, use 16-bit CD directory links, and consult
+  DFF model-info/TXD metadata. Extending only the array would not make a
+  custom ID a valid DFF resource or supply its archive position, size, IMG
+  identity, dependency records, or lifecycle semantics.
+- `CStreaming::AddToLoadedVehiclesList()` adds loaded vehicle IDs to fixed
+  population groups and the native loaded-vehicle group. Its success return
+  does not prove that every fixed-size group accepted the member. The earlier
+  sections on group capacity and custom loaded-vehicle bookkeeping still apply.
+
+Consequences for the current custom vehicle range:
+
+1. IDs 30001–32767 are within the SA-MP model-info pointer-bank index domain,
+   but outside `ms_aInfoForModel[0..26315]`. Passing one directly to
+   `CStreaming::GetInfo`, `RequestModel`, `RemoveModel`, or another
+   accessor that indexes this array is an out-of-bounds access.
+2. Those IDs also do not belong to any declared native DFF/TXD/COL/IPL/DAT/
+   IFP/RRR/SCM resource range. Treating a custom vehicle ID as a native DFF
+   resource without an explicit translation/registration layer is invalid.
+3. The 26,316-entry table is embedded at a fixed game address, followed by
+   other global state. Writing beyond it is not a safe way to extend it.
+   Replacing it requires a target-specific audit of every direct reference,
+   `CStreamingInfo::ms_pArrayBase`, list sentinel pointers, serialization
+   loops, model-type dispatch, CD directory links, and all consumers of
+   `GetInfo`. A replacement table alone is insufficient.
+4. The current custom DFF/TXD download path must own its own loading state,
+   request state, resource bytes, dependencies, and cleanup, or use a fully
+   audited adapter that maps custom IDs onto valid native resource records.
+   Do not pass custom IDs directly into native streaming APIs as a shortcut.
+5. Keep custom registration fail-closed. Before enabling it, validate all
+   streaming call sites and data layouts against the exact SA-MP 0.3.DL R1
+   client executable, not only this reconstructed GTA SA baseline.
+
+Required regression boundaries for this layer: 19999, 20000, 24999, 25000,
+26311, 26312, 26315, 26316, 30000, 30001, 32767, 32768, and -1. Test both
+valid stock resource behavior and rejection/translation of custom IDs.
+
+Source references (reconstructed GTA SA 1.0 US baseline
+`81ee79f984f0d049a8475d7badb7279a0049d78c`):
+
+- [Streaming.h — resource ID partitions, metadata array, and unchecked accessors](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.h)
+- [Streaming.cpp — request, conversion, removal, initialization, and directory handling](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
+- [StreamingInfo.h — CStreamingInfo layout and state fields](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/StreamingInfo.h)
+- [constants.h — resource category counts](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/constants.h)
