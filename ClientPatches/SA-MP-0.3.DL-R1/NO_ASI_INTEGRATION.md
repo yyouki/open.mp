@@ -1213,3 +1213,74 @@ Source: GTA reversed, pinned at
 (`Shutdown()` and `DeleteRwObject()`), and
 `source/game_sa/Models/VehicleModelInfo.cpp` (`DeleteRwObject()` and
 `CVehicleStructure::operator delete`).
+
+
+## 23. Model reference counts and live vehicle-instance lifetime
+
+A focused review of `BaseModelInfo.cpp`, `ClumpModelInfo.cpp`,
+`VehicleModelInfo.cpp`, and `Entity/Vehicle/Vehicle.cpp` at the pinned
+GTA reversed revision
+`81ee79f984f0d049a8475d7badb7279a0049d78c` clarifies what the native
+model reference count does—and does not—guarantee.
+
+- `CBaseModelInfo::AddRef()` increments the 16-bit `m_nRefCount` and adds
+  a reference to the model's TXD. `RemoveRef()` decrements the count and
+  removes the corresponding TXD reference.
+- `CClumpModelInfo::CreateInstance()` checks that a source RW object exists,
+  calls `AddRef()`, clones the clump, performs optional animation setup,
+  then calls `RemoveRef()` before returning the clone. In this path the
+  reference is temporary; it does not remain held for the lifetime of the
+  cloned vehicle's body clump.
+- `CVehicleModelInfo::CreateInstance()` first obtains that cloned clump and
+  then reads the source model's `m_pVehicleStruct` to select and clone
+  configured extra atomics. Therefore the source model-info and its vehicle
+  structure must remain valid throughout this creation operation, even
+  though the ordinary clump clone's reference is released before the vehicle
+  override finishes.
+- Vehicle upgrade/replacement atomics have a different reference pattern:
+  `CVehicle::CreateUpgradeAtomic()` and
+  `CreateReplacementAtomic()` call `mi->AddRef()` after creating and
+  attaching the atomic. `RemoveAllUpgradesCB()` destroys the attached
+  atomic and calls `RemoveRef()`. These references can remain outstanding
+  while those upgrade atomics are attached.
+- The streaming eviction predicate `CarIsCandidateForRemoval()` requires
+  the model-info reference count to be zero, the model to be loaded, and
+  neither mission-required nor game-required flags to be set.
+  `RemoveLoadedVehicle()` uses this predicate before choosing an entry
+  from its loaded-car groups.
+- `CStreaming::RemoveModel()` itself does not perform that reference-count
+  or mission/game-required eligibility check. Once called for a loaded DFF,
+  it invokes virtual `DeleteRwObject()` and removes vehicle bookkeeping.
+  Other call sites must therefore establish their own eligibility before
+  calling it; do not treat `RemoveModel()` as a safe refcount-aware API.
+
+Implications for custom vehicle lifecycle:
+
+1. Do not assume that a live vehicle instance permanently pins its source
+   `CVehicleModelInfo` merely because `CreateInstance()` was used. The
+   ordinary clump path's AddRef/RemoveRef pair is temporary in the inspected
+   implementation.
+2. Keep the custom model-info pointer and `m_pVehicleStruct` valid during
+   every vehicle-instance creation operation, including extra-component
+   cloning. Serialize registration/removal against model-instance creation
+   on the game thread or provide an equivalent lifetime guard.
+3. Preserve the native AddRef/RemoveRef pairing for upgrade and replacement
+   atomics. A custom registry must not clear or free a model-info object while
+   its reference count is nonzero.
+4. For custom eviction, reproduce the full candidate predicate before calling
+   the native removal route. Do not call `RemoveModel()` directly just
+   because a custom network vehicle record was removed; network-instance
+   lifetime and model-asset lifetime are separate.
+5. Audit any additional target-specific vehicle callbacks that retain a
+   model-info pointer beyond the creation call. The findings above describe
+   the reconstructed source, not a proof that the SA-MP 0.3.DL R1 binary has
+   identical call sites or ABI.
+
+Source references (GTA SA 1.0 US reconstruction,
+`81ee79f984f0d049a8475d7badb7279a0049d78c`):
+
+- [BaseModelInfo.cpp — AddRef/RemoveRef](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Models/BaseModelInfo.cpp)
+- [ClumpModelInfo.cpp — CreateInstance and clump cloning](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Models/ClumpModelInfo.cpp)
+- [VehicleModelInfo.cpp — vehicle CreateInstance and extra-component access](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Models/VehicleModelInfo.cpp)
+- [Vehicle.cpp — upgrade/replacement references and vehicle RW cleanup](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Entity/Vehicle/Vehicle.cpp)
+- [Streaming.cpp — CarIsCandidateForRemoval and RemoveModel](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
