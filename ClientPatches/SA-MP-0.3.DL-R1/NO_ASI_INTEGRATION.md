@@ -527,3 +527,29 @@ Source references (GTA SA 1.0 US reconstruction):
 - [Streaming.cpp — RemoveModel and loaded-vehicle bookkeeping](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Streaming.cpp)
 - [ClumpModelInfo.cpp — Shutdown and DeleteRwObject](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/ClumpModelInfo.cpp)
 - [VehicleModelInfo.cpp — vehicle virtual cleanup](https://github.com/gta-reversed/gta-reversed/blob/9b86a2e5431952c19a2bc60a0503441bd8f6f4d1/source/game_sa/Models/VehicleModelInfo.cpp)
+
+### 12. Loaded-car group capacity and model-ID representation
+
+The GTA SA 1.0 US reconstruction exposes a concrete limit in the native vehicle-population bookkeeping:
+
+- `CLoadedCarGroup` is exactly 0x2E bytes and stores 23 model IDs in `int16 m_models[23]`. The sentinel is `MODEL_INVALID` (-1). Its `AddMember()` appends only while a sentinel slot remains; when all 23 slots are occupied it logs an out-of-memory message and does not add the model. This is a fixed-capacity list, not an expandable container.
+- `CStreaming::AddToLoadedVehiclesList()` always inserts a loaded vehicle into `ms_vehiclesLoaded` and either `m_AppropriateLoadedCars` or `m_InAppropriateLoadedCars`, unless it is recognized as a boat. All of these are `CLoadedCarGroup` instances with the same 23-entry capacity. Therefore, 24 or more simultaneously loaded custom vehicles can exceed a native bookkeeping group's capacity. Streaming may still load the DFF, but the overflowed model is absent from that loaded-car group; downstream selection/reclassification and cleanup assumptions must be audited rather than treating list insertion as guaranteed.
+- `CLoadedCarGroup` stores signed 16-bit IDs. The current custom range 30001–32767 is representable as positive `int16`; IDs above 32767 would become negative and collide with the sentinel/invalid-value domain. Keep the upper bound at 32767 unless every native container and comparison is redesigned. The public `eModelID` enum itself is `int32`, but that does not widen this storage.
+- The ten `m_LoadedGangCars` groups also have 23 entries each. `AddToLoadedVehiclesList()` adds a model to a gang group only if its ID appears in that gang's `CPopulation::m_CarGroups` source list. Ordinary custom IDs absent from stock `CARGRP.DAT` will not be added there merely because their visual base model is a gang vehicle.
+- The source reconstruction's `AddMember()` implementation does not visibly perform the duplicate check described in the header comment; it simply finds the first sentinel and writes the ID. Do not rely on duplicate suppression without verifying the exact retail implementation.
+
+Consequences and required safeguards:
+
+1. The current 30001–32767 range is compatible with the signed 16-bit field, but the 23-entry capacity is a separate, much smaller limit.
+2. Establish a hard cap or explicit policy for custom vehicles simultaneously represented in native loaded-car groups. If that cannot be guaranteed, patch the relevant native bookkeeping paths with capacity-aware extension storage instead of silently relying on the 23-slot arrays.
+3. Audit all consumers of `ms_vehiclesLoaded`, `m_AppropriateLoadedCars`, `m_InAppropriateLoadedCars`, `m_LoadedBoats`, and `m_LoadedGangCars`, especially reclassification, least-used selection, and stream-out selection, for behavior when a model was not inserted because a group was full.
+4. Do not add custom IDs to stock `m_CarGroups` arrays as a shortcut: each source car group is also a fixed 23-entry `int16` array, and its contents drive zone, cheat, and gang classification.
+5. Keep native registration fail-closed until the exact target binary's group layout, `AddMember()` behavior, and every consumer are verified.
+
+Source references (GTA SA 1.0 US reconstruction):
+
+- [LoadedCarGroup.h — 23 signed 16-bit slots and 0x2E layout](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/LoadedCarGroup.h)
+- [LoadedCarGroup.cpp — AddMember capacity behavior](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/LoadedCarGroup.cpp)
+- [Streaming.cpp — loaded vehicle insertion/removal](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
+- [Streaming.h — ms_vehiclesLoaded storage](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.h)
+- [Population.h — loaded-car groups and CARGRP arrays](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Population.h)
