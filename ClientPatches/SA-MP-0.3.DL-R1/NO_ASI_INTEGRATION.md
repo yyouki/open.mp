@@ -1031,3 +1031,47 @@ reader yet. The source patch now contains a bounded path builder, but it has not
 been compiled or tested in the target toolchain. Next design transactional
 model-info/TXD/clump ownership and a streaming-independent custom asset
 lifecycle, then validate the path helper and failure paths on the exact client.
+
+## 19. Vehicle-structure pool readiness and capacity
+
+The pinned GTA reversed source confirms that `CVehicleModelInfo::SetupCommonData()`
+creates the global vehicle-structure pool with a fixed capacity of 50:
+
+```cpp
+CVehicleStructure::m_pInfoPool = new CPool<CVehicleStructure>(50, "VehicleStruct");
+```
+
+The pool is shared by all vehicle model-info instances; it is not a per-model
+allocation. `CVehicleStructure::operator new` delegates directly to
+`m_pInfoPool->New()`, and `operator delete` returns the slot to that pool.
+The vehicle-specific `SetClump` allocates a structure immediately, before
+performing the rest of its clump setup. It does not perform a local pool-ready
+or free-slot check in the reconstructed method.
+
+Consequences for custom registration:
+
+1. Never call vehicle `SetClump` before `SetupCommonData` has initialized
+   `CVehicleStructure::m_pInfoPool`. A null pool would make the overloaded
+   allocation path invalid.
+2. Check pool availability before calling `SetClump`. The pool's 50 slots
+   are shared with native vehicle models and any other live vehicle
+   model-info instances; custom models must not assume 50 additional slots.
+3. Track successful structure allocation and pair it with the vehicle
+   model-info deletion path. On a failed registration after `SetClump`
+   begins, cleanup must release the custom structure and any clump/TXD/
+   collision resources without disturbing native models.
+4. Determine the exact target executable's pool API and initialization/
+   shutdown ordering before implementing the check. The source excerpt
+   confirms pool creation in `SetupCommonData`, but does not establish a
+   safe target-specific teardown hook or prove that the reconstructed pool
+   lifetime is identical in SA-MP 0.3.DL-R1.
+
+This makes pool readiness and capacity an explicit registration prerequisite.
+The registration routine remains fail-closed; no allocation or publication
+code is enabled by this audit.
+
+Source: GTA reversed, pinned at
+`81ee79f984f0d049a8475d7badb7279a0049d78c`,
+`source/game_sa/Models/VehicleModelInfo.cpp` (SetupCommonData,
+SetClump, and CVehicleStructure allocation operators) and
+`source/game_sa/Models/VehicleModelInfo.h` (pool declaration).
