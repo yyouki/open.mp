@@ -184,11 +184,30 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
              {
                  if (!entry[0])
                  {
-@@ -1790,7 +1851,32 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
+@@ -1790,7 +1851,51 @@ BOOL CCustomModels::LoadObjectModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
      }
      return GameRegisterCustomObject(base, model, name, dff, txd) != 0;
  }
  
++// Build one cache asset path without accepting a truncated filename.
++static BOOL GameBuildCustomAssetPath(char* path, size_t capacity,
++                                     const char* root, DWORD hash,
++                                     const char* extension)
++{
++    int length;
++    if (!path || !capacity || !root || !root[0] || !extension || !extension[0])
++        return FALSE;
++    path[0] = '\0';
++    length = _snprintf(path, capacity, "%s\\0x%X.%s", root, hash, extension);
++    if (length < 0 || (size_t)length >= capacity)
++    {
++        path[capacity - 1] = '\0';
++        return FALSE;
++    }
++    path[length] = '\0';
++    return TRUE;
++}
++
 +// Vehicle assets use the same checksum cache but publish a vehicle model-info type.
 +BOOL CCustomModels::LoadVehicleModel(DWORD base, DWORD model, DWORD dffHash, DWORD txdHash)
 +{
@@ -197,18 +216,18 @@ diff --git a/source/game/custommodels.cpp b/source/game/custommodels.cpp
 +    if (base < 400 || base > 611 || model < 30001 || model > 32767)
 +        return FALSE;
 +    sprintf(name, "%X", txdHash);
-+    sprintf(dff, "%s\\0x%X.dff", primary, dffHash);
-+    if (!GameFileExists(dff))
++    if (!GameBuildCustomAssetPath(dff, sizeof(dff), primary, dffHash, "dff") ||
++        !GameFileExists(dff))
 +    {
-+        sprintf(dff, "%s\\0x%X.dff", fallback, dffHash);
-+        if (!GameFileExists(dff))
++        if (!GameBuildCustomAssetPath(dff, sizeof(dff), fallback, dffHash, "dff") ||
++            !GameFileExists(dff))
 +            return FALSE;
 +    }
-+    sprintf(txd, "%s\\0x%X.txd", primary, txdHash);
-+    if (!GameFileExists(txd))
++    if (!GameBuildCustomAssetPath(txd, sizeof(txd), primary, txdHash, "txd") ||
++        !GameFileExists(txd))
 +    {
-+        sprintf(txd, "%s\\0x%X.txd", fallback, txdHash);
-+        if (!GameFileExists(txd))
++        if (!GameBuildCustomAssetPath(txd, sizeof(txd), fallback, txdHash, "txd") ||
++            !GameFileExists(txd))
 +            return FALSE;
 +    }
 +    return GameRegisterCustomVehicle((int)base, (int)model, name, dff, txd);
