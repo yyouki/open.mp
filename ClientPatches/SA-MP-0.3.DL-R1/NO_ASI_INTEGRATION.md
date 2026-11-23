@@ -846,3 +846,101 @@ Source references (reconstructed GTA SA 1.0 US baseline
 - [Streaming.cpp — request, conversion, removal, initialization, and directory handling](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/Streaming.cpp)
 - [StreamingInfo.h — CStreamingInfo layout and state fields](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/StreamingInfo.h)
 - [constants.h — resource category counts](https://github.com/gta-reversed/gta-reversed/blob/81ee79f984f0d049a8475d7badb7279a0049d78c/source/game_sa/constants.h)
+
+
+## 17. Custom DFF/TXD download lifecycle and path-safety audit
+
+The type-3 vehicle record currently reuses the existing custom-model download
+worker and cache layout. This is distinct from GTA's native IMG streaming
+metadata and does not make a custom model ID valid for `CStreaming`.
+
+Source baseline: `1therealcloud/samp` commit
+`118956c2e6c67527395dce47f3e655fad4352a12`, principally
+`source/game/custommodels.cpp`.
+
+Observed lifecycle in the experimental patch:
+
+1. Type-3 records are accepted only after the server capability acknowledgement.
+   The parser restricts the model ID to 30001–32767 and base vehicle ID to
+   400–611, excluding several special models. Duplicate type-3 model IDs are
+   rejected by `AddRecord()`.
+2. The 94-byte wire record is copied into a 96-byte zeroed allocation. The
+   extra two bytes are used for private registration state at offset
+   `0x5e`; the wire record size itself is unchanged.
+3. `MarkResourceRequests()` includes type-3 records in the existing download
+   request path. `LoadVehicleEntry()` waits until both record state bytes
+   `entry[0]` and `entry[1]` are set, then calls `LoadVehicleModel()`.
+4. `LoadVehicleModel()` locates DFF and TXD files first in the server cache
+   directory and then in the local cache directory. It passes the paths and
+   TXD hash-derived name to `GameRegisterCustomVehicle()`.
+5. The proposed vehicle DFF reader opens a RenderWare file stream, checks for
+   the clump chunk, sets collision-plugin model context, enables the common
+   vehicle texture dictionary, reads the clump, clears both contexts, and
+   closes the stream.
+6. The actual registration function intentionally returns `FALSE`. Therefore
+   the vehicle path cannot currently publish a model-info pointer or reach a
+   successful `CUSTOM_VEHICLE_READY` state. This is the required fail-closed
+   behavior until vehicle model-info ownership and streaming integration are
+   solved.
+
+Newly introduced path construction risk:
+
+- `LoadVehicleModel()` declares `char txd[264]` and `char dff[264]`, then
+  uses unbounded `sprintf()` with a cache-directory prefix and a filename
+  suffix. The cache-directory fields are formatted separately with a
+  260-character limit, so their maximum stored length plus
+  `\\0xFFFFFFFF.dff` or `\\0xFFFFFFFF.txd` and the terminator can exceed
+  the 264-byte destination.
+- The same path-building pattern exists in the older ped/object loaders, but
+  adding another copy would propagate that defect into the new vehicle path.
+- Replace this with one shared bounded path builder before enabling vehicle
+  loading. It must check the formatter's return value, reject truncation,
+  explicitly guarantee NUL termination for the supported MSVC runtime, and
+  verify the resulting path refers to the intended cache root. Do not silently
+  truncate a hash filename or fall through to a different cache root.
+- Apply the helper consistently to the DFF and TXD paths in the new vehicle
+  loader. Audit existing ped/object call sites separately before broadening
+  the change, so unrelated behavior is not changed without tests.
+
+Lifecycle/rollback gaps that remain unproven:
+
+- The proposed DFF reader restores collision-plugin and common vehicle-TXD
+  context on its ordinary return paths, but the exact target ABI, function
+  addresses, and global-context behavior have not been validated against the
+  0.3.DL R1 executable.
+- `GameRegisterCustomVehicle()` must be transactional. A failed TXD attach,
+  DFF parse, collision-plugin read, or vehicle-structure initialization must
+  release every resource acquired so far, undo TXD references, destroy any
+  partial RenderWare object, clear the model-info slot, and leave the record
+  retryable or explicitly failed according to a defined policy.
+- The current `LoadVehicleEntry()` state byte `entry[0x5e]` records success
+  or permanent failure. Do not mark a transient failure permanent until the
+  registration routine distinguishes corrupt assets from temporary resource
+  exhaustion and guarantees rollback.
+- The custom cache's file-exists checks are not content validation. DFF/TXD
+  parsing must validate stream chunk boundaries and reject malformed or
+  truncated assets without publishing partially initialized model state.
+- The custom asset loader must remain separate from native
+  `CStreaming::RequestModel`, `GetInfo`, and `RemoveModel` for IDs
+  30001–32767 unless a complete, bounded translation layer is implemented.
+
+Required tests before enabling this path:
+
+- Cache root lengths at the shortest supported value, maximum accepted value,
+  and one byte beyond the accepted maximum.
+- DFF and TXD present in primary cache, fallback cache, both caches, and
+  neither cache.
+- Truncated files, missing clump chunk, malformed RenderWare chunks, and
+  repeated load attempts after failure.
+- Failure injection after TXD attachment, collision context setup, clump
+  read, and vehicle-structure initialization; verify no leaked references,
+  allocations, or stale model-info pointers.
+- Two distinct custom vehicles sharing one TXD hash; verify TXD reference
+  accounting and independent model-info/clump ownership.
+- Disconnect, reconnect, model-record replacement, and client shutdown while
+  downloads are pending or assets are loaded.
+
+Current decision: do not enable custom vehicle registration or the vehicle DFF
+reader yet. First implement and test the bounded path helper, then design
+transactional model-info/TXD/clump ownership and a streaming-independent
+custom asset lifecycle.
