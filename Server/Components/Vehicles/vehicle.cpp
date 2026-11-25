@@ -26,6 +26,18 @@ void Vehicle::setSpawnData(const VehicleSpawnData& data)
 		return;
 	}
 
+	// Train locomotives and carriages are allocated as one linked group.
+	// Changing into or out of these model types would invalidate that group.
+	const auto isTrainConsistModel = [](int modelID)
+	{
+		return modelID == 537 || modelID == 538 || modelID == 569 || modelID == 570;
+	};
+	if (preloadModelCounted_ && previousBaseModelID != baseModelID &&
+		(isTrainConsistModel(previousBaseModelID) || isTrainConsistModel(baseModelID)))
+	{
+		return;
+	}
+
 	spawnData = data;
 	spawnData.modelID = baseModelID;
 	customModelID_ = customModelID;
