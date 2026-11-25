@@ -775,23 +775,26 @@ public:
 			return;
 		}
 
-		loadArtConfig();
-
 		if (!cdn.empty())
 		{
 			if (!std::regex_match(cdn, rUri))
 			{
-				core->logLn(LogLevel::Warning, "[artwork:warn] CDN URL '%.*s' seems to be invalid, the CDN feature has been disabled.", PRINT_VIEW(cdn));
-				return;
+				core->logLn(LogLevel::Warning, "[artwork:warn] CDN URL '%.*s' seems to be invalid, falling back to the local web server.", PRINT_VIEW(cdn));
+				cdn.clear();
 			}
-
-			if (cdn.back() != '/')
+			else
 			{
-				cdn.push_back('/');
+				if (cdn.back() != '/')
+				{
+					cdn.push_back('/');
+				}
+				core->logLn(LogLevel::Message, "[artwork:info] Using CDN '%.*s'", PRINT_VIEW(cdn));
+				usingCdn = true;
 			}
-			core->logLn(LogLevel::Message, "[artwork:info] Using CDN '%.*s'", PRINT_VIEW(cdn));
-			usingCdn = true;
 		}
+
+		// Configure CDN mode before loading models so addCustomModel() does not start a local HTTP server unnecessarily.
+		loadArtConfig();
 	}
 
 	void loadArtConfig()
