@@ -462,7 +462,7 @@ public:
 		return true;
 	}
 
-	int getClientVehicleModelID(const IPlayer& player, int baseModelID, int customModelID) const
+	int getClientVehicleModelID(IPlayer& player, int baseModelID, int customModelID) const
 	{
 		const bool* vehicleModelsEnabled = core ? core->getConfig().getBool("artwork.experimental_vehicle_models") : nullptr;
 		auto* customVehicleData = queryExtension<IPlayerCustomVehicleModelsData>(player);
