@@ -34,6 +34,7 @@ private:
 	VehiclesComponent* pool = nullptr;
 	VehicleSpawnData spawnData;
 	int customModelID_ = 0;
+	bool preloadModelCounted_ = false;
 	UniqueIDArray<IPlayer, PLAYER_POOL_SIZE> streamedFor_;
 	StaticArray<int, MAX_VEHICLE_COMPONENT_SLOT> mods;
 	float health = 1000.0f;
@@ -386,6 +387,12 @@ public:
 	int getBaseModelID() const
 	{
 		return spawnData.modelID;
+	}
+
+	// Called by VehiclesComponent after it accounts for this instance.
+	void markPreloadModelCounted()
+	{
+		preloadModelCounted_ = true;
 	}
 
 	bool isTrainCarriage()
