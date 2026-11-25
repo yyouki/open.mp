@@ -89,14 +89,30 @@ static size_t GetFileCRC32Checksum(StringView filename, uint32_t& checksum)
 
 	uint8_t buf[1024];
 	size_t file_size = 0;
+	bool read_failed = false;
 
-	while (!feof(f))
+	for (;;)
 	{
-		auto read = fread(buf, 1, 1024, f);
-		checksum = CRC32(checksum, buf, read);
-		file_size += read;
+		const size_t bytes_read = fread(buf, 1, sizeof(buf), f);
+		if (bytes_read != 0)
+		{
+			checksum = CRC32(checksum, buf, static_cast<int>(bytes_read));
+			file_size += bytes_read;
+		}
+
+		if (bytes_read < sizeof(buf))
+		{
+			read_failed = ferror(f) != 0;
+			break; // A short read is EOF or an I/O error; both end this pass.
+		}
 	}
 
-	fclose(f);
+	const int close_result = fclose(f);
+	if (read_failed || close_result != 0)
+	{
+		checksum = 0;
+		return 0;
+	}
+
 	return file_size;
 }
