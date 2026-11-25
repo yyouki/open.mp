@@ -60,36 +60,17 @@ with the next pool index instead of retransmitting the full manifest. A client
 must honor the supplied `poolID` and `Count`; it must not assume records are
 grouped by model type or that the type-3 records always begin at index zero.
 
-## No-ASI experiment
+## Client implementation boundary
 
-The planned no-ASI experiment does not mean an unmodified 0.3.DL executable
-will work. The client itself needs an implementation of model type `3` and
-vehicle-model registration in its GTA/RenderWare model-loading path. The
-intended experiment is to integrate that support into a rebuilt or directly
-modified 0.3.DL client binary rather than load a separate ASI plugin.
+The server-side component only defines the opt-in protocol and the custom
+vehicle model records. A compatible client must implement model type `3`,
+download both assets, register the vehicle visual, and keep custom IDs valid
+through vehicle creation and streaming.
 
-For the first no-ASI test, the client should send RPC 186 as soon as its network
-handlers are ready and **before** it sends the normal client-initialization
-message. The server can then include vehicle records in the initial artwork
-manifest, allowing the normal 0.3.DL download barrier to complete before
-vehicles are streamed. The server also handles a later capability message by
-appending vehicle records, but that timing is not yet validated for the no-ASI
-client; a late-opt-in client may need to defer vehicle creation until its
-downloads finish.
-
-At minimum, the client-side implementation must:
-
-1. Recognize model type `3` in RPC 179 and preserve the shared manifest
-   indices.
-2. Reuse the DFF/TXD download and checksum-validation path for the two assets.
-3. Register the downloaded DFF/TXD as a vehicle model while retaining the
-   selected base vehicle model's gameplay behavior.
-4. Resolve the custom vehicle ID consistently during vehicle creation,
-   streaming, replacement, and streaming-out.
-5. Send RPC 186 only after all of the above paths are available.
-
-The detailed no-ASI client source integration plan is maintained in
-[ClientPatches/SA-MP-0.3.DL-R1/NO_ASI_INTEGRATION.md](../../../ClientPatches/SA-MP-0.3.DL-R1/NO_ASI_INTEGRATION.md).
+Client-binary reconstruction, RenderWare ownership, `samp.dll` patch files,
+and exact SA-MP executable validation are separate client-research artifacts;
+they are not part of the open.mp source tree. Stock clients must never send
+RPC 186 and continue to receive base vehicle IDs only.
 
 ## Test status
 
