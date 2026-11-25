@@ -452,8 +452,21 @@ SCRIPT_API(GetVehicleModelCount, int(int modelid))
 	if (modelid < 400 || modelid > 611)
 		return 0;
 
-	auto& models = PawnManager::Get()->vehicles->models();
-	return models[modelid - 400];
+	IVehiclesComponent* vehicles = PawnManager::Get()->vehicles;
+	if (!vehicles)
+	{
+		return 0;
+	}
+
+	int count = 0;
+	for (IVehicle* vehicle : *vehicles)
+	{
+		if (vehicle && vehicle->getSpawnData().modelID == modelid)
+		{
+			++count;
+		}
+	}
+	return count;
 }
 
 SCRIPT_API(GetVehicleModelsUsed, int())
