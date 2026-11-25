@@ -524,6 +524,7 @@ public:
 		if (vehicle)
 		{
 			++preloadModels[baseModelID - 400];
+			static_cast<Vehicle*>(vehicle)->markPreloadModelCounted();
 
 			static bool delay_warn = false;
 			if (!delay_warn && data.respawnDelay == Seconds(0))
@@ -555,6 +556,7 @@ public:
 		if (vehicle)
 		{
 			++preloadModels[baseModelID - 400];
+			static_cast<Vehicle*>(vehicle)->markPreloadModelCounted();
 
 			static bool delay_warn = false;
 			if (!delay_warn && data.respawnDelay == Seconds(0))
@@ -706,8 +708,9 @@ public:
 
 	void reset() override
 	{
-		// Destroy all stored entity instances.
+		// Destroy all stored entity instances and clear their model preload counts.
 		storage.clear();
+		preloadModels.fill(0);
 	}
 
 	void onPlayerDeath(IPlayer& player, IPlayer* killer, int reason) override
