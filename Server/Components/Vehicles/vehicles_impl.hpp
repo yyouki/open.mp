@@ -557,7 +557,9 @@ public:
 	{
 		int baseModelID = data.modelID;
 		int customModelID = 0;
+		// Train carriages are owned by a locomotive and may only be created as part of a complete consist.
 		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
+			baseModelID == 569 || baseModelID == 570 ||
 			(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 		{
 			return nullptr;
