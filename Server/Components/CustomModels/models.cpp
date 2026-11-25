@@ -663,21 +663,25 @@ public:
 
 	~CustomModelsComponent()
 	{
-		if (!core)
+		if (core)
 		{
-			return;
+			NetCode::RPC::RequestTXD::removeEventHandler(*core, &requestDownloadLinkHandler);
+			NetCode::RPC::RequestDFF::removeEventHandler(*core, &requestDownloadLinkHandler);
+			NetCode::RPC::FinishDownload::removeEventHandler(*core, &finishDownloadHandler);
+			NetCode::RPC::ClientSupportsCustomVehicleModels::removeEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
+			players->getPlayerConnectDispatcher().removeEventHandler(this);
 		}
 
-		NetCode::RPC::RequestTXD::removeEventHandler(*core, &requestDownloadLinkHandler);
-		NetCode::RPC::RequestDFF::removeEventHandler(*core, &requestDownloadLinkHandler);
-		NetCode::RPC::FinishDownload::removeEventHandler(*core, &finishDownloadHandler);
-		NetCode::RPC::ClientSupportsCustomVehicleModels::removeEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
-		players->getPlayerConnectDispatcher().removeEventHandler(this);
+		// Stop the HTTP worker before releasing the model metadata it serves.
+		delete webServer;
+		webServer = nullptr;
 
-		if (webServer)
+		// storage owns each ModelInfo allocated by addCustomModel().
+		for (ModelInfo* model : storage)
 		{
-			delete webServer;
+			delete model;
 		}
+		storage.clear();
 	}
 
 	void provideConfiguration(ILogger& logger, IEarlyConfig& config, bool defaults) override
