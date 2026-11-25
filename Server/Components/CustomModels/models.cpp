@@ -15,6 +15,8 @@
 #include <ghc/filesystem.hpp>
 #include "crc32.hpp"
 #include <regex>
+#include <array>
+#include <fstream>
 #include <shared_mutex>
 #include <algorithm>
 #include <cctype>
@@ -41,6 +43,47 @@ struct ModelFile
 	{
 	}
 };
+
+static bool haveSameFileContents(const String& leftPath, const String& rightPath)
+{
+	std::ifstream leftFile(leftPath, std::ios::binary);
+	std::ifstream rightFile(rightPath, std::ios::binary);
+	if (!leftFile.is_open() || !rightFile.is_open())
+	{
+		return false;
+	}
+
+	std::array<char, 4096> leftBuffer;
+	std::array<char, 4096> rightBuffer;
+	for (;;)
+	{
+		leftFile.read(leftBuffer.data(), static_cast<std::streamsize>(leftBuffer.size()));
+		rightFile.read(rightBuffer.data(), static_cast<std::streamsize>(rightBuffer.size()));
+
+		const std::streamsize leftBytes = leftFile.gcount();
+		const std::streamsize rightBytes = rightFile.gcount();
+		if (leftBytes != rightBytes ||
+			!std::equal(leftBuffer.begin(), leftBuffer.begin() + leftBytes, rightBuffer.begin()))
+		{
+			return false;
+		}
+
+		if (leftFile.bad() || rightFile.bad())
+		{
+			return false;
+		}
+
+		if (leftFile.eof() || rightFile.eof())
+		{
+			return leftFile.eof() && rightFile.eof();
+		}
+
+		if (leftFile.fail() || rightFile.fail())
+		{
+			return false;
+		}
+	}
+}
 
 class ModelInfo final
 {
@@ -967,8 +1010,9 @@ public:
 			return false;
 		}
 
-		// Checksums key the download lookup. A DFF/TXD checksum collision would
-		// make the server return the wrong file type for a client request.
+		// Checksums are download lookup keys. Reject cross-type collisions and
+		// same-type CRC32 collisions with different contents, or clients may
+		// receive an asset that does not match the model manifest.
 		if (dff.checksum == txd.checksum)
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF and TXD have the same CRC32 checksum.");
@@ -976,10 +1020,42 @@ public:
 		}
 		const auto existingDffChecksum = checksums.find(dff.checksum);
 		const auto existingTxdChecksum = checksums.find(txd.checksum);
-		if ((existingDffChecksum != checksums.end() && existingDffChecksum->second.first != ModelDownloadType::DFF) ||
-			(existingTxdChecksum != checksums.end() && existingTxdChecksum->second.first != ModelDownloadType::TXD))
+		auto hasCompatibleChecksum = [&](const auto& existing, ModelDownloadType expectedType, const ModelFile& candidate)
 		{
-			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. CRC32 checksum is already registered for the opposite file type.");
+			if (existing == checksums.end())
+			{
+				return true;
+			}
+			if (existing->second.first != expectedType)
+			{
+				return false;
+			}
+
+			ModelInfo* registeredModel = existing->second.second;
+			const ModelFile& registeredFile = expectedType == ModelDownloadType::DFF
+				? registeredModel->getDFF()
+				: registeredModel->getTXD();
+			if (registeredFile.size != candidate.size)
+			{
+				return false;
+			}
+			if (registeredFile.name == candidate.name)
+			{
+				return true;
+			}
+
+			return haveSameFileContents(
+				String(modelsPath) + "/" + candidate.name,
+				String(modelsPath) + "/" + registeredFile.name);
+		};
+		if (!hasCompatibleChecksum(existingDffChecksum, ModelDownloadType::DFF, dff))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF CRC32 checksum is already registered for a different asset or file type.");
+			return false;
+		}
+		if (!hasCompatibleChecksum(existingTxdChecksum, ModelDownloadType::TXD, txd))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. TXD CRC32 checksum is already registered for a different asset or file type.");
 			return false;
 		}
 
