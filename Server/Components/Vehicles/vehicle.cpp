@@ -13,7 +13,11 @@
 
 void Vehicle::setSpawnData(const VehicleSpawnData& data)
 {
-	const int previousBaseModelID = spawnData.modelID;
+	int previousBaseModelID = -1;
+	if (preloadModelCounted_)
+	{
+		previousBaseModelID = spawnData.modelID;
+	}
 	int baseModelID = data.modelID;
 	int customModelID = 0;
 	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
