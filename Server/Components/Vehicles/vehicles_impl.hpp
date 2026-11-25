@@ -531,10 +531,19 @@ public:
 				return nullptr;
 			}
 
-			int carriageModel = baseModelID == 538 ? 570 : 569;
-			ret->addCarriage(createWithMustHint(startId + 1, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 0);
-			ret->addCarriage(createWithMustHint(startId + 2, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 1);
-			ret->addCarriage(createWithMustHint(startId + 3, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 }), 2);
+			const int carriageModel = baseModelID == 538 ? 570 : 569;
+			for (int carriageIndex = 0; carriageIndex < MAX_VEHICLE_CARRIAGES; ++carriageIndex)
+			{
+				IVehicle* carriage = createWithMustHint(startId + 1 + carriageIndex, VehicleSpawnData { respawnDelay, carriageModel, position, Z, colour1, colour2, 0 });
+				if (!carriage)
+				{
+					// Do not leave a locomotive with an incomplete consist.
+					// release() also removes any carriages already attached above.
+					release(startId);
+					return nullptr;
+				}
+				ret->addCarriage(carriage, carriageIndex);
+			}
 		}
 		else
 		{
@@ -634,6 +643,10 @@ public:
 			{
 				for (IVehicle* c : vehicle.getCarriages())
 				{
+					if (!c)
+					{
+						continue;
+					}
 					Vehicle* carriage = static_cast<Vehicle*>(c);
 					removeModelInstanceCount(carriage->getBaseModelID());
 					carriage->destream();
