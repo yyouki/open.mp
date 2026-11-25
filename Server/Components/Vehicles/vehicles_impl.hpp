@@ -668,6 +668,10 @@ public:
 					{
 						for (IVehicle* c : veh->getCarriages())
 						{
+							if (!c)
+							{
+								continue;
+							}
 							if (c->getID() == carriageId)
 							{
 								trainId = veh->getID();
