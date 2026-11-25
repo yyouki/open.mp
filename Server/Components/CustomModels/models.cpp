@@ -586,12 +586,14 @@ private:
 			if (!bs.readUINT32(checksum))
 				return false;
 
-			const auto& itr = self.checksums.find(checksum);
+			const auto itr = self.checksums.find(checksum);
 
 			if (itr == self.checksums.end())
 				return true;
 
-			const auto& type = itr->second.first;
+			// Copy values before invoking extension callbacks, which may register models and rehash checksums.
+			const ModelDownloadType type = itr->second.first;
+			ModelInfo* const model = itr->second.second;
 
 			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
 			if (data != nullptr)
@@ -600,12 +602,11 @@ private:
 			}
 			if (self.hasDownloadEndpoint() &&
 				self.eventDispatcher.stopAtFalse(
-					[&peer, &type, &checksum](PlayerModelsEventHandler* handler)
+					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
 					}))
 			{
-				const auto& model = itr->second.second;
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
 				const StringView baseUrl = self.getWebUrl();
 				if (!baseUrl.empty())
