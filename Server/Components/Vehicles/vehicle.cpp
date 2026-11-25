@@ -31,16 +31,10 @@ void Vehicle::setSpawnData(const VehicleSpawnData& data)
 	customModelID_ = customModelID;
 
 	// Keep the pool's base-model counts in sync when spawn info changes post-creation.
-	if (preloadModelCounted_ && previousBaseModelID != baseModelID &&
-		previousBaseModelID >= 400 && previousBaseModelID <= 611)
+	if (preloadModelCounted_ && previousBaseModelID != baseModelID)
 	{
-		auto& modelCounts = pool->models();
-		uint8_t& previousCount = modelCounts[previousBaseModelID - 400];
-		if (previousCount > 0)
-		{
-			--previousCount;
-		}
-		++modelCounts[baseModelID - 400];
+		pool->removeModelInstanceCount(previousBaseModelID);
+		pool->addModelInstanceCount(baseModelID);
 	}
 
 	if (spawnData.colour1 == -1 || spawnData.colour2 == -1)
