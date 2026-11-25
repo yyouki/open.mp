@@ -26,6 +26,7 @@ private:
 	MarkedPoolStorage<Vehicle, IVehicle, 1, VEHICLE_POOL_SIZE> storage;
 	DefaultEventDispatcher<VehicleEventHandler> eventDispatcher;
 	StaticArray<uint8_t, MAX_VEHICLE_MODELS> preloadModels;
+	StaticArray<uint32_t, MAX_VEHICLE_MODELS> preloadModelCounts;
 	StreamConfigHelper streamConfigHelper;
 	int* deathRespawnDelay = nullptr;
 
@@ -330,6 +331,7 @@ public:
 		, vehicleDeathHandler(*this)
 	{
 		preloadModels.fill(0);
+		preloadModelCounts.fill(0);
 	}
 
 	~VehiclesComponent()
@@ -397,7 +399,39 @@ public:
 
 	StaticArray<uint8_t, MAX_VEHICLE_MODELS>& models() override
 	{
+		// Preserve the legacy SDK view without allowing its byte counts to wrap.
 		return preloadModels;
+	}
+
+	void addModelInstanceCount(int modelID)
+	{
+		if (modelID < 400 || modelID > 611)
+		{
+			return;
+		}
+
+		const size_t index = static_cast<size_t>(modelID - 400);
+		uint32_t& count = preloadModelCounts[index];
+		++count; // Bounded by the vehicle pool size, which is well below UINT32_MAX.
+		preloadModels[index] = static_cast<uint8_t>(count > 255U ? 255U : count);
+	}
+
+	void removeModelInstanceCount(int modelID)
+	{
+		if (modelID < 400 || modelID > 611)
+		{
+			return;
+		}
+
+		const size_t index = static_cast<size_t>(modelID - 400);
+		uint32_t& count = preloadModelCounts[index];
+		if (count == 0)
+		{
+			return; // Keep a bookkeeping mismatch from wrapping to UINT32_MAX.
+		}
+
+		--count;
+		preloadModels[index] = static_cast<uint8_t>(count > 255U ? 255U : count);
 	}
 
 	bool resolveVehicleModel(int modelID, int& baseModelID, int& customModelID) const
@@ -523,7 +557,7 @@ public:
 		IVehicle* vehicle = storage.emplace(this, data);
 		if (vehicle)
 		{
-			++preloadModels[baseModelID - 400];
+			addModelInstanceCount(baseModelID);
 			static_cast<Vehicle*>(vehicle)->markPreloadModelCounted();
 
 			static bool delay_warn = false;
@@ -555,7 +589,7 @@ public:
 		IVehicle* vehicle = storage.get(vehicleId);
 		if (vehicle)
 		{
-			++preloadModels[baseModelID - 400];
+			addModelInstanceCount(baseModelID);
 			static_cast<Vehicle*>(vehicle)->markPreloadModelCounted();
 
 			static bool delay_warn = false;
@@ -601,7 +635,7 @@ public:
 				for (IVehicle* c : vehicle.getCarriages())
 				{
 					Vehicle* carriage = static_cast<Vehicle*>(c);
-					--preloadModels[carriage->getBaseModelID() - 400];
+					removeModelInstanceCount(carriage->getBaseModelID());
 					carriage->destream();
 					storage.release(carriage->poolID, false);
 				}
@@ -631,7 +665,7 @@ public:
 				return;
 			}
 
-			--preloadModels[veh_model - 400];
+			removeModelInstanceCount(veh_model);
 			vehiclePtr->destream();
 			storage.release(index, false);
 		}
@@ -710,6 +744,7 @@ public:
 	{
 		// Destroy all stored entity instances and clear their model preload counts.
 		storage.clear();
+		preloadModelCounts.fill(0);
 		preloadModels.fill(0);
 	}
 
