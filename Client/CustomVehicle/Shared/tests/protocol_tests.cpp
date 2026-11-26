@@ -1,5 +1,6 @@
 #include <custom_vehicle/protocol.hpp>
 #include <custom_vehicle/session.hpp>
+#include <custom_vehicle/network_adapter.hpp>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -8,6 +9,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -332,6 +334,107 @@ void testManifestGrowthAndPoolUniqueness()
 	assert(session.vehicleModels().size() == 2);
 }
 
+class FakeTransport final : public RpcTransport
+{
+public:
+	struct SentRpc
+	{
+		RpcId id;
+		std::vector<std::uint8_t> payload;
+	};
+
+	bool sendRpc(RpcId id, const std::uint8_t* payload, std::size_t size) noexcept override
+	{
+		SentRpc sent { id, {} };
+		if (payload != nullptr && size != 0)
+		{
+			sent.payload.assign(payload, payload + size);
+		}
+		sentCalls.push_back(std::move(sent));
+		return true;
+	}
+
+	std::vector<SentRpc> sentCalls;
+};
+
+class FakeDownloader final : public AssetDownloadSink
+{
+public:
+	struct Job
+	{
+		AssetType type;
+		std::uint32_t checksum;
+		std::uint32_t expectedSize;
+		std::string url;
+	};
+
+	bool beginDownload(const AssetDownload& download) noexcept override
+	{
+		jobs.push_back({ download.type, download.checksum, download.expectedSize,
+			std::string(download.url) });
+		return true;
+	}
+
+	std::vector<Job> jobs;
+};
+
+void testNetworkAdapterFlow()
+{
+	constexpr std::array<std::uint8_t, 9> dff = { '1','2','3','4','5','6','7','8','9' };
+	constexpr std::array<std::uint8_t, 4> txd = { 't','x','d','!' };
+	constexpr std::uint32_t dffCrc = 0xCBF43926u;
+	const std::uint32_t txdCrc = calculateCrc32(txd.data(), txd.size());
+
+	FakeTransport transport;
+	FakeDownloader downloader;
+	ClientNetworkAdapter adapter(transport, downloader);
+
+	assert(adapter.beginConnection());
+	assert(transport.sentCalls.size() == 1);
+	assert(transport.sentCalls.back().id == RpcId::ClientSupportsCustomVehicleModels);
+	assert(transport.sentCalls.back().payload.empty());
+
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
+		nullptr, 0) == RpcDisposition::Consume);
+
+	auto manifest = makeVehicleRequest(dffCrc, txdCrc,
+		static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
+		manifest.data(), manifest.size()) == RpcDisposition::Consume);
+	assert(transport.sentCalls.back().id == RpcId::RequestDff);
+	assert(transport.sentCalls.back().payload.size() == AssetRequestWireSize);
+
+	auto nativeManifest = manifest;
+	nativeManifest[8] = static_cast<std::uint8_t>(ModelType::Skin);
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
+		nativeManifest.data(), nativeManifest.size()) == RpcDisposition::ForwardToGame);
+
+	auto dffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
+		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
+	assert(downloader.jobs.size() == 1);
+	assert(downloader.jobs.back().url == "https://example.test/car.dff");
+
+	assert(adapter.completeAsset(AssetType::Dff, dffCrc, dff.data(), dff.size()));
+	assert(transport.sentCalls.back().id == RpcId::FinishDownload);
+	assert(transport.sentCalls.back().payload.empty());
+
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
+		nullptr, 0) == RpcDisposition::Consume);
+	assert(transport.sentCalls.back().id == RpcId::RequestTxd);
+
+	auto txdUrl = makeDownloadUrl(AssetType::Txd, txdCrc, "https://example.test/car.txd");
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
+		txdUrl.data(), txdUrl.size()) == RpcDisposition::Consume);
+	assert(downloader.jobs.size() == 2);
+	assert(adapter.completeAsset(AssetType::Txd, txdCrc, txd.data(), txd.size()));
+	assert(transport.sentCalls.back().id == RpcId::FinishDownload);
+
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
+		nullptr, 0) == RpcDisposition::Consume);
+	assert(adapter.vehicleModels().size() == 1);
+}
+
 void testAssetIntegrity()
 {
 	constexpr std::array<std::uint8_t, 9> sample = { '1','2','3','4','5','6','7','8','9' };
@@ -354,6 +457,7 @@ int main()
 	testSessionDownloadLifecycle();
 	testSessionRejectsMismatchedUrlAndCorruptFile();
 	testManifestGrowthAndPoolUniqueness();
+	testNetworkAdapterFlow();
 	testAssetIntegrity();
 	return 0;
 }
