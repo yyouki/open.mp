@@ -540,6 +540,48 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCompleteAsset(
 }
 
 JNIEXPORT jboolean JNICALL
+Java_org_openmp_customvehicle_NativeBridge_nativeHasAsset(
+	JNIEnv*,
+	jclass,
+	jlong handle,
+	jint assetType,
+	jlong checksum,
+	jlong expectedSize)
+{
+	AndroidBridgeContext* context = fromHandle(handle);
+	if (context == nullptr || !validUnsigned32(checksum)
+		|| !validUnsigned32(expectedSize) || expectedSize == 0)
+	{
+		return JNI_FALSE;
+	}
+
+	custom_vehicle::protocol::AssetType type;
+	switch (assetType)
+	{
+		case static_cast<jint>(custom_vehicle::protocol::AssetType::Dff):
+			type = custom_vehicle::protocol::AssetType::Dff;
+			break;
+		case static_cast<jint>(custom_vehicle::protocol::AssetType::Txd):
+			type = custom_vehicle::protocol::AssetType::Txd;
+			break;
+		default:
+			return JNI_FALSE;
+	}
+
+	try
+	{
+		return context->cache.contains(
+			type,
+			static_cast<std::uint32_t>(checksum),
+			static_cast<std::uint32_t>(expectedSize)) ? JNI_TRUE : JNI_FALSE;
+	}
+	catch (...)
+	{
+		return JNI_FALSE;
+	}
+}
+
+JNIEXPORT jboolean JNICALL
 Java_org_openmp_customvehicle_NativeBridge_nativeRetryActiveAsset(JNIEnv*, jclass, jlong handle)
 {
 	AndroidBridgeContext* context = fromHandle(handle);
