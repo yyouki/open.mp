@@ -530,7 +530,7 @@ fn outgoing_worker(
                 if bit_len <= MAX_RPC_BYTES * 8 {
                     let sent = net
                         .send_rpc(request.id, &request.payload, bit_len)
-                        .and_then(|receipt| receipt.wait(Duration::from_secs(10)));
+                        .and_then(|mut receipt| receipt.wait(Duration::from_secs(10)));
                     if sent.is_err() {
                         let adapter = context.adapter();
                         if !adapter.is_null() {
@@ -835,7 +835,7 @@ fn cleanup_context(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
-    let (context, mut subscriptions, workers) = {
+    let (context, subscriptions, workers) = {
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
         state.shutting_down = true;
         while state.initializing {
