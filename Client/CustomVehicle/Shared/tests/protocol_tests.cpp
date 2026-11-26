@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace custom_vehicle::protocol;
