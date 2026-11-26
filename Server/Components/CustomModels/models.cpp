@@ -745,6 +745,12 @@ private:
 			const ModelDownloadType type = itr->second.first;
 			ModelInfo* const model = itr->second.second;
 
+			// Vehicle assets are only available to clients that negotiated the vehicle-model extension.
+			if (model->getType() == CustomModels::Vehicle && !self.supportsCustomVehicles(peer))
+			{
+				return true;
+			}
+
 			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
 			if (data != nullptr)
 			{
