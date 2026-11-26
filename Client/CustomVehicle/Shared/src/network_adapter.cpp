@@ -71,7 +71,7 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		}
 		case RpcId::ModelRequest:
 		{
-			// RPC 220 is reserved for vehicle manifests; native artwork stays on RPC 179.
+			// RPC 220 is reserved for vehicle manifests; native artwork stays on native RPC 179.
 			if (payload == nullptr || size <= 8
 				|| payload[8] != static_cast<std::uint8_t>(ModelType::Vehicle))
 			{
