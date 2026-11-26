@@ -9,6 +9,7 @@ namespace custom_vehicle::protocol
 enum class ModelType : std::uint8_t { Skin = 1, Object = 2, Vehicle = 3 };
 enum class RpcId : std::uint8_t
 {
+	ModelRequest = 179,
 	RequestDff = 181,
 	RequestTxd = 182,
 	ModelUrl = 183,
