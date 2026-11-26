@@ -906,9 +906,11 @@ private:
 	struct VehicleRequestDownloadLinkEventHandler : public SingleNetworkInEventHandler
 	{
 		CustomModelsComponent& self;
+		ModelDownloadType expectedType;
 
-		VehicleRequestDownloadLinkEventHandler(CustomModelsComponent& component)
+		VehicleRequestDownloadLinkEventHandler(CustomModelsComponent& component, ModelDownloadType type)
 			: self(component)
+			, expectedType(type)
 		{
 		}
 
@@ -934,7 +936,7 @@ private:
 			// Only registered vehicle assets may enter the extension download channel.
 			const ModelDownloadType type = itr->second.first;
 			ModelInfo* const model = itr->second.second;
-			if (model->getType() != CustomModels::Vehicle)
+			if (type != expectedType || model->getType() != CustomModels::Vehicle)
 			{
 				return true;
 			}
@@ -968,7 +970,9 @@ private:
 			}
 			return true;
 		}
-	} vehicleRequestDownloadLinkHandler;
+	} vehicleRequestDffDownloadHandler;
+
+	VehicleRequestDownloadLinkEventHandler vehicleRequestTxdDownloadHandler;
 
 	struct FinishVehicleDownloadHandler : public SingleNetworkInEventHandler
 	{
@@ -1012,7 +1016,8 @@ public:
 		: clientSupportsCustomVehicleModelsHandler(*this)
 		, requestDownloadLinkHandler(*this)
 		, finishDownloadHandler(*this)
-		, vehicleRequestDownloadLinkHandler(*this)
+		, vehicleRequestDffDownloadHandler(*this, ModelDownloadType::DFF)
+		, vehicleRequestTxdDownloadHandler(*this, ModelDownloadType::TXD)
 		, finishVehicleDownloadHandler(*this)
 	{
 	}
@@ -1024,8 +1029,8 @@ public:
 			NetCode::RPC::RequestTXD::removeEventHandler(*core, &requestDownloadLinkHandler);
 			NetCode::RPC::RequestDFF::removeEventHandler(*core, &requestDownloadLinkHandler);
 			NetCode::RPC::FinishDownload::removeEventHandler(*core, &finishDownloadHandler);
-			NetCode::RPC::RequestVehicleDFF::removeEventHandler(*core, &vehicleRequestDownloadLinkHandler);
-			NetCode::RPC::RequestVehicleTXD::removeEventHandler(*core, &vehicleRequestDownloadLinkHandler);
+			NetCode::RPC::RequestVehicleDFF::removeEventHandler(*core, &vehicleRequestDffDownloadHandler);
+			NetCode::RPC::RequestVehicleTXD::removeEventHandler(*core, &vehicleRequestTxdDownloadHandler);
 			NetCode::RPC::FinishVehicleDownload::removeEventHandler(*core, &finishVehicleDownloadHandler);
 			NetCode::RPC::ClientSupportsCustomVehicleModels::removeEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 			players->getPlayerConnectDispatcher().removeEventHandler(this);
@@ -1116,8 +1121,8 @@ public:
 		NetCode::RPC::RequestTXD::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::RequestDFF::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::FinishDownload::addEventHandler(*core, &finishDownloadHandler);
-		NetCode::RPC::RequestVehicleDFF::addEventHandler(*core, &vehicleRequestDownloadLinkHandler);
-		NetCode::RPC::RequestVehicleTXD::addEventHandler(*core, &vehicleRequestDownloadLinkHandler);
+		NetCode::RPC::RequestVehicleDFF::addEventHandler(*core, &vehicleRequestDffDownloadHandler);
+		NetCode::RPC::RequestVehicleTXD::addEventHandler(*core, &vehicleRequestTxdDownloadHandler);
 		NetCode::RPC::FinishVehicleDownload::addEventHandler(*core, &finishVehicleDownloadHandler);
 		NetCode::RPC::ClientSupportsCustomVehicleModels::addEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 
