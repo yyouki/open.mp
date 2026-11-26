@@ -67,7 +67,7 @@ public final class NativeBridge implements AutoCloseable {
     }
 
     /**
-     * Persist and verify the completed asset before the bridge sends RPC 184.
+     * Persist and verify the completed asset before the bridge sends vehicle finish RPC 226.
      * The expected length and checksum are the exact values supplied to beginDownload.
      */
     public synchronized boolean completeAsset(
