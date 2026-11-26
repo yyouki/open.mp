@@ -413,7 +413,11 @@ OMP_CAPI(Vehicle_UpdateDamageStatus, bool(objectPtr vehicle, int panels, int doo
 OMP_CAPI(Vehicle_GetModelInfo, bool(int vehiclemodel, int infotype, float* x, float* y, float* z))
 {
 	Vector3 pos = {};
-	Impl::getVehicleModelInfo(getBaseVehicleModel(vehiclemodel), VehicleModelInfoType(infotype), pos);
+	if (!Impl::getVehicleModelInfo(getBaseVehicleModel(vehiclemodel), VehicleModelInfoType(infotype), pos))
+	{
+		return false;
+	}
+
 	*x = pos.x;
 	*y = pos.y;
 	*z = pos.z;
