@@ -36,6 +36,43 @@ int getBaseVehicleModel(int modelID)
 	}
 	return modelID;
 }
+bool canSetVehicleSpawnInfo(IVehicle& vehicle, int modelID)
+{
+	int baseModelID = modelID;
+	if (CustomModels::isCustomVehicleModelId(modelID))
+	{
+		auto* models = ComponentManager::Get()->models;
+		if (!models)
+		{
+			return false;
+		}
+
+		uint32_t baseID = static_cast<uint32_t>(modelID);
+		uint32_t customID = 0;
+		if (!models->getBaseModel(baseID, customID) ||
+			customID != static_cast<uint32_t>(modelID) ||
+			!Impl::isValidVehicleModel(static_cast<int>(baseID)) ||
+			!CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
+		{
+			return false;
+		}
+
+		baseModelID = static_cast<int>(baseID);
+	}
+	else if (!Impl::isValidVehicleModel(modelID))
+	{
+		return false;
+	}
+
+	const auto isTrainConsistModel = [](int id)
+	{
+		return id == 537 || id == 538 || id == 569 || id == 570;
+	};
+
+	const int currentBaseModelID = vehicle.getSpawnData().modelID;
+	return currentBaseModelID == baseModelID ||
+		(!isTrainConsistModel(currentBaseModelID) && !isTrainConsistModel(baseModelID));
+}
 }
 
 OMP_CAPI(Vehicle_Create, objectPtr(int modelid, float x, float y, float z, float rotation, int color1, int color2, int respawnDelay, bool addSiren, int* id))
@@ -505,8 +542,12 @@ OMP_CAPI(Vehicle_GetSpawnInfo, bool(objectPtr vehicle, float* x, float* y, float
 OMP_CAPI(Vehicle_SetSpawnInfo, bool(objectPtr vehicle, int modelid, float x, float y, float z, float rotation, int color1, int color2, int respawn_time, int interior))
 {
 	POOL_ENTITY_RET(vehicles, IVehicle, vehicle, vehicle_, false);
-	const VehicleSpawnData& data = vehicle_->getSpawnData();
+	if (!canSetVehicleSpawnInfo(*vehicle_, modelid))
+	{
+		return false;
+	}
 
+	const VehicleSpawnData& data = vehicle_->getSpawnData();
 	vehicle_->setSpawnData({ respawn_time >= -1 ? Seconds(respawn_time) : data.respawnDelay, modelid, { x, y, z }, rotation, color1, color2, data.siren, interior != -2 ? interior : data.interior });
 	return true;
 }
