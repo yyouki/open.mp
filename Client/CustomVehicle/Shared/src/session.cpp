@@ -215,7 +215,7 @@ bool ClientSession::completeAsset(
 	}
 	if (!verifyAsset(data, size, asset.expectedSize, asset.checksum))
 	{
-		// Re-queue corrupt/truncated data and do not send RPC 184.
+		// Re-queue corrupt/truncated data and do not send vehicle finish RPC 226.
 		asset.state = AssetState::Queued;
 		hasActiveAsset_ = false;
 		error = SessionError::AssetIntegrityFailure;
