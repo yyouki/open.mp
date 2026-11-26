@@ -350,6 +350,12 @@ void testManifestGrowthAndPoolUniqueness()
 	assert(session.acceptModelManifest(first.data(), first.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
 
+	// Replayed identical manifest records are idempotent and do not add another pool entry.
+	auto replayedFirst = makeVehicleRequest(11, 12, 20, 21, 0, 1, 30001);
+	assert(session.acceptModelManifest(replayedFirst.data(), replayedFirst.size(), decodeError, sessionError)
+		== ManifestDisposition::AcceptedVehicle);
+	assert(session.vehicleModels().size() == 1);
+
 	// Late model registrations append to the independent vehicle pool.
 	auto second = makeVehicleRequest(13, 14, 22, 23, 1, 2, 30002);
 	assert(session.acceptModelManifest(second.data(), second.size(), decodeError, sessionError)
