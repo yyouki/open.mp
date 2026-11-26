@@ -754,9 +754,22 @@ fn cleanup_context(
     mut subscriptions: Vec<Subscription>,
     workers: Vec<JoinHandle<()>>,
 ) {
+    let mut unregister_failed = false;
     for subscription in &mut subscriptions {
-        let _ = subscription.unregister_and_wait(Duration::from_secs(10));
+        if subscription.unregister_and_wait(Duration::from_secs(10)).is_err() {
+            unregister_failed = true;
+        }
     }
+
+    if unregister_failed {
+        // Retain every callback dependency until a later shutdown can drain active hooks.
+        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        state.context = Some(Arc::clone(context));
+        state.subscriptions = subscriptions;
+        state.workers = workers;
+        return;
+    }
+
     stop_workers(context, workers);
 }
 
