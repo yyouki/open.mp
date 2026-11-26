@@ -355,12 +355,22 @@ fn handle_server_rpc(
 
     let payload = match event.read_bits(bit_len) {
         Ok(payload) => payload,
-        Err(_) => return SampClientSdkHookAction::Continue,
+        Err(_) => {
+            return if event.reset_read().is_ok() {
+                SampClientSdkHookAction::Continue
+            } else {
+                SampClientSdkHookAction::Block
+            };
+        }
     };
 
     let adapter = context.adapter();
     if adapter.is_null() {
-        return SampClientSdkHookAction::Continue;
+        return if event.reset_read().is_ok() {
+            SampClientSdkHookAction::Continue
+        } else {
+            SampClientSdkHookAction::Block
+        };
     }
 
     let payload_ptr = if payload.is_empty() {
