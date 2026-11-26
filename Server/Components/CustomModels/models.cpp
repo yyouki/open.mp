@@ -958,9 +958,12 @@ private:
 				if (!baseUrl.empty())
 				{
 					const String downloadUrl = httplib::encode_uri(String(baseUrl.data()) + file.name);
-					if (downloadUrl.size() > std::numeric_limits<uint8_t>::max())
+					const bool validScheme =
+						downloadUrl.compare(0, 7, "http://") == 0 ||
+						downloadUrl.compare(0, 8, "https://") == 0;
+					if (!validScheme || downloadUrl.size() > std::numeric_limits<uint8_t>::max())
 					{
-						self.core->logLn(LogLevel::Error, "[artwork:error] Vehicle download URL exceeds the 255-byte extension limit.");
+						self.core->logLn(LogLevel::Error, "[artwork:error] Vehicle download URL must be HTTP(S) and no longer than 255 bytes.");
 						if (data != nullptr)
 						{
 							data->setRequestedFile(ModelDownloadType::NONE, 0);
@@ -1432,9 +1435,15 @@ public:
 			const String encodedDffUrl = httplib::encode_uri(String(baseUrl.data()) + dff.name);
 			const String encodedTxdUrl = httplib::encode_uri(String(baseUrl.data()) + txd.name);
 			const size_t maxUrlLength = std::numeric_limits<uint8_t>::max();
-			if (encodedDffUrl.size() > maxUrlLength || encodedTxdUrl.size() > maxUrlLength)
+			const auto isSupportedVehicleUrl = [maxUrlLength](const String& url)
 			{
-				core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom vehicle model. Encoded DFF/TXD download URLs must not exceed 255 bytes.");
+				return (url.compare(0, 7, "http://") == 0 ||
+					url.compare(0, 8, "https://") == 0) &&
+					!url.empty() && url.size() <= maxUrlLength;
+			};
+			if (!isSupportedVehicleUrl(encodedDffUrl) || !isSupportedVehicleUrl(encodedTxdUrl))
+			{
+				core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom vehicle model. Encoded DFF/TXD URLs must use HTTP(S) and fit in 255 bytes.");
 				return false;
 			}
 		}
