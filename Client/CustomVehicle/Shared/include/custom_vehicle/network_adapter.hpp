@@ -39,6 +39,7 @@ public:
 
 	// Sends the empty RPC 186 capability opt-in and resets state for this connection.
 	bool beginConnection() noexcept;
+	void endConnection() noexcept;
 
 	// Routes server RPCs. Vehicle manifests and matching download RPCs are consumed;
 	// native SA-MP/DL artwork records remain available to the original client.
