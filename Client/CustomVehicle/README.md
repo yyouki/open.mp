@@ -8,9 +8,9 @@ custom vehicle extension in open.mp. The server component remains in
 
 The client is split into two layers:
 
-- **Shared core**: platform-neutral C++17 protocol parsing, model-ID validation,
-  and asset integrity checks. It must not include GTA, SA-MP, Windows, or Android
-  headers.
+- **Shared core**: platform-neutral C++17 protocol parsing, session state,
+  model-ID validation, and asset integrity checks. It must not include GTA,
+  SA-MP, Windows, or Android headers.
 - **Platform adapters**: client-specific networking, file storage, model loading,
   and vehicle-model registration. Each adapter is built and tested for its own
   client binary, operating system, and CPU ABI.
@@ -51,50 +51,52 @@ end-to-end rendering, not just a missing wrapper.
 
 ## Shared core
 
-The first shared implementation is in [Shared](Shared/). It decodes the existing
-39-byte RPC 179 model-manifest record, validates the experimental vehicle ID
-range (30001-32767) and supported base vehicle IDs (400-611, excluding 449,
-537, 538, 569, and 570), and verifies downloaded asset size plus CRC32.
+The first implementation is in [Shared](Shared/). It currently provides:
 
-Build and run its tests:
-
-```sh
-cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-client
-cmake --build build/custom-vehicle-client
-ctest --test-dir build/custom-vehicle-client --output-on-failure
-```
-
-## Protocol facts
-
-The current experimental server extension uses these RPC identifiers:
-
-| RPC | Direction | Purpose |
-| --- | --- | --- |
-| 179 | Server to client | Custom model manifest record |
-| 181 | Client to server | Request DFF download URL by checksum |
-| 182 | Client to server | Request TXD download URL by checksum |
-| 183 | Server to client | Download URL and asset metadata |
-| 184 | Client to server | Finish-download notification |
-| 185 | Server to client | Download-completed acknowledgement |
-| 186 | Client to server | Custom vehicle capability opt-in |
-| 187 | Server to client | Capability acknowledgement |
+- Decoder and validation for the 39-byte RPC 179 model manifest.
+- Decoder for RPC 183 download URLs, including transport marker 6,
+  `ModelDownloadType` values `DFF=1` and `TXD=2`, checksum, and
+  length-prefixed URL.
+- Encoder for checksum requests RPC 181 (DFF) and RPC 182 (TXD).
+- Portable CRC32 and exact size/checksum verification for downloaded assets.
+- A session state machine for RPC 186/187 capability negotiation, vehicle
+  manifest collection, sequential asset requests, URL matching, file
+  verification, RPC 184 finish notifications, and RPC 185 acknowledgements.
+- Retry behavior for truncated or checksum-mismatching assets. Invalid data
+  never advances the download-completion state.
 
 RPC 179 currently encodes: `poolId:u32`, `modelCount:i32`,
 `type:u8`, `virtualWorld:i32`, `baseId:i32`, `newId:i32`,
 `dffChecksum:u32`, `txdChecksum:u32`, `dffSize:u32`,
 `txdSize:u32`, `timeOn:u8`, and `timeOff:u8`.
-The wire payload is 39 bytes. The shared decoder reads fixed-width integers
-as little-endian values and validates the pool index before publishing a record.
+The wire payload is 39 bytes. Fixed-width integers are decoded as little-endian
+values; negative counts, invalid pool indices, unsupported base IDs, and
+out-of-range custom IDs are rejected.
 
 The RPC IDs above belong to this experimental open.mp extension. They are not a
 claim that stock SA-MP clients understand custom vehicles or these extension
-messages.
+messages. The shared session is a protocol engine, not a network hook, HTTP
+downloader, DFF/TXD loader, or game integration.
+
+Build and run its tests:
+
+```sh
+cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-client -DCMAKE_BUILD_TYPE=Release
+cmake --build build/custom-vehicle-client --config Release
+ctest --test-dir build/custom-vehicle-client --build-config Release --output-on-failure
+```
+
+The dedicated CI workflow compiles/tests the host core on Windows, Linux, and
+macOS, and cross-compiles the portable core for Android `arm64-v8a`,
+`armeabi-v7a`, `x86`, and `x86_64`. These jobs validate only the portable
+library; they do not certify a multiplayer game client or its native model
+backend on those targets.
 
 ## Milestones
 
-1. **Shared protocol core** — manifest decoding, model validation, asset integrity,
-   and portable unit tests.
-2. **Windows x86 ASI adapter** — capability negotiation, RPC handlers, asset
+1. **Shared protocol core** — manifest and download RPC codecs, session flow,
+   model validation, asset integrity, and portable unit tests.
+2. **Windows x86 ASI adapter** — capability negotiation, RPC hooks, HTTP
    download/cache, and exact client-version gating.
 3. **GTA native backend** — safe DFF/TXD registration, model streaming, model
    lookup, vehicle construction, and cleanup on a verified executable profile.
