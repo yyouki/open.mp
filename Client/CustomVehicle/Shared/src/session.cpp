@@ -109,7 +109,10 @@ ManifestDisposition ClientSession::acceptModelManifest(
 		return ManifestDisposition::Rejected;
 	}
 
+	// The extension manifest has its own contiguous pool, starting at index zero.
+	// Late registrations append exactly one record at the current vehicle count.
 	if (request.modelCount < manifestCount_
+		|| request.poolId != vehicleModels_.size()
 		|| std::any_of(vehicleModels_.begin(), vehicleModels_.end(),
 			[&request](const ModelRequest& model) { return model.poolId == request.poolId; }))
 	{
