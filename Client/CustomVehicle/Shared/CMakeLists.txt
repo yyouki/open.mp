@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(custom_vehicle_protocol LANGUAGES CXX)
+project(custom_vehicle_protocol LANGUAGES C CXX)
 
 add_library(custom_vehicle_protocol STATIC
 	src/protocol.cpp
@@ -16,6 +16,22 @@ target_include_directories(custom_vehicle_protocol
 )
 
 target_compile_features(custom_vehicle_protocol PUBLIC cxx_std_17)
+
+# Compile the public bridge header as C to catch accidental C++ ABI leakage.
+add_library(custom_vehicle_bridge_c_header_check OBJECT
+	tests/bridge_header_c_test.c
+)
+target_include_directories(custom_vehicle_bridge_c_header_check
+	PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(custom_vehicle_bridge_c_header_check PRIVATE c_std_99)
+
+if(MSVC)
+	target_compile_options(custom_vehicle_bridge_c_header_check PRIVATE /W4 /WX)
+else()
+	target_compile_options(custom_vehicle_bridge_c_header_check PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 if(MSVC)
 	target_compile_options(custom_vehicle_protocol PRIVATE /W4 /WX)
