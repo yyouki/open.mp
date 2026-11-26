@@ -79,6 +79,42 @@ void testMalformedManifest()
 	assert(error == DecodeError::InvalidModelType);
 }
 
+void testModelCountAndPoolIndexValidation()
+{
+	auto bytes = makeVehicleRequest();
+	ModelRequest request;
+	request.newId = 31234; // Failed decodes must not publish partial output.
+	DecodeError error = DecodeError::None;
+
+	// A signed -1 count must not become a huge unsigned pool capacity.
+	bytes[4] = 0xFF;
+	bytes[5] = 0xFF;
+	bytes[6] = 0xFF;
+	bytes[7] = 0xFF;
+	assert(!decodeModelRequest(bytes.data(), bytes.size(), request, error));
+	assert(error == DecodeError::InvalidModelCount);
+	assert(request.newId == 31234);
+
+	// A zero-entry manifest is invalid too.
+	bytes[4] = 0;
+	bytes[5] = 0;
+	bytes[6] = 0;
+	bytes[7] = 0;
+	assert(!decodeModelRequest(bytes.data(), bytes.size(), request, error));
+	assert(error == DecodeError::InvalidModelCount);
+	assert(request.newId == 31234);
+
+	// An entry index equal to the one-entry count is outside the pool.
+	bytes[4] = 1;
+	bytes[5] = 0;
+	bytes[6] = 0;
+	bytes[7] = 0;
+	bytes[0] = 1;
+	assert(!decodeModelRequest(bytes.data(), bytes.size(), request, error));
+	assert(error == DecodeError::InvalidPoolIndex);
+	assert(request.newId == 31234);
+}
+
 void testVehicleValidation()
 {
 	auto bytes = makeVehicleRequest();
@@ -127,6 +163,7 @@ int main()
 {
 	testManifestDecode();
 	testMalformedManifest();
+	testModelCountAndPoolIndexValidation();
 	testVehicleValidation();
 	testAssetIntegrity();
 	return 0;
