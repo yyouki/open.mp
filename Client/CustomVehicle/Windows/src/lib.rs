@@ -80,21 +80,22 @@ struct CustomVehicleCallbacksV1 {
     >,
 }
 
+/// Stable C-compatible copy of a registered custom vehicle model manifest record.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct CustomVehicleModelRequestV1 {
-    pool_id: u32,
-    model_count: u32,
-    model_type: u8,
-    virtual_world: i32,
-    base_id: i32,
-    new_id: i32,
-    dff_checksum: u32,
-    txd_checksum: u32,
-    dff_size: u32,
-    txd_size: u32,
-    time_on: u8,
-    time_off: u8,
+pub struct CustomVehicleModelRequestV1 {
+    pub pool_id: u32,
+    pub model_count: u32,
+    pub model_type: u8,
+    pub virtual_world: i32,
+    pub base_id: i32,
+    pub new_id: i32,
+    pub dff_checksum: u32,
+    pub txd_checksum: u32,
+    pub dff_size: u32,
+    pub txd_size: u32,
+    pub time_on: u8,
+    pub time_off: u8,
 }
 
 unsafe extern "C" {
