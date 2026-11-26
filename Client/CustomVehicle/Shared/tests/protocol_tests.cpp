@@ -465,6 +465,17 @@ void testNetworkAdapterFlow()
 			== RpcDisposition::ForwardToGame);
 	}
 
+	// Client-to-server extension IDs arriving from the server are reserved and consumed.
+	for (const std::uint8_t wrongDirectionRpc : {
+		static_cast<std::uint8_t>(221),
+		static_cast<std::uint8_t>(223),
+		static_cast<std::uint8_t>(224),
+		static_cast<std::uint8_t>(226)
+	})
+	{
+		assert(adapter.handleServerRpc(wrongDirectionRpc, nullptr, 0) == RpcDisposition::Consume);
+	}
+
 	auto malformedDffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
 	malformedDffUrl[0] = 5; // Invalid transport marker while a custom DFF URL is expected.
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
@@ -667,6 +678,18 @@ void testCAbiBridge()
 	{
 		assert(custom_vehicle_adapter_handle_server_rpc(
 			adapter, nativeRpc, nullptr, 0) == 0);
+	}
+
+	// Reserved client-to-server extension RPCs are still consumed if received inbound.
+	for (const std::uint8_t wrongDirectionRpc : {
+		static_cast<std::uint8_t>(221),
+		static_cast<std::uint8_t>(223),
+		static_cast<std::uint8_t>(224),
+		static_cast<std::uint8_t>(226)
+	})
+	{
+		assert(custom_vehicle_adapter_handle_server_rpc(
+			adapter, wrongDirectionRpc, nullptr, 0) == 1);
 	}
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 0) == 0);
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 1) == -1);
