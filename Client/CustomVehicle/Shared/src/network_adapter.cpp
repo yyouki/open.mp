@@ -146,10 +146,9 @@ bool ClientNetworkAdapter::completeAsset(
 bool ClientNetworkAdapter::retryActiveAsset() noexcept
 {
 	std::lock_guard lock(mutex_);
-	if (!session_.retryActiveAsset())
-	{
-		return false;
-	}
+
+	// Re-queue an in-flight transfer, or dispatch an asset already re-queued after send failure.
+	session_.retryActiveAsset();
 	return requestNextAssetUnlocked();
 }
 
