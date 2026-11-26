@@ -335,10 +335,6 @@ fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
     (220..=227).contains(&rpc_id)
 }
 
-fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
-    (220..=227).contains(&rpc_id)
-}
-
 fn handle_server_rpc(
     context: &BridgeContext,
     event: &mut samp_client_sdk::events::Event<'_>,
