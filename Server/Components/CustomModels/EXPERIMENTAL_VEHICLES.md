@@ -64,6 +64,12 @@ download pipeline:
 | 226 | Client → server | Report vehicle asset completion |
 | 227 | Server → client | Confirm vehicle asset completion |
 
+The URL in RPC 225 uses the existing one-byte dynamic-string length field.
+Vehicle asset URLs must therefore be HTTP(S) and no longer than 255 encoded
+bytes. The server rejects a vehicle model during registration if either its
+encoded DFF or TXD URL exceeds that limit, and rechecks the limit before sending
+a URL response.
+
 The native SA-MP/0.3.DL artwork RPCs remain unchanged: 179 carries native
 skin/object model records, 181/182 request their DFF/TXD files, 183 carries
 their URLs, and 184/185 complete the native artwork transfer. The custom
