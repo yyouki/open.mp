@@ -23,14 +23,16 @@ the replacement artwork sent to capable clients.
 
 ## Asset integrity
 
-For the local artwork web server, each registered file path is bound to the
-size and CRC32 recorded in the model manifest. Registering the same path again
-with different contents is rejected. Before serving a registered DFF/TXD, the
-server rechecks its path, size, and CRC32; a mismatch is answered with HTTP 409
-instead of serving the changed file. Restore the registered bytes or restart
-the server after updating the model registration.
+Each registered file path is bound to the size and CRC32 recorded in the
+model manifest, regardless of whether the server uses its local web server or
+a CDN. Registering the same path again with different contents is rejected.
 
-When `artwork.cdn` is configured, the server does not control or validate the
+With the local artwork web server, the server rechecks a registered file's
+path, size, and CRC32 before serving it and again after opening it. A mismatch
+is answered with HTTP 409 instead of serving the changed file. Restore the
+registered bytes or restart the server after updating the model registration.
+
+When `artwork.cdn` is configured, the server cannot inspect or validate the
 remote CDN response. The operator must publish the exact DFF/TXD bytes that
 were used when the model was registered and keep those URLs immutable.
 
