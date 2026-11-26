@@ -61,7 +61,7 @@ static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
 		}
 
 		const StringView segment(fileNameString.data() + segmentStart, segmentEnd - segmentStart);
-		if (segment == "." || segment == "..")
+		if (segment == "." || segment == ".." || segment.back() == '.' || segment.back() == ' ')
 		{
 			return false;
 		}
