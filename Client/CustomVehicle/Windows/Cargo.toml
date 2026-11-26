@@ -6,7 +6,7 @@ publish = false
 
 [lib]
 name = "custom_vehicle_windows"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 samp-client-sdk = { git = "https://github.com/Akionka/rak-samp", rev = "c658b939a3d5b5be512b5b27ea869995bc37b44d", package = "samp-client-sdk" }
