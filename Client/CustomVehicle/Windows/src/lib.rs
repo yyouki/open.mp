@@ -386,11 +386,24 @@ fn handle_server_rpc(
 
     match result {
         1 => SampClientSdkHookAction::Block,
-        0 => SampClientSdkHookAction::Continue,
+        0 => {
+            // Native RPCs must reach the original parser with their read cursor restored.
+            if event.reset_read().is_err() {
+                SampClientSdkHookAction::Block
+            } else {
+                SampClientSdkHookAction::Continue
+            }
+        }
         _ if rpc_id == RPC_MODEL_REQUEST || rpc_id == RPC_SERVER_SUPPORTS_VEHICLES => {
             SampClientSdkHookAction::Block
         }
-        _ => SampClientSdkHookAction::Continue,
+        _ => {
+            if event.reset_read().is_err() {
+                SampClientSdkHookAction::Block
+            } else {
+                SampClientSdkHookAction::Continue
+            }
+        }
     }
 }
 
