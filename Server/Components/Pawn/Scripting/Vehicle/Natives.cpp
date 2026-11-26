@@ -37,6 +37,43 @@ int getBaseVehicleModel(int modelID)
 	}
 	return modelID;
 }
+bool canSetVehicleSpawnInfo(IVehicle& vehicle, int modelID)
+{
+	int baseModelID = modelID;
+	if (CustomModels::isCustomVehicleModelId(modelID))
+	{
+		auto* models = PawnManager::Get()->models;
+		if (!models)
+		{
+			return false;
+		}
+
+		uint32_t baseID = static_cast<uint32_t>(modelID);
+		uint32_t customID = 0;
+		if (!models->getBaseModel(baseID, customID) ||
+			customID != static_cast<uint32_t>(modelID) ||
+			!Impl::isValidVehicleModel(static_cast<int>(baseID)) ||
+			!CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
+		{
+			return false;
+		}
+
+		baseModelID = static_cast<int>(baseID);
+	}
+	else if (!Impl::isValidVehicleModel(modelID))
+	{
+		return false;
+	}
+
+	const auto isTrainConsistModel = [](int id)
+	{
+		return id == 537 || id == 538 || id == 569 || id == 570;
+	};
+
+	const int currentBaseModelID = vehicle.getSpawnData().modelID;
+	return currentBaseModelID == baseModelID ||
+		(!isTrainConsistModel(currentBaseModelID) && !isTrainConsistModel(baseModelID));
+}
 }
 
 SCRIPT_API(CreateVehicle, int(int modelid, Vector3 pos, float rotation, int colour1, int colour2, int respawnDelay))
@@ -440,8 +477,12 @@ SCRIPT_API(GetVehicleSpawnInfo, bool(IVehicle& vehicle, Vector3& position, float
 
 SCRIPT_API(SetVehicleSpawnInfo, bool(IVehicle& vehicle, int modelid, Vector3 position, float rotation, int colour1, int colour2, int respawn_time, int interior))
 {
-	const VehicleSpawnData& data = vehicle.getSpawnData();
+	if (!canSetVehicleSpawnInfo(vehicle, modelid))
+	{
+		return false;
+	}
 
+	const VehicleSpawnData& data = vehicle.getSpawnData();
 	vehicle.setSpawnData({ respawn_time >= -1 ? Seconds(respawn_time) : data.respawnDelay, modelid, position, rotation, colour1, colour2, data.siren, interior != -2 ? interior : data.interior });
 	return true;
 }
