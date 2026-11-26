@@ -238,6 +238,58 @@ public:
 	const int32_t getId() { return newId_; }
 };
 
+
+class RegisteredModelAssets
+{
+public:
+	struct Asset
+	{
+		uint32_t checksum;
+		size_t size;
+	};
+
+private:
+	FlatHashMap<String, Asset> assets_;
+	mutable std::shared_mutex mutex_;
+
+public:
+	bool registerAssets(const ModelFile& dff, const ModelFile& txd)
+	{
+		std::unique_lock lock(mutex_);
+
+		auto isCompatible = [this](const ModelFile& file)
+		{
+			auto itr = assets_.find(file.name);
+			return itr == assets_.end() ||
+				(itr->second.checksum == file.checksum && itr->second.size == file.size);
+		};
+
+		// A registered URL must identify the same bytes in both local and CDN modes.
+		if (!isCompatible(dff) || !isCompatible(txd))
+		{
+			return false;
+		}
+
+		assets_.emplace(dff.name, Asset { dff.checksum, dff.size });
+		assets_.emplace(txd.name, Asset { txd.checksum, txd.size });
+		return true;
+	}
+
+	bool find(StringView fileName, Asset& asset) const
+	{
+		const String key(fileName.data(), fileName.size());
+		std::shared_lock lock(mutex_);
+		auto itr = assets_.find(key);
+		if (itr == assets_.end())
+		{
+			return false;
+		}
+
+		asset = itr->second;
+		return true;
+	}
+};
+
 class WebServer
 {
 private:
@@ -253,14 +305,7 @@ private:
 	FlatHashMap<uint32_t, uint16_t> allowedIPs_;
 	std::shared_mutex mutex_;
 
-	struct RegisteredAsset
-	{
-		uint32_t checksum;
-		size_t size;
-	};
-
-	FlatHashMap<String, RegisteredAsset> registeredAssets_;
-	std::shared_mutex assetsMutex_;
+	RegisteredModelAssets& registeredAssets_;
 
 	bool isRegisteredAssetCurrent(StringView requestPath)
 	{
@@ -270,15 +315,10 @@ private:
 		}
 
 		const String fileName(requestPath.data() + 1, requestPath.size() - 1);
-		RegisteredAsset expectedAsset {};
+		RegisteredModelAssets::Asset expectedAsset {};
+		if (!registeredAssets_.find(fileName, expectedAsset))
 		{
-			std::shared_lock lock(assetsMutex_);
-			auto itr = registeredAssets_.find(fileName);
-			if (itr == registeredAssets_.end())
-			{
-				return true;
-			}
-			expectedAsset = itr->second;
+			return true;
 		}
 
 		// Re-resolve the path so a replaced symlink cannot redirect validation outside the models directory.
@@ -290,34 +330,13 @@ private:
 		uint32_t currentChecksum = 0;
 		const size_t currentSize = GetFileCRC32Checksum(modelsPath_ + "/" + fileName, currentChecksum);
 		return currentSize == expectedAsset.size && currentChecksum == expectedAsset.checksum;
-	}
-
-	bool registerAssets(const ModelFile& dff, const ModelFile& txd)
-	{
-		std::unique_lock lock(assetsMutex_);
-
-		auto isCompatible = [this](const ModelFile& file)
-		{
-			auto itr = registeredAssets_.find(file.name);
-			return itr == registeredAssets_.end() ||
-				(itr->second.checksum == file.checksum && itr->second.size == file.size);
-		};
-
-		// One URL path must always identify one immutable byte sequence.
-		if (!isCompatible(dff) || !isCompatible(txd))
-		{
-			return false;
-		}
-
-		registeredAssets_.emplace(dff.name, RegisteredAsset { dff.checksum, dff.size });
-		registeredAssets_.emplace(txd.name, RegisteredAsset { txd.checksum, txd.size });
-		return true;
-	}
+}
 
 public:
-	WebServer(ICore* core, StringView modelsPath, StringView bind, uint16_t port, StringView publicAddr, uint16_t threadsCount)
+	WebServer(ICore* core, StringView modelsPath, StringView bind, uint16_t port, StringView publicAddr, uint16_t threadsCount, RegisteredModelAssets& registeredAssets)
 		: port_(port)
 		, modelsPath_(modelsPath)
+		, registeredAssets_(registeredAssets)
 	{
 
 		if (!bind.empty())
@@ -566,6 +585,7 @@ private:
 	IPlayerPool* players = nullptr;
 
 	WebServer* webServer = nullptr;
+	RegisteredModelAssets registeredAssets;
 
 	std::vector<ModelInfo*> storage;
 	FlatHashMap<uint32_t, uint16_t> baseModels;
@@ -1090,24 +1110,13 @@ public:
 
 		WebServer* candidate = new WebServer(core, modelsPath, bindAddress,
 			*core->getConfig().getInt("artwork.port"),
-			core->getConfig().getString("network.public_addr"), httpThreads);
+			core->getConfig().getString("network.public_addr"), httpThreads, registeredAssets);
 
 		if (!candidate->is_running())
 		{
 			delete candidate;
 			core->logLn(LogLevel::Error, "Failed to start web server");
 			return;
-		}
-
-		// Restore file integrity metadata if the local server had to be restarted.
-		for (ModelInfo* model : storage)
-		{
-			if (!candidate->registerAssets(model->getDFF(), model->getTXD()))
-			{
-				delete candidate;
-				core->logLn(LogLevel::Error, "Failed to start web server: registered model filenames have conflicting asset contents.");
-				return;
-			}
 		}
 
 		webServer = candidate;
@@ -1280,7 +1289,7 @@ public:
 			return false;
 		}
 
-		if (webServer && !webServer->registerAssets(dff, txd))
+		if (!registeredAssets.registerAssets(dff, txd))
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. A registered filename is already associated with different asset contents.");
 			return false;
