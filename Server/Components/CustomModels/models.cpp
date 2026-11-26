@@ -246,15 +246,78 @@ private:
 
 	String address_ = "";
 	uint16_t port_ = 0;
+	String modelsPath_;
 
 	String url = "";
 
 	FlatHashMap<uint32_t, uint16_t> allowedIPs_;
 	std::shared_mutex mutex_;
 
+	struct RegisteredAsset
+	{
+		uint32_t checksum;
+		size_t size;
+	};
+
+	FlatHashMap<String, RegisteredAsset> registeredAssets_;
+	std::shared_mutex assetsMutex_;
+
+	bool isRegisteredAssetCurrent(StringView requestPath)
+	{
+		if (requestPath.size() < 2 || requestPath.front() != '/')
+		{
+			return true;
+		}
+
+		const String fileName(requestPath.data() + 1, requestPath.size() - 1);
+		RegisteredAsset expectedAsset {};
+		{
+			std::shared_lock lock(assetsMutex_);
+			auto itr = registeredAssets_.find(fileName);
+			if (itr == registeredAssets_.end())
+			{
+				return true;
+			}
+			expectedAsset = itr->second;
+		}
+
+		// Re-resolve the path so a replaced symlink cannot redirect validation outside the models directory.
+		if (!isSafeModelFilePath(modelsPath_, fileName))
+		{
+			return false;
+		}
+
+		uint32_t currentChecksum = 0;
+		const size_t currentSize = GetFileCRC32Checksum(modelsPath_ + "/" + fileName, currentChecksum);
+		return currentSize == expectedAsset.size && currentChecksum == expectedAsset.checksum;
+	}
+
+	bool registerAssets(const ModelFile& dff, const ModelFile& txd)
+	{
+		std::unique_lock lock(assetsMutex_);
+
+		auto isCompatible = [this](const ModelFile& file)
+		{
+			auto itr = registeredAssets_.find(file.name);
+			return itr == registeredAssets_.end() ||
+				(itr->second.checksum == file.checksum && itr->second.size == file.size);
+		};
+
+		// One URL path must always identify one immutable byte sequence.
+		if (!isCompatible(dff) || !isCompatible(txd))
+		{
+			return false;
+		}
+
+		registeredAssets_.emplace(dff.name, RegisteredAsset { dff.checksum, dff.size });
+		registeredAssets_.emplace(txd.name, RegisteredAsset { txd.checksum, txd.size });
+		return true;
+	}
+
 public:
 	WebServer(ICore* core, StringView modelsPath, StringView bind, uint16_t port, StringView publicAddr, uint16_t threadsCount)
 		: port_(port)
+		, modelsPath_(modelsPath)
 	{
 
 		if (!bind.empty())
@@ -315,14 +378,33 @@ public:
 				}
 
 				auto ip = reinterpret_cast<const struct sockaddr_in*>(&req.sockaddr)->sin_addr.s_addr;
-				std::shared_lock<std::shared_mutex> lock(mutex_);
-				if (allowedIPs_.find(ip) == allowedIPs_.end())
 				{
-					res.status = 401;
+					std::shared_lock<std::shared_mutex> lock(mutex_);
+					if (allowedIPs_.find(ip) == allowedIPs_.end())
+					{
+						res.status = 401;
+						return httplib::Server::HandlerResponse::Handled;
+					}
+				}
+
+				if (!isRegisteredAssetCurrent(req.path))
+				{
+					res.status = 409;
+					res.set_content("Registered model asset changed after registration.", "text/plain");
 					return httplib::Server::HandlerResponse::Handled;
 				}
 
 				return httplib::Server::HandlerResponse::Unhandled;
+			});
+
+		// Recheck after the static file is opened to catch a file replacement during request routing.
+		svr.set_file_request_handler([this](const httplib::Request& req, httplib::Response& res)
+			{
+				if (!isRegisteredAssetCurrent(req.path))
+				{
+					res.status = 409;
+					res.set_content("Registered model asset changed after registration.", "text/plain");
+				}
 			});
 
 		if (!svr.set_mount_point("/", modelsPath.data()))
@@ -1017,6 +1099,17 @@ public:
 			return;
 		}
 
+		// Restore file integrity metadata if the local server had to be restarted.
+		for (ModelInfo* model : storage)
+		{
+			if (!candidate->registerAssets(model->getDFF(), model->getTXD()))
+			{
+				delete candidate;
+				core->logLn(LogLevel::Error, "Failed to start web server: registered model filenames have conflicting asset contents.");
+				return;
+			}
+		}
+
 		webServer = candidate;
 
 		// The web server may be created after players have already connected.
@@ -1184,6 +1277,12 @@ public:
 		if (!hasDownloadEndpoint())
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model because no download endpoint is available.");
+			return false;
+		}
+
+		if (webServer && !webServer->registerAssets(dff, txd))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. A registered filename is already associated with different asset contents.");
 			return false;
 		}
 
