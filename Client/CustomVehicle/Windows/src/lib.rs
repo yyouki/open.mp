@@ -354,11 +354,8 @@ fn handle_server_rpc(
     }
 
     if event.reset_read().is_err() {
-        return if is_custom_vehicle_rpc(rpc_id) {
-            SampClientSdkHookAction::Block
-        } else {
-            SampClientSdkHookAction::Continue
-        };
+        // The client parser must never receive a packet with an unknown read cursor.
+        return SampClientSdkHookAction::Block;
     }
 
     let payload = match event.read_bits(bit_len) {
