@@ -109,6 +109,13 @@ ManifestDisposition ClientSession::acceptModelManifest(
 		return ManifestDisposition::Rejected;
 	}
 
+	if (request.modelCount < manifestCount_
+		|| std::any_of(vehicleModels_.begin(), vehicleModels_.end(),
+			[&request](const ModelRequest& model) { return model.poolId == request.poolId; }))
+	{
+		sessionError = SessionError::InconsistentManifest;
+		return ManifestDisposition::Rejected;
+	}
 	if (hasAssetConflict(AssetType::Dff, request.dffChecksum, request.dffSize)
 		|| hasAssetConflict(AssetType::Txd, request.txdChecksum, request.txdSize))
 	{
@@ -117,6 +124,7 @@ ManifestDisposition ClientSession::acceptModelManifest(
 	}
 
 	vehicleModels_.push_back(request);
+	manifestCount_ = request.modelCount;
 	queueAsset(AssetType::Dff, request.dffChecksum, request.dffSize);
 	queueAsset(AssetType::Txd, request.txdChecksum, request.txdSize);
 	return ManifestDisposition::AcceptedVehicle;
@@ -250,6 +258,7 @@ void ClientSession::reset() noexcept
 	capability_ = CapabilityState::NotNegotiated;
 	vehicleModels_.clear();
 	assets_.clear();
+	manifestCount_ = 0;
 	activeAssetIndex_ = 0;
 	hasActiveAsset_ = false;
 }
