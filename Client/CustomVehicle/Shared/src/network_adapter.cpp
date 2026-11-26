@@ -36,19 +36,18 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		{
 			SessionError error = SessionError::None;
 			session_.acceptCapabilityAcknowledgement(payload, size, error);
-			// RPC 187 belongs to this extension and must not reach the stock client.
+			// RPC 222 belongs only to the custom vehicle extension.
 			return RpcDisposition::Consume;
 		}
 		case RpcId::ModelUrl:
 		{
-			const bool belongsToCustomTransfer = session_.awaitingDownloadUrl();
 			AssetDownload download;
 			DecodeError decodeError = DecodeError::None;
 			SessionError sessionError = SessionError::None;
 			if (!session_.acceptDownloadUrl(payload, size, download, decodeError, sessionError))
 			{
-				// A malformed or mismatched custom URL must never reach the stock DL parser.
-				return belongsToCustomTransfer ? RpcDisposition::Consume : RpcDisposition::ForwardToGame;
+				// RPC 225 is extension-only; malformed custom payloads are always consumed.
+				return RpcDisposition::Consume;
 			}
 
 			// The sink must copy the URL and enqueue I/O without re-entering this adapter.
@@ -61,23 +60,22 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		}
 		case RpcId::DownloadCompleted:
 		{
-			const bool belongsToCustomTransfer = session_.awaitingDownloadAcknowledgement();
 			SessionError error = SessionError::None;
 			if (!session_.acceptDownloadAcknowledgement(payload, size, error))
 			{
-				// Malformed custom acknowledgements must not reach the stock DL parser.
-				return belongsToCustomTransfer ? RpcDisposition::Consume : RpcDisposition::ForwardToGame;
+				// RPC 227 is extension-only; never pass its malformed payload to the game.
+				return RpcDisposition::Consume;
 			}
 			requestNextAssetUnlocked();
 			return RpcDisposition::Consume;
 		}
 		case RpcId::ModelRequest:
 		{
-			// Keep native skin/object records on the original 0.3.DL artwork path.
+			// RPC 220 is reserved for vehicle manifests; native artwork stays on RPC 179.
 			if (payload == nullptr || size <= 8
 				|| payload[8] != static_cast<std::uint8_t>(ModelType::Vehicle))
 			{
-				return RpcDisposition::ForwardToGame;
+				return RpcDisposition::Consume;
 			}
 
 			try
@@ -93,7 +91,7 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 			}
 			catch (...)
 			{
-				// Fail closed for type 3 so the stock game parser never sees an unknown model kind.
+				// Fail closed so an invalid extension record never reaches the stock parser.
 			}
 			return RpcDisposition::Consume;
 		}
