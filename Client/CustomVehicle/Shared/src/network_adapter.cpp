@@ -54,18 +54,19 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 			// The sink must copy the URL and enqueue I/O without re-entering this adapter.
 			if (!downloader_.beginDownload(download))
 			{
+				// Leave the asset queued; the platform host applies backoff before retrying.
 				session_.retryActiveAsset();
-				requestNextAssetUnlocked();
 			}
 			return RpcDisposition::Consume;
 		}
 		case RpcId::DownloadCompleted:
 		{
+			const bool belongsToCustomTransfer = session_.awaitingDownloadAcknowledgement();
 			SessionError error = SessionError::None;
 			if (!session_.acceptDownloadAcknowledgement(payload, size, error))
 			{
-				// This may be the acknowledgement for a native 0.3.DL asset transfer.
-				return RpcDisposition::ForwardToGame;
+				// Malformed custom acknowledgements must not reach the stock DL parser.
+				return belongsToCustomTransfer ? RpcDisposition::Consume : RpcDisposition::ForwardToGame;
 			}
 			requestNextAssetUnlocked();
 			return RpcDisposition::Consume;
