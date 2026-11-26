@@ -1204,7 +1204,7 @@ public:
 	{
 		// Check if model is default one (base).
 		// If so, there's no custom model to be returned.
-		if (baseModelIdOrInput >= 0 && baseModelIdOrInput < MIN_CUSTOM_SKIN_ID)
+		if (baseModelIdOrInput < MIN_CUSTOM_SKIN_ID)
 			return false;
 
 		// Check if input is valid custom model.
