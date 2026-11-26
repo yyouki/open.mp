@@ -11,7 +11,7 @@
 #include <Server/Components/Vehicles/vehicle_models.hpp>
 #include <Server/Components/Vehicles/vehicle_colours.hpp>
 #include <Server/Components/Vehicles/vehicle_seats.hpp>
-#include <Server/Components/CustomModels/model_types.hpp>
+#include "../../../CustomModels/model_types.hpp"
 #include <sdk.hpp>
 
 namespace
