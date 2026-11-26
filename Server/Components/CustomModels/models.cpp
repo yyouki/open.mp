@@ -957,8 +957,19 @@ private:
 				const StringView baseUrl = self.getWebUrl();
 				if (!baseUrl.empty())
 				{
+					const String downloadUrl = httplib::encode_uri(String(baseUrl.data()) + file.name);
+					if (downloadUrl.size() > std::numeric_limits<uint8_t>::max())
+					{
+						self.core->logLn(LogLevel::Error, "[artwork:error] Vehicle download URL exceeds the 255-byte extension limit.");
+						if (data != nullptr)
+						{
+							data->setRequestedFile(ModelDownloadType::NONE, 0);
+						}
+						return true;
+					}
+
 					NetCode::RPC::VehicleModelUrl urlRPC(
-						httplib::encode_uri(String(baseUrl.data()) + file.name),
+						downloadUrl,
 						static_cast<uint8_t>(type),
 						file.checksum);
 					PacketHelper::send(urlRPC, peer);
@@ -1413,6 +1424,19 @@ public:
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model because no download endpoint is available.");
 			return false;
+		}
+
+		if (type == CustomModels::Vehicle)
+		{
+			const StringView baseUrl = getWebUrl();
+			const String encodedDffUrl = httplib::encode_uri(String(baseUrl.data()) + dff.name);
+			const String encodedTxdUrl = httplib::encode_uri(String(baseUrl.data()) + txd.name);
+			const size_t maxUrlLength = std::numeric_limits<uint8_t>::max();
+			if (encodedDffUrl.size() > maxUrlLength || encodedTxdUrl.size() > maxUrlLength)
+			{
+				core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom vehicle model. Encoded DFF/TXD download URLs must not exceed 255 bytes.");
+				return false;
+			}
 		}
 
 		if (!registeredAssets.registerAssets(dff, txd))
