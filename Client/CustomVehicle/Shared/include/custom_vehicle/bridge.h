@@ -55,7 +55,7 @@ typedef struct custom_vehicle_model_request_v1
 custom_vehicle_adapter* custom_vehicle_adapter_create(const custom_vehicle_callbacks_v1* callbacks);
 void custom_vehicle_adapter_destroy(custom_vehicle_adapter* adapter);
 
-// Starts a fresh capability negotiation (RPC 186) for the current multiplayer connection.
+// Starts a fresh capability negotiation (RPC 221) for the current multiplayer connection.
 int32_t custom_vehicle_adapter_begin_connection(custom_vehicle_adapter* adapter);
 void custom_vehicle_adapter_end_connection(custom_vehicle_adapter* adapter);
 
