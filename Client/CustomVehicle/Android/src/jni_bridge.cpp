@@ -331,14 +331,20 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCreate(
 	}
 
 	const jmethodID sendRpcMethod = env->GetMethodID(callbackClass, "sendRpc", "(I[B)Z");
-	const jmethodID beginDownloadMethod =
-		env->GetMethodID(callbackClass, "beginDownload", "(IJJLjava/lang/String;)Z");
-	const bool methodError = clearJavaException(env);
-	env->DeleteLocalRef(callbackClass);
-	if (methodError || sendRpcMethod == nullptr || beginDownloadMethod == nullptr)
+	if (sendRpcMethod == nullptr || clearJavaException(env))
 	{
+		env->DeleteLocalRef(callbackClass);
 		return 0;
 	}
+
+	const jmethodID beginDownloadMethod =
+		env->GetMethodID(callbackClass, "beginDownload", "(IJJLjava/lang/String;)Z");
+	if (beginDownloadMethod == nullptr || clearJavaException(env))
+	{
+		env->DeleteLocalRef(callbackClass);
+		return 0;
+	}
+	env->DeleteLocalRef(callbackClass);
 
 	std::string cacheRoot;
 	if (!getUtf8String(env, cacheDirectory, cacheRoot))
