@@ -231,7 +231,7 @@ void testSessionDownloadLifecycle()
 	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
 	assert(session.capabilityState() == CapabilityState::Ready);
 
-	auto manifest = makeVehicleRequest(dffCrc, txdCrc, dff.size(), txd.size());
+	auto manifest = makeVehicleRequest(dffCrc, txdCrc, static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
 	DecodeError decodeError = DecodeError::None;
 	assert(session.acceptModelManifest(manifest.data(), manifest.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
@@ -276,7 +276,7 @@ void testSessionRejectsMismatchedUrlAndCorruptFile()
 	SessionError sessionError = SessionError::None;
 	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
 
-	auto manifest = makeVehicleRequest(dffCrc, txdCrc, dff.size(), txd.size());
+	auto manifest = makeVehicleRequest(dffCrc, txdCrc, static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
 	DecodeError decodeError = DecodeError::None;
 	assert(session.acceptModelManifest(manifest.data(), manifest.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
