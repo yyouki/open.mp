@@ -74,8 +74,11 @@ RPC 186 and continue to receive base vehicle IDs only.
 
 ## Test status
 
-The server implementation and protocol are still experimental. This branch
-has not yet been verified by a full server build or an end-to-end client test.
+The server implementation and protocol are still experimental. CI builds can
+verify server compilation for supported targets, but compilation alone does
+not verify protocol compatibility or client rendering. No end-to-end test with
+a client implementing model type `3` has been completed yet.
+
 The first compatibility checks should confirm that:
 
 - a stock 0.3.DL client receives no vehicle type-3 records and remains on the
