@@ -493,7 +493,7 @@ private:
 		return usingCdn || (webServer && webServer->is_running());
 	}
 
-	bool supportsCustomVehicles(const IPlayer& player)
+	bool supportsCustomVehicles(IPlayer& player)
 	{
 		const auto* extension = queryExtension<IPlayerCustomVehicleModelsData>(player);
 		return enabled && vehicleModelsEnabled && hasDownloadEndpoint() &&
