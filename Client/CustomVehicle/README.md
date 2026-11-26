@@ -66,6 +66,9 @@ The first implementation is in [Shared](Shared/). It currently provides:
   length-prefixed URL.
 - Encoder for checksum requests RPC 181 (DFF) and RPC 182 (TXD).
 - Portable CRC32 and exact size/checksum verification for downloaded assets.
+- A local DFF/TXD cache keyed by asset type and checksum. Writes use a `.part`
+  file, verify the persisted bytes, and then rename to the final cache path.
+  Existing entries are revalidated; paths resolving outside the cache root are rejected.
 - A session state machine for RPC 186/187 capability negotiation, vehicle
   manifest collection, sequential asset requests, URL matching, file
   verification, RPC 184 finish notifications, and RPC 185 acknowledgements.
@@ -84,8 +87,9 @@ The adapter depends on two platform interfaces: `RpcTransport` sends raw
 RakNet RPC payloads, and `AssetDownloadSink` copies a callback-scoped URL and
 schedules download work off the network callback thread. The sink must not
 re-enter the adapter from `beginDownload`, because it is called while the
-session lock is held. No concrete HTTP client, platform hook, cache, or native
-game model loader is included yet.
+session lock is held. No concrete HTTP client, platform hook, or native game
+model loader is included yet; the cache is an API that the platform downloader
+must call before reporting a completed asset.
 
 RPC 179 currently encodes: `poolId:u32`, `modelCount:i32`,
 `type:u8`, `virtualWorld:i32`, `baseId:i32`, `newId:i32`,
