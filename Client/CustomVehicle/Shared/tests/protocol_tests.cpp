@@ -1,4 +1,5 @@
 #include <custom_vehicle/protocol.hpp>
+#include <custom_vehicle/session.hpp>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -7,6 +8,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 using namespace custom_vehicle::protocol;
@@ -26,7 +28,11 @@ void appendI32(std::vector<std::uint8_t>& bytes, std::int32_t value)
 	appendU32(bytes, static_cast<std::uint32_t>(value));
 }
 
-std::vector<std::uint8_t> makeVehicleRequest()
+std::vector<std::uint8_t> makeVehicleRequest(
+	std::uint32_t dffChecksum = 0x11223344u,
+	std::uint32_t txdChecksum = 0x55667788u,
+	std::uint32_t dffSize = 512,
+	std::uint32_t txdSize = 1024)
 {
 	std::vector<std::uint8_t> bytes;
 	bytes.reserve(ModelRequestWireSize);
@@ -36,12 +42,24 @@ std::vector<std::uint8_t> makeVehicleRequest()
 	appendI32(bytes, -1);            // Global virtual world.
 	appendI32(bytes, 400);           // Base vehicle model.
 	appendI32(bytes, 30001);         // Custom vehicle model ID.
-	appendU32(bytes, 0x11223344u);   // DFF checksum.
-	appendU32(bytes, 0x55667788u);   // TXD checksum.
-	appendU32(bytes, 512);           // DFF size.
-	appendU32(bytes, 1024);          // TXD size.
+	appendU32(bytes, dffChecksum);   // DFF checksum.
+	appendU32(bytes, txdChecksum);   // TXD checksum.
+	appendU32(bytes, dffSize);       // DFF size.
+	appendU32(bytes, txdSize);       // TXD size.
 	bytes.push_back(0);              // Time-on hour.
 	bytes.push_back(0);              // Time-off hour.
+	return bytes;
+}
+
+std::vector<std::uint8_t> makeDownloadUrl(AssetType type, std::uint32_t checksum, std::string_view url)
+{
+	std::vector<std::uint8_t> bytes;
+	bytes.reserve(DownloadUrlHeaderSize + url.size());
+	bytes.push_back(ModelUrlTransportMarker);
+	bytes.push_back(static_cast<std::uint8_t>(type));
+	appendU32(bytes, checksum);
+	bytes.push_back(static_cast<std::uint8_t>(url.size()));
+	bytes.insert(bytes.end(), url.begin(), url.end());
 	return bytes;
 }
 
@@ -74,7 +92,6 @@ void testMalformedManifest()
 
 	assert(!decodeModelRequest(nullptr, bytes.size(), request, error));
 	assert(error == DecodeError::NullBuffer);
-
 	assert(!decodeModelRequest(bytes.data(), bytes.size() - 1, request, error));
 	assert(error == DecodeError::WrongSize);
 
@@ -119,6 +136,57 @@ void testModelCountAndPoolIndexValidation()
 	assert(request.newId == 31234);
 }
 
+void testDownloadUrlCodec()
+{
+	const auto bytes = makeDownloadUrl(AssetType::Dff, 0xCBF43926u, "https://example.test/asset.dff");
+	DownloadUrl url;
+	DecodeError error = DecodeError::None;
+
+	assert(decodeDownloadUrl(bytes.data(), bytes.size(), url, error));
+	assert(error == DecodeError::None);
+	assert(url.type == AssetType::Dff);
+	assert(url.checksum == 0xCBF43926u);
+	assert(url.url == "https://example.test/asset.dff");
+
+	auto invalid = bytes;
+	invalid[0] = 5;
+	assert(!decodeDownloadUrl(invalid.data(), invalid.size(), url, error));
+	assert(error == DecodeError::InvalidUrlMarker);
+
+	invalid = bytes;
+	invalid[1] = 3;
+	assert(!decodeDownloadUrl(invalid.data(), invalid.size(), url, error));
+	assert(error == DecodeError::InvalidAssetType);
+
+	invalid = bytes;
+	invalid[6]--;
+	assert(!decodeDownloadUrl(invalid.data(), invalid.size(), url, error));
+	assert(error == DecodeError::InvalidUrlLength);
+
+	invalid = makeDownloadUrl(AssetType::Dff, 1, "file:///asset.dff");
+	assert(!decodeDownloadUrl(invalid.data(), invalid.size(), url, error));
+	assert(error == DecodeError::InvalidUrl);
+}
+
+void testAssetRequestEncoding()
+{
+	std::array<std::uint8_t, AssetRequestWireSize> payload {};
+	std::size_t written = 0;
+	RpcId rpcId = RpcId::ModelUrl;
+
+	assert(encodeAssetRequest(AssetType::Dff, 0x12345678u, payload.data(), payload.size(), written, rpcId));
+	assert(written == AssetRequestWireSize);
+	assert(rpcId == RpcId::RequestDff);
+	assert((payload == std::array<std::uint8_t, 4> { 0x78, 0x56, 0x34, 0x12 }));
+
+	assert(encodeAssetRequest(AssetType::Txd, 0xAABBCCDDu, payload.data(), payload.size(), written, rpcId));
+	assert(rpcId == RpcId::RequestTxd);
+	assert((payload == std::array<std::uint8_t, 4> { 0xDD, 0xCC, 0xBB, 0xAA }));
+
+	assert(!encodeAssetRequest(AssetType::Dff, 1, payload.data(), 3, written, rpcId));
+	assert(written == 0);
+}
+
 void testVehicleValidation()
 {
 	auto bytes = makeVehicleRequest();
@@ -130,7 +198,6 @@ void testVehicleValidation()
 	assert(isCustomVehicleModelId(32767));
 	assert(!isCustomVehicleModelId(30000));
 	assert(!isCustomVehicleModelId(32768));
-
 	assert(isSupportedVehicleBaseId(400));
 	assert(isSupportedVehicleBaseId(611));
 	assert(!isSupportedVehicleBaseId(449));
@@ -149,13 +216,92 @@ void testVehicleValidation()
 	assert(!validateVehicleModelRequest(request));
 }
 
+void testSessionDownloadLifecycle()
+{
+	constexpr std::array<std::uint8_t, 9> dff = { '1','2','3','4','5','6','7','8','9' };
+	constexpr std::array<std::uint8_t, 4> txd = { 't','x','d','!' };
+	constexpr std::uint32_t dffCrc = 0xCBF43926u;
+	const std::uint32_t txdCrc = calculateCrc32(txd.data(), txd.size());
+
+	ClientSession session;
+	assert(session.beginNegotiation());
+	assert(session.capabilityState() == CapabilityState::AwaitingAcknowledgement);
+
+	SessionError sessionError = SessionError::None;
+	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+	assert(session.capabilityState() == CapabilityState::Ready);
+
+	auto manifest = makeVehicleRequest(dffCrc, txdCrc, dff.size(), txd.size());
+	DecodeError decodeError = DecodeError::None;
+	assert(session.acceptModelManifest(manifest.data(), manifest.size(), decodeError, sessionError)
+		== ManifestDisposition::AcceptedVehicle);
+	assert(session.vehicleModels().size() == 1);
+
+	AssetRequest request;
+	assert(session.nextAssetRequest(request));
+	assert(request.type == AssetType::Dff);
+	assert(request.checksum == dffCrc);
+	assert(request.expectedSize == dff.size());
+
+	auto urlPayload = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/model.dff");
+	AssetDownload download;
+	assert(session.acceptDownloadUrl(urlPayload.data(), urlPayload.size(), download, decodeError, sessionError));
+	assert(download.expectedSize == dff.size());
+	assert(download.url == "https://example.test/model.dff");
+	assert(session.completeAsset(download.type, download.checksum, dff.data(), dff.size(), sessionError));
+
+	// Serialize downloads: the next file waits for RPC 185 after RPC 184.
+	assert(!session.nextAssetRequest(request));
+	assert(session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
+	assert(session.nextAssetRequest(request));
+	assert(request.type == AssetType::Txd);
+	assert(request.checksum == txdCrc);
+
+	urlPayload = makeDownloadUrl(AssetType::Txd, txdCrc, "https://example.test/model.txd");
+	assert(session.acceptDownloadUrl(urlPayload.data(), urlPayload.size(), download, decodeError, sessionError));
+	assert(session.completeAsset(download.type, download.checksum, txd.data(), txd.size(), sessionError));
+	assert(session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
+	assert(!session.nextAssetRequest(request));
+}
+
+void testSessionRejectsMismatchedUrlAndCorruptFile()
+{
+	constexpr std::array<std::uint8_t, 4> dff = { 'd','f','f','!' };
+	constexpr std::array<std::uint8_t, 4> txd = { 't','x','d','!' };
+	const std::uint32_t dffCrc = calculateCrc32(dff.data(), dff.size());
+	const std::uint32_t txdCrc = calculateCrc32(txd.data(), txd.size());
+
+	ClientSession session;
+	session.beginNegotiation();
+	SessionError sessionError = SessionError::None;
+	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+
+	auto manifest = makeVehicleRequest(dffCrc, txdCrc, dff.size(), txd.size());
+	DecodeError decodeError = DecodeError::None;
+	assert(session.acceptModelManifest(manifest.data(), manifest.size(), decodeError, sessionError)
+		== ManifestDisposition::AcceptedVehicle);
+
+	AssetRequest request;
+	assert(session.nextAssetRequest(request));
+	auto wrongUrl = makeDownloadUrl(AssetType::Txd, request.checksum, "https://example.test/wrong.txd");
+	AssetDownload download;
+	assert(!session.acceptDownloadUrl(wrongUrl.data(), wrongUrl.size(), download, decodeError, sessionError));
+	assert(sessionError == SessionError::DownloadUrlMismatch);
+
+	auto validUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/model.dff");
+	assert(session.acceptDownloadUrl(validUrl.data(), validUrl.size(), download, decodeError, sessionError));
+	assert(!session.completeAsset(download.type, download.checksum, dff.data(), dff.size() - 1, sessionError));
+	assert(sessionError == SessionError::AssetIntegrityFailure);
+
+	assert(session.nextAssetRequest(request));
+	assert(request.type == AssetType::Dff); // Failed bytes are retried, not acknowledged.
+	assert(!session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
+}
+
 void testAssetIntegrity()
 {
-	constexpr std::array<std::uint8_t, 9> sample = {
-		'1', '2', '3', '4', '5', '6', '7', '8', '9'
-	};
+	constexpr std::array<std::uint8_t, 9> sample = { '1','2','3','4','5','6','7','8','9' };
 	constexpr std::uint32_t expectedCrc = 0xCBF43926u;
-
 	assert(calculateCrc32(sample.data(), sample.size()) == expectedCrc);
 	assert(verifyAsset(sample.data(), sample.size(), 9, expectedCrc));
 	assert(!verifyAsset(sample.data(), sample.size(), 8, expectedCrc));
@@ -168,7 +314,11 @@ int main()
 	testManifestDecode();
 	testMalformedManifest();
 	testModelCountAndPoolIndexValidation();
+	testDownloadUrlCodec();
+	testAssetRequestEncoding();
 	testVehicleValidation();
+	testSessionDownloadLifecycle();
+	testSessionRejectsMismatchedUrlAndCorruptFile();
 	testAssetIntegrity();
 	return 0;
 }
