@@ -69,6 +69,12 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 			requestNextAssetUnlocked();
 			return RpcDisposition::Consume;
 		}
+		case RpcId::ClientSupportsCustomVehicleModels:
+		case RpcId::RequestDff:
+		case RpcId::RequestTxd:
+		case RpcId::FinishDownload:
+			// These extension IDs are client-to-server only; never forward them to the stock game.
+			return RpcDisposition::Consume;
 		case RpcId::ModelRequest:
 		{
 			// RPC 220 is reserved for vehicle manifests; native artwork stays on native RPC 179.
