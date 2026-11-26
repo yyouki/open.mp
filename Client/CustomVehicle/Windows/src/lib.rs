@@ -558,18 +558,9 @@ fn outgoing_worker(
             continue;
         }
 
-        // Verified host profiles report R1/DL=14, R3-1/R5-1=15 during AwaitingJoin,
-        // and all supported profiles report 14 once connected. No guessed offsets are used here.
-        let game_state = samp.game_state().ok();
-        let connected = match version {
-            SampClientSdkClientVersion::R1 | SampClientSdkClientVersion::Dl => {
-                game_state == Some(14)
-            }
-            SampClientSdkClientVersion::R3_1 | SampClientSdkClientVersion::R5_1 => {
-                matches!(game_state, Some(14 | 15))
-            }
-            _ => false,
-        };
+        // Every enabled SDK profile reports game state 14 only after the local player is connected.
+        // State 15 is the pre-spawn/AwaitingJoin phase on some revisions and is intentionally excluded.
+        let connected = samp.game_state().ok() == Some(14);
 
         let adapter = context.adapter();
         if adapter.is_null() {
