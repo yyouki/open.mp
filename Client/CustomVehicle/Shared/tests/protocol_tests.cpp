@@ -86,7 +86,10 @@ void testRpcIdIsolation()
 	static_assert(static_cast<std::uint8_t>(RpcId::DownloadCompleted) == 227);
 
 	// These native SA-MP/0.3.DL IDs must never be claimed by the extension.
-	for (const std::uint8_t nativeRpc : {179,181,182,183,184,185,186,187,188,189})
+	constexpr std::array<std::uint8_t, 10> nativeRpcIds = {
+		179, 181, 182, 183, 184, 185, 186, 187, 188, 189
+	};
+	for (const std::uint8_t nativeRpc : nativeRpcIds)
 	{
 		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ModelRequest));
 		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ClientSupportsCustomVehicleModels));
