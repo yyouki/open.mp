@@ -253,6 +253,24 @@ bool ClientSession::acceptDownloadAcknowledgement(
 	return true;
 }
 
+bool ClientSession::retryActiveAsset() noexcept
+{
+	if (!hasActiveAsset_ || activeAssetIndex_ >= assets_.size())
+	{
+		return false;
+	}
+
+	PendingAsset& asset = assets_[activeAssetIndex_];
+	if (asset.state == AssetState::Complete || asset.state == AssetState::Queued)
+	{
+		return false;
+	}
+
+	asset.state = AssetState::Queued;
+	hasActiveAsset_ = false;
+	return true;
+}
+
 void ClientSession::reset() noexcept
 {
 	capability_ = CapabilityState::NotNegotiated;
