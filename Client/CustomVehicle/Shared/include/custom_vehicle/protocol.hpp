@@ -38,6 +38,7 @@ enum class DecodeError
 	NullBuffer,
 	WrongSize,
 	InvalidModelType,
+	InvalidModelCount,
 	InvalidPoolIndex,
 };
 
