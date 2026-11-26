@@ -99,6 +99,17 @@ static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
 	return true;
 }
 
+static bool hasExpectedFileExtension(StringView fileName, StringView extension)
+{
+	auto equalsIgnoreCase = [](unsigned char left, unsigned char right)
+	{
+		return std::tolower(left) == std::tolower(right);
+	};
+
+	return fileName.size() > extension.size() &&
+		std::equal(extension.begin(), extension.end(), fileName.end() - extension.size(), equalsIgnoreCase);
+}
+
 struct ModelFile
 {
 	String name;
@@ -1055,9 +1066,10 @@ public:
 			return false;
 		}
 
-		if (!isSafeModelFilePath(modelsPath, dffName) || !isSafeModelFilePath(modelsPath, txdName))
+		if (!isSafeModelFilePath(modelsPath, dffName) || !hasExpectedFileExtension(dffName, ".dff") ||
+			!isSafeModelFilePath(modelsPath, txdName) || !hasExpectedFileExtension(txdName, ".txd"))
 		{
-			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD paths must resolve to regular files inside the models directory.");
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD files must use the matching extension and resolve inside the models directory.");
 			return false;
 		}
 
