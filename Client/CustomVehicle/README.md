@@ -49,6 +49,13 @@ verified, this project must not call guessed `CStreaming`, vehicle constructors,
 pool allocation, or world-insertion addresses. This is a hard blocker for
 end-to-end rendering, not just a missing wrapper.
 
+SA-MP 0.3.DL has an additional protocol-integration gap: its native artwork
+pipeline also uses RPC 181/182/183/184/185. The current adapter can identify
+custom transfers by the active checksum request, but it does not yet coordinate
+or multiplex native DL transfers that may be in flight at the same time.
+Consequently, DL R1 is a research target only; it is not qualified for
+simultaneous native artwork and custom vehicle downloads.
+
 ## Shared core
 
 The first implementation is in [Shared](Shared/). It currently provides:
