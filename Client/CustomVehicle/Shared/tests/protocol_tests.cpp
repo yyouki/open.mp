@@ -652,7 +652,18 @@ void testCAbiBridge()
 		0) == 1);
 
 	// Native actor/artwork IDs are passed through unchanged.
-	for (const std::uint8_t nativeRpc : {179,181,182,183,184,185,186,187,188,189})
+	for (const std::uint8_t nativeRpc : {
+		static_cast<std::uint8_t>(179),
+		static_cast<std::uint8_t>(181),
+		static_cast<std::uint8_t>(182),
+		static_cast<std::uint8_t>(183),
+		static_cast<std::uint8_t>(184),
+		static_cast<std::uint8_t>(185),
+		static_cast<std::uint8_t>(186),
+		static_cast<std::uint8_t>(187),
+		static_cast<std::uint8_t>(188),
+		static_cast<std::uint8_t>(189)
+	})
 	{
 		assert(custom_vehicle_adapter_handle_server_rpc(
 			adapter, nativeRpc, nullptr, 0) == 0);
