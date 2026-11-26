@@ -278,6 +278,13 @@ bool ClientSession::awaitingDownloadUrl() const noexcept
 		&& assets_[activeAssetIndex_].state == AssetState::Requested;
 }
 
+bool ClientSession::awaitingDownloadAcknowledgement() const noexcept
+{
+	return hasActiveAsset_
+		&& activeAssetIndex_ < assets_.size()
+		&& assets_[activeAssetIndex_].state == AssetState::AwaitingAcknowledgement;
+}
+
 void ClientSession::reset() noexcept
 {
 	capability_ = CapabilityState::NotNegotiated;
