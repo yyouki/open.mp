@@ -318,8 +318,8 @@ fn initialize() {
         }
     };
 
-    // The sender worker begins RPC 186 only after the selected client profile reports
-    // an initialized connection state and this incoming hook is ready to receive RPC 187.
+    // The sender worker begins RPC 221 only after the selected client profile reports
+    // an initialized connection state and this incoming hook is ready to receive RPC 222.
     context.hooks_ready.store(true, Ordering::Release);
 
     let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
@@ -341,7 +341,7 @@ fn handle_server_rpc(
     let bit_len = event.remaining_bits();
 
     if bit_len > MAX_RPC_BYTES.saturating_mul(8) || bit_len % 8 != 0 {
-        // RPC 179 and 187 are extension-only in the supported non-DL profiles.
+        // RPC 220 and 222 belong to the extension; native RPC IDs are never blocked.
         return if rpc_id == RPC_MODEL_REQUEST || rpc_id == RPC_SERVER_SUPPORTS_VEHICLES {
             SampClientSdkHookAction::Block
         } else {
