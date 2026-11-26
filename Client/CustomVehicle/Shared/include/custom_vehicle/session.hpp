@@ -18,6 +18,7 @@ enum class SessionError
 	InvalidVehicleModel,
 	DuplicateModelId,
 	ConflictingAssetMetadata,
+	InconsistentManifest,
 	UnexpectedDownloadUrl,
 	DownloadUrlMismatch,
 	AssetIntegrityFailure,
@@ -77,6 +78,7 @@ private:
 	CapabilityState capability_ = CapabilityState::NotNegotiated;
 	std::vector<ModelRequest> vehicleModels_;
 	std::vector<PendingAsset> assets_;
+	std::uint32_t manifestCount_ = 0;
 	std::size_t activeAssetIndex_ = 0;
 	bool hasActiveAsset_ = false;
 };
