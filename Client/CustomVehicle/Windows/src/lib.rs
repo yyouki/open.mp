@@ -518,7 +518,7 @@ fn outgoing_worker(
                 if bit_len <= MAX_RPC_BYTES * 8 {
                     let sent = net
                         .send_rpc(request.id, &request.payload, bit_len)
-                        .and_then(|receipt| receipt.wait(Duration::from_secs(10)));
+                        .and_then(|mut receipt| receipt.wait(Duration::from_secs(10)));
                     if sent.is_err() {
                         let adapter = context.adapter();
                         if !adapter.is_null() {
