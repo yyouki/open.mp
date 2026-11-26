@@ -235,6 +235,20 @@ public:
 		modelInfo.timeOff = timeOff_;
 	}
 
+	void write(NetCode::RPC::VehicleModelRequest& modelInfo) const
+	{
+		modelInfo.type = static_cast<uint8_t>(type_);
+		modelInfo.virtualWorld = worldId_;
+		modelInfo.baseId = baseId_;
+		modelInfo.newId = newId_;
+		modelInfo.dffChecksum = dff_.checksum;
+		modelInfo.txdChecksum = txd_.checksum;
+		modelInfo.dffSize = dff_.size;
+		modelInfo.txdSize = txd_.size;
+		modelInfo.timeOn = timeOn_;
+		modelInfo.timeOff = timeOff_;
+	}
+
 	const int32_t getId() { return newId_; }
 };
 
@@ -643,34 +657,25 @@ private:
 
 	void sendCustomModels(IPlayer& player)
 	{
-		if (!hasDownloadEndpoint())
+		if (!hasDownloadEndpoint() ||
+			player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 		{
 			return;
 		}
 
-		const bool is03DL = player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
-		const bool includeVehicles = supportsCustomVehicles(player);
-		if (!is03DL && !includeVehicles)
-		{
-			return;
-		}
-
-		// Initial model records share one client-side pool. Keep indices
-		// contiguous for the exact model types this client can process.
+		// Native DL handles only its original skin/object artwork records.
+		// Custom vehicles use the isolated RPC 220-227 extension below.
 		const uint32_t modelCount = static_cast<uint32_t>(std::count_if(
 			storage.begin(), storage.end(),
-			[is03DL, includeVehicles](const ModelInfo* model)
+			[](const ModelInfo* model)
 			{
-				return model->getType() == CustomModels::Vehicle
-					? includeVehicles
-					: is03DL;
+				return model->getType() != CustomModels::Vehicle;
 			}));
 
 		uint32_t poolId = 0;
 		for (const ModelInfo* model : storage)
 		{
-			const bool isVehicleModel = model->getType() == CustomModels::Vehicle;
-			if ((isVehicleModel && !includeVehicles) || (!isVehicleModel && !is03DL))
+			if (model->getType() == CustomModels::Vehicle)
 			{
 				continue;
 			}
@@ -688,24 +693,14 @@ private:
 			return 0;
 		}
 
-		const bool is03DL = player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL;
-		const uint32_t nativeModelCount = is03DL
-			? static_cast<uint32_t>(std::count_if(
-				storage.begin(), storage.end(),
-				[](const ModelInfo* model)
-				{
-					return model->getType() != CustomModels::Vehicle;
-				}))
-			: 0;
 		const uint32_t vehicleModelCount = static_cast<uint32_t>(std::count_if(
 			storage.begin(), storage.end(),
 			[](const ModelInfo* model)
 			{
 				return model->getType() == CustomModels::Vehicle;
 			}));
-		const uint32_t modelCount = nativeModelCount + vehicleModelCount;
 
-		uint32_t poolId = nativeModelCount;
+		uint32_t poolId = 0;
 		for (const ModelInfo* model : storage)
 		{
 			if (model->getType() != CustomModels::Vehicle)
@@ -713,7 +708,7 @@ private:
 				continue;
 			}
 
-			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId++), modelCount);
+			NetCode::RPC::VehicleModelRequest request(static_cast<int32_t>(poolId++), vehicleModelCount);
 			model->write(request);
 			PacketHelper::send(request, player);
 		}
@@ -738,24 +733,32 @@ private:
 				continue;
 			}
 
-			// Models are appended to storage, so the new eligible record is
-			// always the next pool index for this already-initialized client.
+			// Vehicle records use their own manifest/pool and never enter the native DL artwork RPC.
+			// Native skin/object records retain the original 0.3.DL pool and packet format.
 			uint32_t poolId = 0;
 			for (size_t i = 0; i + 1 < storage.size(); ++i)
 			{
 				const bool previousIsVehicle = storage[i]->getType() == CustomModels::Vehicle;
-				if ((previousIsVehicle && includeVehicles) || (!previousIsVehicle && is03DL))
+				if (isVehicleModel ? previousIsVehicle : (!previousIsVehicle && is03DL))
 				{
 					++poolId;
 				}
 			}
 
-			NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId), poolId + 1);
-			model.write(request);
-			PacketHelper::send(request, *player);
-
-			// Completed 0.3.DL artwork passes restart only after a virtual-world change.
-			forceCustomModelDownload(*player);
+			if (isVehicleModel)
+			{
+				NetCode::RPC::VehicleModelRequest request(static_cast<int32_t>(poolId), poolId + 1);
+				model.write(request);
+				PacketHelper::send(request, *player);
+			}
+			else
+			{
+				NetCode::RPC::ModelRequest request(static_cast<int32_t>(poolId), poolId + 1);
+				model.write(request);
+				PacketHelper::send(request, *player);
+				// Native 0.3.DL refreshes its artwork cache after a world change.
+				forceCustomModelDownload(*player);
+			}
 		}
 	}
 
@@ -847,8 +850,8 @@ private:
 			const ModelDownloadType type = itr->second.first;
 			ModelInfo* const model = itr->second.second;
 
-			// Vehicle assets are only available to clients that negotiated the vehicle-model extension.
-			if (model->getType() == CustomModels::Vehicle && !self.supportsCustomVehicles(peer))
+			// Native 0.3.DL request IDs remain reserved for the stock skin/object artwork pipeline.
+			if (model->getType() == CustomModels::Vehicle)
 			{
 				return true;
 			}
@@ -902,6 +905,100 @@ private:
 		}
 	} finishDownloadHandler;
 
+	struct VehicleRequestDownloadLinkEventHandler : public SingleNetworkInEventHandler
+	{
+		CustomModelsComponent& self;
+
+		VehicleRequestDownloadLinkEventHandler(CustomModelsComponent& component)
+			: self(component)
+		{
+		}
+
+		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
+		{
+			uint32_t checksum;
+			if (!bs.readUINT32(checksum))
+			{
+				return false;
+			}
+
+			if (!self.supportsCustomVehicles(peer))
+			{
+				return true;
+			}
+
+			const auto itr = self.checksums.find(checksum);
+			if (itr == self.checksums.end())
+			{
+				return true;
+			}
+
+			// Only registered vehicle assets may enter the extension download channel.
+			const ModelDownloadType type = itr->second.first;
+			ModelInfo* const model = itr->second.second;
+			if (model->getType() != CustomModels::Vehicle)
+			{
+				return true;
+			}
+
+			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
+			if (data != nullptr)
+			{
+				data->setRequestedFile(type, checksum);
+			}
+			if (self.hasDownloadEndpoint() &&
+				self.eventDispatcher.stopAtFalse(
+					[&peer, type, checksum](PlayerModelsEventHandler* handler)
+					{
+						return handler->onPlayerRequestDownload(peer, type, checksum);
+					}))
+			{
+				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
+				const StringView baseUrl = self.getWebUrl();
+				if (!baseUrl.empty())
+				{
+					NetCode::RPC::VehicleModelUrl urlRPC(
+						httplib::encode_uri(String(baseUrl.data()) + file.name),
+						static_cast<uint8_t>(type),
+						file.checksum);
+					PacketHelper::send(urlRPC, peer);
+				}
+			}
+			if (data != nullptr)
+			{
+				data->setRequestedFile(ModelDownloadType::NONE, 0);
+			}
+			return true;
+		}
+	} vehicleRequestDownloadLinkHandler;
+
+	struct FinishVehicleDownloadHandler : public SingleNetworkInEventHandler
+	{
+		CustomModelsComponent& self;
+
+		FinishVehicleDownloadHandler(CustomModelsComponent& component)
+			: self(component)
+		{
+		}
+
+		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
+		{
+			if (!self.supportsCustomVehicles(peer))
+			{
+				return true;
+			}
+
+			self.eventDispatcher.dispatch(
+				&PlayerModelsEventHandler::onPlayerFinishedDownloading,
+				peer);
+
+			NetCode::RPC::VehicleDownloadCompleted completed;
+			PacketHelper::send(completed, peer);
+			return true;
+		}
+	} finishVehicleDownloadHandler;
+
+
 public:
 	StringView componentName() const override
 	{
@@ -917,6 +1014,8 @@ public:
 		: clientSupportsCustomVehicleModelsHandler(*this)
 		, requestDownloadLinkHandler(*this)
 		, finishDownloadHandler(*this)
+		, vehicleRequestDownloadLinkHandler(*this)
+		, finishVehicleDownloadHandler(*this)
 	{
 	}
 
@@ -927,6 +1026,8 @@ public:
 			NetCode::RPC::RequestTXD::removeEventHandler(*core, &requestDownloadLinkHandler);
 			NetCode::RPC::RequestDFF::removeEventHandler(*core, &requestDownloadLinkHandler);
 			NetCode::RPC::FinishDownload::removeEventHandler(*core, &finishDownloadHandler);
+			NetCode::RPC::VehicleRequestDownloadLink::removeEventHandler(*core, &vehicleRequestDownloadLinkHandler);
+			NetCode::RPC::FinishVehicleDownload::removeEventHandler(*core, &finishVehicleDownloadHandler);
 			NetCode::RPC::ClientSupportsCustomVehicleModels::removeEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 			players->getPlayerConnectDispatcher().removeEventHandler(this);
 		}
@@ -1016,6 +1117,8 @@ public:
 		NetCode::RPC::RequestTXD::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::RequestDFF::addEventHandler(*core, &requestDownloadLinkHandler);
 		NetCode::RPC::FinishDownload::addEventHandler(*core, &finishDownloadHandler);
+		NetCode::RPC::VehicleRequestDownloadLink::addEventHandler(*core, &vehicleRequestDownloadLinkHandler);
+		NetCode::RPC::FinishVehicleDownload::addEventHandler(*core, &finishVehicleDownloadHandler);
 		NetCode::RPC::ClientSupportsCustomVehicleModels::addEventHandler(*core, &clientSupportsCustomVehicleModelsHandler);
 
 		if (!enabled)
@@ -1355,17 +1458,21 @@ public:
 			data->markClientInitialized();
 		}
 
-		// Native 0.3DL clients receive skins/objects; opted-in clients also
-		// receive vehicle records in their initial model manifest.
+		// Native 0.3DL receives skins/objects on its stock artwork RPCs.
 		sendCustomModels(player);
-		if (player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL &&
-			!supportsCustomVehicles(player))
+
+		// Custom vehicles use their independent extension manifest (RPC 220).
+		// Capability may arrive before or after client initialization.
+		if (supportsCustomVehicles(player))
 		{
-			return;
+			sendCustomVehicleModels(player);
 		}
 
-		// If the client reconnects, force the native artwork loader to re-check files.
-		forceCustomModelDownload(player);
+		// Only native DL artwork needs the virtual-world refresh workaround.
+		if (player.getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL)
+		{
+			forceCustomModelDownload(player);
+		}
 	}
 
 	IEventDispatcher<PlayerModelsEventHandler>& getEventDispatcher() override
