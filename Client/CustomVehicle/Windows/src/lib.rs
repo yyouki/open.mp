@@ -21,7 +21,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -39,6 +39,7 @@ const RPC_MODEL_REQUEST: u8 = 179;
 const RPC_REQUEST_DFF: u8 = 181;
 const RPC_REQUEST_TXD: u8 = 182;
 const RPC_MODEL_URL: u8 = 183;
+const RPC_FINISH_DOWNLOAD: u8 = 184;
 const RPC_DOWNLOAD_COMPLETED: u8 = 185;
 const RPC_SERVER_SUPPORTS_VEHICLES: u8 = 187;
 
@@ -147,6 +148,7 @@ enum WorkerMessage<T> {
 
 struct BridgeContext {
     adapter: AtomicPtr<CustomVehicleAdapter>,
+    hooks_ready: AtomicBool,
     outgoing: Sender<WorkerMessage<OutgoingRpc>>,
     downloads: Sender<WorkerMessage<DownloadJob>>,
     cache_root: PathBuf,
@@ -250,6 +252,7 @@ fn initialize() {
     let (download_tx, download_rx) = mpsc::channel();
     let context = Arc::new(BridgeContext {
         adapter: AtomicPtr::new(ptr::null_mut()),
+        hooks_ready: AtomicBool::new(false),
         outgoing: outgoing_tx,
         downloads: download_tx,
         cache_root,
@@ -303,31 +306,21 @@ fn initialize() {
     }
     context.adapter.store(adapter, Ordering::Release);
 
-    let mut subscriptions = Vec::new();
-    for rpc_id in [
-        RPC_MODEL_REQUEST,
-        RPC_MODEL_URL,
-        RPC_DOWNLOAD_COMPLETED,
-        RPC_SERVER_SUPPORTS_VEHICLES,
-    ] {
-        let callback_context = Arc::clone(&context);
-        match samp.net().on_rpc_id(
-            SampClientSdkDirection::Incoming,
-            rpc_id,
-            move |event| handle_server_rpc(&callback_context, event),
-        ) {
-            Ok(subscription) => subscriptions.push(subscription),
-            Err(_) => {
-                cleanup_context(&context, subscriptions, workers);
-                return;
-            }
+    let callback_context = Arc::clone(&context);
+    let subscriptions = match samp.net().on_rpc(
+        SampClientSdkDirection::Incoming,
+        move |event| handle_server_rpc(&callback_context, event),
+    ) {
+        Ok(subscription) => vec![subscription],
+        Err(_) => {
+            cleanup_context(&context, Vec::new(), workers);
+            return;
         }
-    }
+    };
 
-    if unsafe { custom_vehicle_adapter_begin_connection(adapter) } == 0 {
-        cleanup_context(&context, subscriptions, workers);
-        return;
-    }
+    // The sender worker begins RPC 186 only after the selected client profile reports
+    // an initialized connection state and this incoming hook is ready to receive RPC 187.
+    context.hooks_ready.store(true, Ordering::Release);
 
     let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
     if state.shutting_down {
@@ -508,47 +501,91 @@ fn outgoing_worker(
         }
     };
 
-    // Do not acknowledge RPC 186 until the dedicated send worker has a live host API.
-    let supported = matches!(
-        samp.version(),
+    let version = match samp.version() {
         Ok(
-            SampClientSdkClientVersion::R1
-            | SampClientSdkClientVersion::R3_1
-            | SampClientSdkClientVersion::R5_1
-        )
-    );
-    if !supported {
-        let _ = ready.send(false);
-        return;
-    }
+            version @ (
+                SampClientSdkClientVersion::R1
+                | SampClientSdkClientVersion::R3_1
+                | SampClientSdkClientVersion::R5_1
+            ),
+        ) => version,
+        _ => {
+            let _ = ready.send(false);
+            return;
+        }
+    };
     let _ = ready.send(true);
 
     let net = samp.net();
-    while let Ok(message) = receiver.recv() {
-        match message {
-            WorkerMessage::Shutdown => break,
-            WorkerMessage::Job(request) => {
+    let mut session_active = false;
+
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(WorkerMessage::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
+            Ok(WorkerMessage::Job(request)) => {
                 if context.stopping.load(Ordering::Acquire) {
                     break;
                 }
 
                 let bit_len = request.payload.len().saturating_mul(8);
-                if bit_len > MAX_RPC_BYTES * 8 {
-                    continue;
-                }
-
-                if let Ok(receipt) = net.send_rpc(request.id, &request.payload, bit_len) {
-                    // Dropping a receipt detaches the caller; it does not cancel the queued RPC.
-                    drop(receipt);
-                } else if request.id == RPC_REQUEST_DFF || request.id == RPC_REQUEST_TXD {
-                    thread::sleep(Duration::from_millis(500));
-                    let adapter = context.adapter();
-                    if !adapter.is_null() {
-                        unsafe { custom_vehicle_adapter_retry_active_asset(adapter) };
+                if bit_len <= MAX_RPC_BYTES * 8 {
+                    let sent = net
+                        .send_rpc(request.id, &request.payload, bit_len)
+                        .and_then(|receipt| receipt.wait(Duration::from_secs(10)));
+                    if sent.is_err() {
+                        let adapter = context.adapter();
+                        if !adapter.is_null() {
+                            match request.id {
+                                RPC_REQUEST_DFF | RPC_REQUEST_TXD | RPC_FINISH_DOWNLOAD => unsafe {
+                                    custom_vehicle_adapter_retry_active_asset(adapter);
+                                },
+                                RPC_CLIENT_SUPPORTS_VEHICLES => {
+                                    // A failed capability send leaves the portable session pending.
+                                    unsafe { custom_vehicle_adapter_end_connection(adapter) };
+                                    session_active = false;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }
+            Err(RecvTimeoutError::Timeout) => {}
         }
+
+        if context.stopping.load(Ordering::Acquire) || !context.hooks_ready.load(Ordering::Acquire) {
+            continue;
+        }
+
+        // Verified host profiles report R1=14, R3-1/R5-1=15 during AwaitingJoin,
+        // and all three report 14 once connected. No guessed offsets are used here.
+        let game_state = samp.game_state().ok();
+        let connected = match version {
+            SampClientSdkClientVersion::R1 => game_state == Some(14),
+            SampClientSdkClientVersion::R3_1 | SampClientSdkClientVersion::R5_1 => {
+                matches!(game_state, Some(14 | 15))
+            }
+            _ => false,
+        };
+
+        let adapter = context.adapter();
+        if adapter.is_null() {
+            continue;
+        }
+
+        if connected && !session_active {
+            if unsafe { custom_vehicle_adapter_begin_connection(adapter) } != 0 {
+                session_active = true;
+            }
+        } else if !connected && session_active {
+            unsafe { custom_vehicle_adapter_end_connection(adapter) };
+            session_active = false;
+        }
+    }
+
+    let adapter = context.adapter();
+    if !adapter.is_null() && session_active {
+        unsafe { custom_vehicle_adapter_end_connection(adapter) };
     }
 }
 
