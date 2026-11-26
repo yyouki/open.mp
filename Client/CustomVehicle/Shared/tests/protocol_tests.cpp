@@ -371,11 +371,16 @@ public:
 
 	bool beginDownload(const AssetDownload& download) noexcept override
 	{
+		if (!acceptRequests)
+		{
+			return false;
+		}
 		jobs.push_back({ download.type, download.checksum, download.expectedSize,
 			std::string(download.url) });
 		return true;
 	}
 
+	bool acceptRequests = true;
 	std::vector<Job> jobs;
 };
 
@@ -417,6 +422,16 @@ void testNetworkAdapterFlow()
 	assert(downloader.jobs.empty());
 
 	auto dffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
+	downloader.acceptRequests = false; // Simulate a downloader refusing to create a worker.
+	const std::size_t callsBeforeRetry = transport.sentCalls.size();
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
+		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
+	assert(downloader.jobs.empty());
+	assert(transport.sentCalls.size() == callsBeforeRetry); // No immediate retry loop.
+
+	downloader.acceptRequests = true;
+	assert(adapter.retryActiveAsset()); // Host-controlled retry dispatches the queued checksum request.
+	assert(transport.sentCalls.back().id == RpcId::RequestDff);
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
 		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
 	assert(downloader.jobs.size() == 1);
@@ -426,6 +441,9 @@ void testNetworkAdapterFlow()
 	assert(transport.sentCalls.back().id == RpcId::FinishDownload);
 	assert(transport.sentCalls.back().payload.empty());
 
+	const std::array<std::uint8_t, 1> malformedAck = { 1 };
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
+		malformedAck.data(), malformedAck.size()) == RpcDisposition::Consume);
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
 		nullptr, 0) == RpcDisposition::Consume);
 	assert(transport.sentCalls.back().id == RpcId::RequestTxd);
