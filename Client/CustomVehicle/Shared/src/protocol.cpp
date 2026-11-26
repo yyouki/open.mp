@@ -45,7 +45,15 @@ bool decodeModelRequest(
 
 	ModelRequest decoded;
 	decoded.poolId = readU32LittleEndian(data);
-	decoded.modelCount = readU32LittleEndian(data + 4);
+
+	// The server serializes Count as a signed int32; reject negative values before conversion.
+	const std::int32_t modelCount = readI32LittleEndian(data + 4);
+	if (modelCount <= 0)
+	{
+		error = DecodeError::InvalidModelCount;
+		return false;
+	}
+	decoded.modelCount = static_cast<std::uint32_t>(modelCount);
 
 	switch (data[8])
 	{
@@ -73,7 +81,7 @@ bool decodeModelRequest(
 	decoded.timeOn = data[37];
 	decoded.timeOff = data[38];
 
-	if (decoded.modelCount == 0 || decoded.poolId >= decoded.modelCount)
+	if (decoded.poolId >= decoded.modelCount)
 	{
 		error = DecodeError::InvalidPoolIndex;
 		return false;
