@@ -6,13 +6,16 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
-#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace
 {
+constexpr std::size_t MaxAndroidCachePathChars = 4096;
+constexpr std::size_t MaxAndroidRpcPayloadBytes = 1024u * 1024u;
+constexpr std::size_t MaxAndroidAssetBytes = 512u * 1024u * 1024u;
+
 struct AndroidBridgeContext
 {
 	JavaVM* vm = nullptr;
@@ -55,8 +58,7 @@ public:
 		{
 			return;
 		}
-		if (status == JNI_EDETACHED
-			&& vm_->AttachCurrentThread(&env_, nullptr) == JNI_OK)
+		if (status == JNI_EDETACHED && vm_->AttachCurrentThread(&env_, nullptr) == JNI_OK)
 		{
 			attached_ = true;
 		}
@@ -93,6 +95,10 @@ bool clearJavaException(JNIEnv* env) noexcept
 
 bool appendUtf8(std::string& output, std::uint32_t codePoint)
 {
+	if (codePoint == 0 || codePoint > 0x10FFFFu)
+	{
+		return false;
+	}
 	if (codePoint <= 0x7Fu)
 	{
 		output.push_back(static_cast<char>(codePoint));
@@ -108,21 +114,17 @@ bool appendUtf8(std::string& output, std::uint32_t codePoint)
 		output.push_back(static_cast<char>(0x80u | ((codePoint >> 6) & 0x3Fu)));
 		output.push_back(static_cast<char>(0x80u | (codePoint & 0x3Fu)));
 	}
-	else if (codePoint <= 0x10FFFFu)
+	else
 	{
 		output.push_back(static_cast<char>(0xF0u | (codePoint >> 18)));
 		output.push_back(static_cast<char>(0x80u | ((codePoint >> 12) & 0x3Fu)));
 		output.push_back(static_cast<char>(0x80u | ((codePoint >> 6) & 0x3Fu)));
 		output.push_back(static_cast<char>(0x80u | (codePoint & 0x3Fu)));
 	}
-	else
-	{
-		return false;
-	}
 	return true;
 }
 
-bool getUtf8String(JNIEnv* env, jstring value, std::string& output)
+bool getUtf8String(JNIEnv* env, jstring value, std::string& output) noexcept
 {
 	if (env == nullptr || value == nullptr)
 	{
@@ -130,6 +132,11 @@ bool getUtf8String(JNIEnv* env, jstring value, std::string& output)
 	}
 
 	const jsize length = env->GetStringLength(value);
+	if (length <= 0 || static_cast<std::size_t>(length) > MaxAndroidCachePathChars)
+	{
+		return false;
+	}
+
 	const jchar* characters = env->GetStringChars(value, nullptr);
 	if (characters == nullptr)
 	{
@@ -138,32 +145,40 @@ bool getUtf8String(JNIEnv* env, jstring value, std::string& output)
 	}
 
 	bool valid = true;
-	output.clear();
-	output.reserve(static_cast<std::size_t>(length) * 3u);
-	for (jsize index = 0; index < length && valid; ++index)
+	try
 	{
-		std::uint32_t codePoint = characters[index];
-		if (codePoint >= 0xD800u && codePoint <= 0xDBFFu)
+		output.clear();
+		output.reserve(static_cast<std::size_t>(length) * 3u);
+		for (jsize index = 0; index < length && valid; ++index)
 		{
-			if (index + 1 >= length)
+			std::uint32_t codePoint = characters[index];
+			if (codePoint >= 0xD800u && codePoint <= 0xDBFFu)
+			{
+				if (index + 1 >= length)
+				{
+					valid = false;
+					break;
+				}
+				const std::uint32_t low = characters[++index];
+				if (low < 0xDC00u || low > 0xDFFFu)
+				{
+					valid = false;
+					break;
+				}
+				codePoint = 0x10000u + ((codePoint - 0xD800u) << 10) + (low - 0xDC00u);
+			}
+			else if (codePoint >= 0xDC00u && codePoint <= 0xDFFFu)
 			{
 				valid = false;
 				break;
 			}
-			const std::uint32_t low = characters[++index];
-			if (low < 0xDC00u || low > 0xDFFFu)
-			{
-				valid = false;
-				break;
-			}
-			codePoint = 0x10000u + ((codePoint - 0xD800u) << 10) + (low - 0xDC00u);
+			valid = appendUtf8(output, codePoint);
 		}
-		else if (codePoint >= 0xDC00u && codePoint <= 0xDFFFu)
-		{
-			valid = false;
-			break;
-		}
-		valid = appendUtf8(output, codePoint);
+	}
+	catch (...)
+	{
+		valid = false;
+		output.clear();
 	}
 
 	env->ReleaseStringChars(value, characters);
@@ -173,17 +188,18 @@ bool getUtf8String(JNIEnv* env, jstring value, std::string& output)
 		output.clear();
 		return false;
 	}
-	return true;
+	return !output.empty();
 }
 
 std::int32_t sendRpcCallback(
 	void* userData,
 	std::uint8_t rpcId,
 	const std::uint8_t* payload,
-	std::size_t payloadSize)
+	std::size_t payloadSize) noexcept
 {
 	auto* context = static_cast<AndroidBridgeContext*>(userData);
 	if (context == nullptr || (payload == nullptr && payloadSize != 0)
+		|| payloadSize > MaxAndroidRpcPayloadBytes
 		|| payloadSize > static_cast<std::size_t>(std::numeric_limits<jsize>::max()))
 	{
 		return 0;
@@ -232,41 +248,48 @@ std::int32_t beginDownloadCallback(
 	std::uint32_t checksum,
 	std::uint32_t expectedSize,
 	const char* url,
-	std::size_t urlSize)
+	std::size_t urlSize) noexcept
 {
 	auto* context = static_cast<AndroidBridgeContext*>(userData);
-	if (context == nullptr || (url == nullptr && urlSize != 0)
+	if (context == nullptr || url == nullptr || urlSize == 0
 		|| urlSize > custom_vehicle::protocol::MaxDownloadUrlBytes)
 	{
 		return 0;
 	}
 
-	// The protocol validator restricts URLs to ASCII, making NewStringUTF safe here.
-	const std::string urlString(url == nullptr ? "" : std::string(url, urlSize));
-	ScopedJNIEnv scopedEnv(context->vm);
-	JNIEnv* env = scopedEnv.get();
-	if (env == nullptr)
+	try
+	{
+		// The protocol URL validator restricts bytes to ASCII before this JNI conversion.
+		const std::string urlString(url, urlSize);
+		ScopedJNIEnv scopedEnv(context->vm);
+		JNIEnv* env = scopedEnv.get();
+		if (env == nullptr)
+		{
+			return 0;
+		}
+
+		jstring javaUrl = env->NewStringUTF(urlString.c_str());
+		if (javaUrl == nullptr)
+		{
+			clearJavaException(env);
+			return 0;
+		}
+
+		const jboolean accepted = env->CallBooleanMethod(
+			context->callbacks,
+			context->beginDownloadMethod,
+			static_cast<jint>(assetType),
+			static_cast<jlong>(checksum),
+			static_cast<jlong>(expectedSize),
+			javaUrl);
+		const bool exception = clearJavaException(env);
+		env->DeleteLocalRef(javaUrl);
+		return !exception && accepted == JNI_TRUE ? 1 : 0;
+	}
+	catch (...)
 	{
 		return 0;
 	}
-
-	jstring javaUrl = env->NewStringUTF(urlString.c_str());
-	if (javaUrl == nullptr)
-	{
-		clearJavaException(env);
-		return 0;
-	}
-
-	const jboolean accepted = env->CallBooleanMethod(
-		context->callbacks,
-		context->beginDownloadMethod,
-		static_cast<jint>(assetType),
-		static_cast<jlong>(checksum),
-		static_cast<jlong>(expectedSize),
-		javaUrl);
-	const bool exception = clearJavaException(env);
-	env->DeleteLocalRef(javaUrl);
-	return !exception && accepted == JNI_TRUE ? 1 : 0;
 }
 
 AndroidBridgeContext* fromHandle(jlong handle) noexcept
@@ -318,7 +341,7 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCreate(
 	}
 
 	std::string cacheRoot;
-	if (!getUtf8String(env, cacheDirectory, cacheRoot) || cacheRoot.empty())
+	if (!getUtf8String(env, cacheDirectory, cacheRoot))
 	{
 		return 0;
 	}
@@ -343,6 +366,7 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCreate(
 	catch (...)
 	{
 		env->DeleteGlobalRef(globalCallbacks);
+		clearJavaException(env);
 		return 0;
 	}
 
@@ -415,25 +439,34 @@ Java_org_openmp_customvehicle_NativeBridge_nativeHandleServerRpc(
 	}
 
 	const jsize length = env->GetArrayLength(payload);
-	if (length < 0)
+	if (length < 0 || static_cast<std::size_t>(length) > MaxAndroidRpcPayloadBytes)
 	{
 		return -1;
 	}
-	std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
-	if (length != 0)
-	{
-		env->GetByteArrayRegion(payload, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
-		if (clearJavaException(env))
-		{
-			return -1;
-		}
-	}
 
-	return custom_vehicle_adapter_handle_server_rpc(
-		context->adapter,
-		static_cast<std::uint8_t>(rpcId),
-		bytes.empty() ? nullptr : bytes.data(),
-		bytes.size());
+	try
+	{
+		std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+		if (length != 0)
+		{
+			env->GetByteArrayRegion(payload, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
+			if (clearJavaException(env))
+			{
+				return -1;
+			}
+		}
+
+		return custom_vehicle_adapter_handle_server_rpc(
+			context->adapter,
+			static_cast<std::uint8_t>(rpcId),
+			bytes.empty() ? nullptr : bytes.data(),
+			bytes.size());
+	}
+	catch (...)
+	{
+		clearJavaException(env);
+		return -1;
+	}
 }
 
 JNIEXPORT jboolean JNICALL
@@ -448,7 +481,8 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCompleteAsset(
 {
 	AndroidBridgeContext* context = fromHandle(handle);
 	if (context == nullptr || env == nullptr || data == nullptr
-		|| !validUnsigned32(checksum) || !validUnsigned32(expectedSize))
+		|| !validUnsigned32(checksum) || !validUnsigned32(expectedSize)
+		|| expectedSize == 0 || static_cast<std::uint64_t>(expectedSize) > MaxAndroidAssetBytes)
 	{
 		return JNI_FALSE;
 	}
@@ -459,42 +493,50 @@ Java_org_openmp_customvehicle_NativeBridge_nativeCompleteAsset(
 		return JNI_FALSE;
 	}
 
-	std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
-	if (length != 0)
+	try
 	{
-		env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
-		if (clearJavaException(env))
+		std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+		if (length != 0)
+		{
+			env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
+			if (clearJavaException(env))
+			{
+				return JNI_FALSE;
+			}
+		}
+
+		custom_vehicle::protocol::AssetType type;
+		switch (assetType)
+		{
+			case static_cast<jint>(custom_vehicle::protocol::AssetType::Dff):
+				type = custom_vehicle::protocol::AssetType::Dff;
+				break;
+			case static_cast<jint>(custom_vehicle::protocol::AssetType::Txd):
+				type = custom_vehicle::protocol::AssetType::Txd;
+				break;
+			default:
+				return JNI_FALSE;
+		}
+
+		const std::uint32_t crc = static_cast<std::uint32_t>(checksum);
+		const std::uint32_t expected = static_cast<std::uint32_t>(expectedSize);
+		if (!context->cache.store(type, crc, expected, bytes.data(), bytes.size()))
 		{
 			return JNI_FALSE;
 		}
-	}
 
-	custom_vehicle::protocol::AssetType type;
-	switch (assetType)
-	{
-		case static_cast<jint>(custom_vehicle::protocol::AssetType::Dff):
-			type = custom_vehicle::protocol::AssetType::Dff;
-			break;
-		case static_cast<jint>(custom_vehicle::protocol::AssetType::Txd):
-			type = custom_vehicle::protocol::AssetType::Txd;
-			break;
-		default:
-			return JNI_FALSE;
+		return custom_vehicle_adapter_complete_asset(
+			context->adapter,
+			static_cast<std::uint8_t>(type),
+			crc,
+			bytes.data(),
+			bytes.size()) != 0 ? JNI_TRUE : JNI_FALSE;
 	}
-
-	const std::uint32_t crc = static_cast<std::uint32_t>(checksum);
-	const std::uint32_t expected = static_cast<std::uint32_t>(expectedSize);
-	if (!context->cache.store(type, crc, expected, bytes.data(), bytes.size()))
+	catch (...)
 	{
+		clearJavaException(env);
 		return JNI_FALSE;
 	}
-
-	return custom_vehicle_adapter_complete_asset(
-		context->adapter,
-		static_cast<std::uint8_t>(type),
-		crc,
-		bytes.data(),
-		bytes.size()) != 0 ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
