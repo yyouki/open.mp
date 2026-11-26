@@ -59,6 +59,7 @@ public:
 		SessionError& error) noexcept;
 	bool retryActiveAsset() noexcept;
 	bool awaitingDownloadUrl() const noexcept;
+	bool awaitingDownloadAcknowledgement() const noexcept;
 	void reset() noexcept;
 
 	CapabilityState capabilityState() const noexcept;
