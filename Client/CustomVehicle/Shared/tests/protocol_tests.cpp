@@ -32,16 +32,19 @@ std::vector<std::uint8_t> makeVehicleRequest(
 	std::uint32_t dffChecksum = 0x11223344u,
 	std::uint32_t txdChecksum = 0x55667788u,
 	std::uint32_t dffSize = 512,
-	std::uint32_t txdSize = 1024)
+	std::uint32_t txdSize = 1024,
+	std::uint32_t poolId = 0,
+	std::uint32_t modelCount = 1,
+	std::int32_t modelId = 30001)
 {
 	std::vector<std::uint8_t> bytes;
 	bytes.reserve(ModelRequestWireSize);
-	appendU32(bytes, 0);             // First entry in the model pool.
-	appendU32(bytes, 1);             // Total entries in this manifest.
+	appendU32(bytes, poolId);        // Position in the shared model pool.
+	appendU32(bytes, modelCount);    // Total entries in this manifest.
 	bytes.push_back(3);              // Experimental vehicle model type.
 	appendI32(bytes, -1);            // Global virtual world.
 	appendI32(bytes, 400);           // Base vehicle model.
-	appendI32(bytes, 30001);         // Custom vehicle model ID.
+	appendI32(bytes, modelId);       // Custom vehicle model ID.
 	appendU32(bytes, dffChecksum);   // DFF checksum.
 	appendU32(bytes, txdChecksum);   // TXD checksum.
 	appendU32(bytes, dffSize);       // DFF size.
@@ -298,6 +301,37 @@ void testSessionRejectsMismatchedUrlAndCorruptFile()
 	assert(!session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
 }
 
+
+void testManifestGrowthAndPoolUniqueness()
+{
+	ClientSession session;
+	session.beginNegotiation();
+	SessionError sessionError = SessionError::None;
+	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+	DecodeError decodeError = DecodeError::None;
+
+	auto first = makeVehicleRequest(11, 12, 20, 21, 0, 1, 30001);
+	assert(session.acceptModelManifest(first.data(), first.size(), decodeError, sessionError)
+		== ManifestDisposition::AcceptedVehicle);
+
+	// Late model registrations append to the manifest and may increase Count.
+	auto second = makeVehicleRequest(13, 14, 22, 23, 1, 2, 30002);
+	assert(session.acceptModelManifest(second.data(), second.size(), decodeError, sessionError)
+		== ManifestDisposition::AcceptedVehicle);
+
+	// A duplicate pool index or a decreasing Count is not a valid append.
+	auto duplicatePool = makeVehicleRequest(15, 16, 24, 25, 0, 3, 30003);
+	assert(session.acceptModelManifest(duplicatePool.data(), duplicatePool.size(), decodeError, sessionError)
+		== ManifestDisposition::Rejected);
+	assert(sessionError == SessionError::InconsistentManifest);
+
+	auto smallerCount = makeVehicleRequest(17, 18, 26, 27, 2, 1, 30004);
+	assert(session.acceptModelManifest(smallerCount.data(), smallerCount.size(), decodeError, sessionError)
+		== ManifestDisposition::Rejected);
+	assert(sessionError == SessionError::InconsistentManifest);
+	assert(session.vehicleModels().size() == 2);
+}
+
 void testAssetIntegrity()
 {
 	constexpr std::array<std::uint8_t, 9> sample = { '1','2','3','4','5','6','7','8','9' };
@@ -319,6 +353,7 @@ int main()
 	testVehicleValidation();
 	testSessionDownloadLifecycle();
 	testSessionRejectsMismatchedUrlAndCorruptFile();
+	testManifestGrowthAndPoolUniqueness();
 	testAssetIntegrity();
 	return 0;
 }
