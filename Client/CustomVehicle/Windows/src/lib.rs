@@ -35,12 +35,10 @@ use windows_sys::Win32::{
 };
 use windows_sys::core::BOOL;
 
-const RPC_MODEL_REQUEST: u8 = 220;
 const RPC_REQUEST_DFF: u8 = 223;
 const RPC_REQUEST_TXD: u8 = 224;
 const RPC_FINISH_DOWNLOAD: u8 = 226;
 const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 221;
-const RPC_SERVER_SUPPORTS_VEHICLES: u8 = 222;
 
 const BRIDGE_ABI_VERSION: u32 = 1;
 const MAX_RPC_BYTES: usize = 1024 * 1024;
