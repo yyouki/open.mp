@@ -9,14 +9,14 @@ namespace custom_vehicle::protocol
 enum class ModelType : std::uint8_t { Skin = 1, Object = 2, Vehicle = 3 };
 enum class RpcId : std::uint8_t
 {
-	ModelRequest = 179,
-	RequestDff = 181,
-	RequestTxd = 182,
-	ModelUrl = 183,
-	FinishDownload = 184,
-	DownloadCompleted = 185,
-	ClientSupportsCustomVehicleModels = 186,
-	ServerSupportsCustomVehicleModels = 187,
+	ModelRequest = 220,
+	ClientSupportsCustomVehicleModels = 221,
+	ServerSupportsCustomVehicleModels = 222,
+	RequestDff = 223,
+	RequestTxd = 224,
+	ModelUrl = 225,
+	FinishDownload = 226,
+	DownloadCompleted = 227,
 };
 enum class AssetType : std::uint8_t { Dff = 1, Txd = 2 };
 
