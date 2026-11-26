@@ -9,7 +9,7 @@ compile_error!("custom-vehicle-windows supports only 32-bit Windows x86 targets"
 
 use samp_client_sdk::{
     Samp, SampClientSdkClientVersion, SampClientSdkDirection, SampClientSdkHookAction,
-    SampClientSdkResult, Subscription,
+    Subscription,
 };
 use std::{
     ffi::c_void,
@@ -39,9 +39,7 @@ const RPC_MODEL_REQUEST: u8 = 179;
 const RPC_REQUEST_DFF: u8 = 181;
 const RPC_REQUEST_TXD: u8 = 182;
 const RPC_MODEL_URL: u8 = 183;
-const RPC_FINISH_DOWNLOAD: u8 = 184;
 const RPC_DOWNLOAD_COMPLETED: u8 = 185;
-const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 186;
 const RPC_SERVER_SUPPORTS_VEHICLES: u8 = 187;
 
 const BRIDGE_ABI_VERSION: u32 = 1;
@@ -261,12 +259,21 @@ fn initialize() {
     let mut workers = Vec::new();
 
     let outgoing_context = Arc::clone(&context);
+    let (outgoing_ready_tx, outgoing_ready_rx) = mpsc::sync_channel(1);
     match thread::Builder::new()
         .name("openmp-custom-vehicle-rpc-send".into())
-        .spawn(move || outgoing_worker(outgoing_context, outgoing_rx))
+        .spawn(move || outgoing_worker(outgoing_context, outgoing_rx, outgoing_ready_tx))
     {
         Ok(worker) => workers.push(worker),
         Err(_) => return,
+    }
+
+    match outgoing_ready_rx.recv_timeout(Duration::from_secs(35)) {
+        Ok(true) => {}
+        _ => {
+            stop_workers(&context, workers);
+            return;
+        }
     }
 
     let download_context = Arc::clone(&context);
@@ -478,13 +485,32 @@ unsafe extern "C" fn begin_download_callback(
 fn outgoing_worker(
     context: Arc<BridgeContext>,
     receiver: Receiver<WorkerMessage<OutgoingRpc>>,
+    ready: mpsc::SyncSender<bool>,
 ) {
     let samp = match Samp::connect(Duration::from_secs(30)) {
         Ok(samp) => samp,
-        Err(_) => return,
+        Err(_) => {
+            let _ = ready.send(false);
+            return;
+        }
     };
-    let net = samp.net();
 
+    // Do not acknowledge RPC 186 until the dedicated send worker has a live host API.
+    let supported = matches!(
+        samp.version(),
+        Ok(
+            SampClientSdkClientVersion::R1
+            | SampClientSdkClientVersion::R3_1
+            | SampClientSdkClientVersion::R5_1
+        )
+    );
+    if !supported {
+        let _ = ready.send(false);
+        return;
+    }
+    let _ = ready.send(true);
+
+    let net = samp.net();
     while let Ok(message) = receiver.recv() {
         match message {
             WorkerMessage::Shutdown => break,
@@ -755,11 +781,21 @@ pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
         return TRUE;
     };
 
+    let mut unregister_failed = false;
     for subscription in &mut subscriptions {
         if subscription.unregister_and_wait(Duration::from_secs(10)).is_err() {
-            return 0;
+            unregister_failed = true;
         }
     }
+    if unregister_failed {
+        // Keep the adapter, callback context, and workers alive if any hook may still be active.
+        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        state.context = Some(context);
+        state.subscriptions = subscriptions;
+        state.workers = workers;
+        return 0;
+    }
+
     stop_workers(&context, workers);
     TRUE
 }
