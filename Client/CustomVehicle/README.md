@@ -33,7 +33,7 @@ installed for an unrecognized executable.
 | Other SA-MP revisions | Not yet supported by this client | Separate verified network profile and regression test |
 | open.mp server with a legacy SA-MP client | Server-side path exists | Client adapter must negotiate the experimental RPC extension |
 | Distinct open.mp client binary | Not yet verified | Identify binary/version and add a dedicated adapter profile |
-| Android GTA SA multiplayer client | Not yet supported | Android-native library/loader, ARM ABI profiles, and Android game-engine integration |
+| Android GTA SA multiplayer client | JNI/native bridge builds for four ABIs; no game client is qualified yet | Verified client RPC hook, Android model loader, and game-engine integration |
 | Windows x64 / Linux / macOS | Not yet supported as game clients | Separate runtime integration for each platform; the current ASI SDK is Windows x86 only |
 
 The upstream `samp-client-sdk` project describes its ASI host as Windows x86
@@ -86,6 +86,11 @@ The first implementation is in [Shared](Shared/). It currently provides:
   C, Rust, or JNI-backed Android code. The C boundary exposes opaque adapter
   handles, RPC/download callbacks, and copied model snapshots without exposing
   C++ STL types. CI also compiles this header as C.
+- An Android JNI wrapper in [Android](Android/) that links the shared adapter,
+  verifies downloaded bytes, and stores DFF/TXD files in an app-private cache.
+  It builds a `.so` for Android ARM64, ARMv7, x86, and x86_64. This is an
+  integration bridge for a compatible multiplayer client, not client support
+  by itself.
 
 The adapter depends on two platform interfaces: `RpcTransport` sends raw
 RakNet RPC payloads, and `AssetDownloadSink` copies a callback-scoped URL and
@@ -118,10 +123,10 @@ ctest --test-dir build/custom-vehicle-client --build-config Release --output-on-
 ```
 
 The dedicated CI workflow compiles/tests the host core on Windows, Linux, and
-macOS, and cross-compiles the portable core for Android `arm64-v8a`,
-`armeabi-v7a`, `x86`, and `x86_64`. These jobs validate only the portable
-library; they do not certify a multiplayer game client or its native model
-backend on those targets.
+macOS, and cross-compiles the Android JNI shared library for `arm64-v8a`,
+`armeabi-v7a`, `x86`, and `x86_64`. These jobs validate the portable
+protocol, adapter, cache, C ABI and JNI build; they do not certify an Android
+multiplayer game client or its native model backend.
 
 ## Milestones
 
@@ -133,8 +138,9 @@ backend on those targets.
    lookup, vehicle construction, and cleanup on a verified executable profile.
 4. **Additional SA-MP revisions and distinct open.mp clients** — add profiles
    only after network and native behavior are independently verified.
-5. **Android** — a separate native client adapter for supported Android game
-   versions and ARM ABIs; it cannot load a Windows `.asi`.
+5. **Android client integration** — connect the JNI bridge to a specific Android
+   multiplayer client's verified RPC hook and native game/model backend; a
+   Windows `.asi` cannot be loaded on Android.
 6. **Other architectures and operating systems** — only where a compatible GTA
    SA game client and plugin/runtime interface exist.
 
