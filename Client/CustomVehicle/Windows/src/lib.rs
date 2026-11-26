@@ -917,7 +917,11 @@ pub extern "system" fn CustomVehicleWindows_CopyModel(
 
 #[cfg(test)]
 mod tests {
-    use super::is_custom_vehicle_rpc;
+    use super::{
+        cache_path, crc32, is_custom_vehicle_rpc, read_verified_cache, store_verified_cache,
+        DownloadJob,
+    };
+    use std::fs;
 
     #[test]
     fn custom_vehicle_rpc_range_is_isolated() {
