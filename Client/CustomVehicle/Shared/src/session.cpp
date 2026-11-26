@@ -271,6 +271,13 @@ bool ClientSession::retryActiveAsset() noexcept
 	return true;
 }
 
+bool ClientSession::awaitingDownloadUrl() const noexcept
+{
+	return hasActiveAsset_
+		&& activeAssetIndex_ < assets_.size()
+		&& assets_[activeAssetIndex_].state == AssetState::Requested;
+}
+
 void ClientSession::reset() noexcept
 {
 	capability_ = CapabilityState::NotNegotiated;
