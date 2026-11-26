@@ -2,6 +2,8 @@
 
 #include <custom_vehicle/session.hpp>
 
+#include <mutex>
+
 namespace custom_vehicle::protocol
 {
 class RpcTransport
@@ -51,13 +53,14 @@ public:
 	// Called after transport failure, timeout, or an interrupted local file write.
 	bool retryActiveAsset() noexcept;
 
-	const ClientSession& session() const noexcept { return session_; }
+	std::vector<ModelRequest> vehicleModels() const;
 
 private:
-	bool requestNextAsset() noexcept;
+	bool requestNextAssetUnlocked() noexcept;
 
 	RpcTransport& transport_;
 	AssetDownloadSink& downloader_;
+	mutable std::mutex mutex_;
 	ClientSession session_;
 };
 } // namespace custom_vehicle::protocol
