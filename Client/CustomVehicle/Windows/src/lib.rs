@@ -333,6 +333,10 @@ fn initialize() {
     state.workers = workers;
 }
 
+fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
+    (220..=227).contains(&rpc_id)
+}
+
 fn handle_server_rpc(
     context: &BridgeContext,
     event: &mut samp_client_sdk::events::Event<'_>,
@@ -341,8 +345,8 @@ fn handle_server_rpc(
     let bit_len = event.remaining_bits();
 
     if bit_len > MAX_RPC_BYTES.saturating_mul(8) || bit_len % 8 != 0 {
-        // RPC 220 and 222 belong to the extension; native RPC IDs are never blocked.
-        return if rpc_id == RPC_MODEL_REQUEST || rpc_id == RPC_SERVER_SUPPORTS_VEHICLES {
+        // Every ID in 220-227 belongs to the extension and must fail closed.
+        return if is_custom_vehicle_rpc(rpc_id) {
             SampClientSdkHookAction::Block
         } else {
             SampClientSdkHookAction::Continue
@@ -350,26 +354,30 @@ fn handle_server_rpc(
     }
 
     if event.reset_read().is_err() {
-        return SampClientSdkHookAction::Continue;
+        return if is_custom_vehicle_rpc(rpc_id) {
+            SampClientSdkHookAction::Block
+        } else {
+            SampClientSdkHookAction::Continue
+        };
     }
 
     let payload = match event.read_bits(bit_len) {
         Ok(payload) => payload,
         Err(_) => {
-            return if event.reset_read().is_ok() {
-                SampClientSdkHookAction::Continue
-            } else {
+            return if is_custom_vehicle_rpc(rpc_id) || event.reset_read().is_err() {
                 SampClientSdkHookAction::Block
+            } else {
+                SampClientSdkHookAction::Continue
             };
         }
     };
 
     let adapter = context.adapter();
     if adapter.is_null() {
-        return if event.reset_read().is_ok() {
-            SampClientSdkHookAction::Continue
-        } else {
+        return if is_custom_vehicle_rpc(rpc_id) || event.reset_read().is_err() {
             SampClientSdkHookAction::Block
+        } else {
+            SampClientSdkHookAction::Continue
         };
     }
 
@@ -397,9 +405,7 @@ fn handle_server_rpc(
                 SampClientSdkHookAction::Continue
             }
         }
-        _ if rpc_id == RPC_MODEL_REQUEST || rpc_id == RPC_SERVER_SUPPORTS_VEHICLES => {
-            SampClientSdkHookAction::Block
-        }
+        _ if is_custom_vehicle_rpc(rpc_id) => SampClientSdkHookAction::Block,
         _ => {
             if event.reset_read().is_err() {
                 SampClientSdkHookAction::Block
