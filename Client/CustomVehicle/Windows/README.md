@@ -14,7 +14,7 @@ The pinned upstream host verifies direct SA-MP bridges for GTA: San Andreas
 | SA-MP 0.3.7 R1 | Network/download adapter enabled |
 | SA-MP 0.3.7 R3-1 | Network/download adapter enabled |
 | SA-MP 0.3.7 R5-1 | Network/download adapter enabled |
-| SA-MP 0.3.DL R1 | Deliberately disabled pending native artwork/custom-download multiplexing |
+| SA-MP 0.3.DL R1 | Network/download adapter enabled; native artwork channel remains untouched |
 | SA-MP R2 / R4-2 and other builds | Not enabled by this adapter |
 
 The adapter checks the detected client version before installing RPC hooks. Unknown
@@ -24,12 +24,13 @@ as `samp_client_sdk.asi`.
 
 ## What it implements
 
-- Starts the custom vehicle capability negotiation (RPC 186).
-- Hooks incoming RPC 179, 183, 185, and 187. It consumes extension messages and
+- Starts the custom vehicle capability negotiation (RPC 221).
+- Hooks the isolated incoming extension RPCs 220, 222, 225, and 227. It consumes extension messages and
   forwards unrelated messages to the original client.
 - Uses the portable shared session state machine for validation and sequencing.
-- Sends checksum requests and completion notifications through the SDK's
-  game-thread RPC queue.
+- Sends vehicle DFF/TXD requests (RPC 223/224) and completion notifications
+  (RPC 226) through the SDK's game-thread RPC queue. The server acknowledges
+  verified files with RPC 227.
 - Downloads DFF/TXD files on a worker thread over HTTP/HTTPS.
 - Validates exact size and CRC32, then writes files to
   `%LOCALAPPDATA%\\open.mp\\custom-vehicle` using deterministic names and a
@@ -38,10 +39,10 @@ as `samp_client_sdk.asi`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
-- Starts RPC 186 only when the selected profile reaches its verified active
-  game state: R1 uses state 14; R3-1/R5-1 accept their observed AwaitingJoin
-  state 15 and connected state 14. The sender polls the cached SDK state and
-  resets the extension session when the client disconnects or reconnects.
+- Starts RPC 221 only when the selected profile reaches its verified active
+  game state: R1/DL use state 14; R3-1/R5-1 accept AwaitingJoin state 15 and
+  connected state 14. The sender polls the cached SDK state and resets the
+  extension session when the client disconnects or reconnects.
 
 ## Build
 
@@ -84,6 +85,7 @@ system, or construct/render custom vehicles. Those operations require exact
 GTA executable layouts and verified ownership/cleanup contracts. No guessed
 addresses are used.
 
-SA-MP 0.3.DL R1 remains disabled because its built-in artwork downloader also
-uses RPC 181/182/183/184/185. The current adapter does not yet arbitrate native
-DL artwork requests and experimental vehicle asset requests concurrently.
+The custom vehicle extension uses a separate RPC block (220-227). Native
+SA-MP/0.3.DL artwork messages (179 and 181-189) are forwarded unchanged to the
+original client, so native DL skin/object downloads can run alongside custom
+vehicle asset transfers without sharing request/URL/ACK state.
