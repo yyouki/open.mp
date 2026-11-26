@@ -22,16 +22,20 @@ std::int32_t readI32LittleEndian(const std::uint8_t* data) noexcept
 	std::memcpy(&value, &raw, sizeof(value));
 	return value;
 }
+
+void writeU32LittleEndian(std::uint8_t* output, std::uint32_t value) noexcept
+{
+	output[0] = static_cast<std::uint8_t>(value);
+	output[1] = static_cast<std::uint8_t>(value >> 8);
+	output[2] = static_cast<std::uint8_t>(value >> 16);
+	output[3] = static_cast<std::uint8_t>(value >> 24);
+}
 } // namespace
 
-bool decodeModelRequest(
-	const std::uint8_t* data,
-	std::size_t size,
-	ModelRequest& result,
-	DecodeError& error) noexcept
+bool decodeModelRequest(const std::uint8_t* data, std::size_t size,
+	ModelRequest& result, DecodeError& error) noexcept
 {
 	error = DecodeError::None;
-
 	if (data == nullptr)
 	{
 		error = DecodeError::NullBuffer;
@@ -46,7 +50,7 @@ bool decodeModelRequest(
 	ModelRequest decoded;
 	decoded.poolId = readU32LittleEndian(data);
 
-	// The server serializes Count as a signed int32; reject negative values before conversion.
+	// The server serializes Count as a signed int32; reject negatives before conversion.
 	const std::int32_t modelCount = readI32LittleEndian(data + 4);
 	if (modelCount <= 0)
 	{
@@ -57,15 +61,9 @@ bool decodeModelRequest(
 
 	switch (data[8])
 	{
-		case static_cast<std::uint8_t>(ModelType::Skin):
-			decoded.type = ModelType::Skin;
-			break;
-		case static_cast<std::uint8_t>(ModelType::Object):
-			decoded.type = ModelType::Object;
-			break;
-		case static_cast<std::uint8_t>(ModelType::Vehicle):
-			decoded.type = ModelType::Vehicle;
-			break;
+		case static_cast<std::uint8_t>(ModelType::Skin): decoded.type = ModelType::Skin; break;
+		case static_cast<std::uint8_t>(ModelType::Object): decoded.type = ModelType::Object; break;
+		case static_cast<std::uint8_t>(ModelType::Vehicle): decoded.type = ModelType::Vehicle; break;
 		default:
 			error = DecodeError::InvalidModelType;
 			return false;
@@ -91,6 +89,115 @@ bool decodeModelRequest(
 	return true;
 }
 
+bool isValidHttpUrl(std::string_view url) noexcept
+{
+	constexpr std::string_view http = "http://";
+	constexpr std::string_view https = "https://";
+	std::size_t authorityStart = 0;
+
+	if (url.empty() || url.size() > MaxDownloadUrlBytes)
+	{
+		return false;
+	}
+	if (url.substr(0, http.size()) == http)
+	{
+		authorityStart = http.size();
+	}
+	else if (url.substr(0, https.size()) == https)
+	{
+		authorityStart = https.size();
+	}
+	else
+	{
+		return false;
+	}
+
+	const std::size_t authorityEnd = url.find_first_of("/?#", authorityStart);
+	const std::size_t hostEnd = authorityEnd == std::string_view::npos ? url.size() : authorityEnd;
+	if (hostEnd == authorityStart)
+	{
+		return false;
+	}
+
+	for (unsigned char character : url)
+	{
+		if (character <= 0x20 || character == 0x7F || character == '\\')
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool decodeDownloadUrl(const std::uint8_t* data, std::size_t size,
+	DownloadUrl& result, DecodeError& error) noexcept
+{
+	error = DecodeError::None;
+	if (data == nullptr)
+	{
+		error = DecodeError::NullBuffer;
+		return false;
+	}
+	if (size < DownloadUrlHeaderSize)
+	{
+		error = DecodeError::WrongSize;
+		return false;
+	}
+	if (data[0] != ModelUrlTransportMarker)
+	{
+		error = DecodeError::InvalidUrlMarker;
+		return false;
+	}
+
+	DownloadUrl decoded;
+	switch (data[1])
+	{
+		case static_cast<std::uint8_t>(AssetType::Dff): decoded.type = AssetType::Dff; break;
+		case static_cast<std::uint8_t>(AssetType::Txd): decoded.type = AssetType::Txd; break;
+		default:
+			error = DecodeError::InvalidAssetType;
+			return false;
+	}
+
+	decoded.checksum = readU32LittleEndian(data + 2);
+	const std::size_t urlLength = data[6];
+	if (urlLength == 0 || size != DownloadUrlHeaderSize + urlLength)
+	{
+		error = DecodeError::InvalidUrlLength;
+		return false;
+	}
+	decoded.url = std::string_view(reinterpret_cast<const char*>(data + DownloadUrlHeaderSize), urlLength);
+	if (!isValidHttpUrl(decoded.url))
+	{
+		error = DecodeError::InvalidUrl;
+		return false;
+	}
+
+	result = decoded;
+	return true;
+}
+
+bool encodeAssetRequest(AssetType type, std::uint32_t checksum, std::uint8_t* output,
+	std::size_t capacity, std::size_t& bytesWritten, RpcId& rpcId) noexcept
+{
+	bytesWritten = 0;
+	if (output == nullptr || capacity < AssetRequestWireSize)
+	{
+		return false;
+	}
+
+	switch (type)
+	{
+		case AssetType::Dff: rpcId = RpcId::RequestDff; break;
+		case AssetType::Txd: rpcId = RpcId::RequestTxd; break;
+		default: return false;
+	}
+
+	writeU32LittleEndian(output, checksum);
+	bytesWritten = AssetRequestWireSize;
+	return true;
+}
+
 bool isCustomVehicleModelId(std::int32_t modelId) noexcept
 {
 	return modelId >= MinCustomVehicleModelId && modelId <= MaxCustomVehicleModelId;
@@ -99,11 +206,8 @@ bool isCustomVehicleModelId(std::int32_t modelId) noexcept
 bool isSupportedVehicleBaseId(std::int32_t modelId) noexcept
 {
 	return modelId >= 400 && modelId <= 611
-		&& modelId != 449
-		&& modelId != 537
-		&& modelId != 538
-		&& modelId != 569
-		&& modelId != 570;
+		&& modelId != 449 && modelId != 537 && modelId != 538
+		&& modelId != 569 && modelId != 570;
 }
 
 bool validateVehicleModelRequest(const ModelRequest& request) noexcept
@@ -111,8 +215,7 @@ bool validateVehicleModelRequest(const ModelRequest& request) noexcept
 	return request.type == ModelType::Vehicle
 		&& isCustomVehicleModelId(request.newId)
 		&& isSupportedVehicleBaseId(request.baseId)
-		&& request.dffSize != 0
-		&& request.txdSize != 0
+		&& request.dffSize != 0 && request.txdSize != 0
 		&& request.dffChecksum != request.txdChecksum;
 }
 
@@ -136,14 +239,10 @@ std::uint32_t calculateCrc32(const std::uint8_t* data, std::size_t size) noexcep
 	return ~crc;
 }
 
-bool verifyAsset(
-	const std::uint8_t* data,
-	std::size_t size,
-	std::uint32_t expectedSize,
-	std::uint32_t expectedChecksum) noexcept
+bool verifyAsset(const std::uint8_t* data, std::size_t size,
+	std::uint32_t expectedSize, std::uint32_t expectedChecksum) noexcept
 {
-	return data != nullptr
-		&& size == expectedSize
+	return data != nullptr && size == expectedSize
 		&& calculateCrc32(data, size) == expectedChecksum;
 }
 } // namespace custom_vehicle::protocol
