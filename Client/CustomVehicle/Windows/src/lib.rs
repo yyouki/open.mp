@@ -335,45 +335,39 @@ fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
     (220..=227).contains(&rpc_id)
 }
 
+fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
+    (220..=227).contains(&rpc_id)
+}
+
 fn handle_server_rpc(
     context: &BridgeContext,
     event: &mut samp_client_sdk::events::Event<'_>,
 ) -> SampClientSdkHookAction {
     let rpc_id = event.id();
-    let bit_len = event.remaining_bits();
 
+    // Preserve native SA-MP and 0.3.DL RPCs exactly as received. Do not copy or
+    // consume their bitstreams; the original game parser owns those packets.
+    if !is_custom_vehicle_rpc(rpc_id) {
+        return SampClientSdkHookAction::Continue;
+    }
+
+    let bit_len = event.remaining_bits();
     if bit_len > MAX_RPC_BYTES.saturating_mul(8) || bit_len % 8 != 0 {
-        // Every ID in 220-227 belongs to the extension and must fail closed.
-        return if is_custom_vehicle_rpc(rpc_id) {
-            SampClientSdkHookAction::Block
-        } else {
-            SampClientSdkHookAction::Continue
-        };
+        return SampClientSdkHookAction::Block;
     }
 
     if event.reset_read().is_err() {
-        // The client parser must never receive a packet with an unknown read cursor.
         return SampClientSdkHookAction::Block;
     }
 
     let payload = match event.read_bits(bit_len) {
         Ok(payload) => payload,
-        Err(_) => {
-            return if is_custom_vehicle_rpc(rpc_id) || event.reset_read().is_err() {
-                SampClientSdkHookAction::Block
-            } else {
-                SampClientSdkHookAction::Continue
-            };
-        }
+        Err(_) => return SampClientSdkHookAction::Block,
     };
 
     let adapter = context.adapter();
     if adapter.is_null() {
-        return if is_custom_vehicle_rpc(rpc_id) || event.reset_read().is_err() {
-            SampClientSdkHookAction::Block
-        } else {
-            SampClientSdkHookAction::Continue
-        };
+        return SampClientSdkHookAction::Block;
     }
 
     let payload_ptr = if payload.is_empty() {
@@ -381,7 +375,9 @@ fn handle_server_rpc(
     } else {
         payload.as_ptr()
     };
-    let result = unsafe {
+    // IDs 220-227 are extension-only, so even malformed or unexpected states
+    // must never expose them to the stock game parser.
+    let _ = unsafe {
         custom_vehicle_adapter_handle_server_rpc(
             adapter,
             rpc_id,
@@ -390,25 +386,7 @@ fn handle_server_rpc(
         )
     };
 
-    match result {
-        1 => SampClientSdkHookAction::Block,
-        0 => {
-            // Native RPCs must reach the original parser with their read cursor restored.
-            if event.reset_read().is_err() {
-                SampClientSdkHookAction::Block
-            } else {
-                SampClientSdkHookAction::Continue
-            }
-        }
-        _ if is_custom_vehicle_rpc(rpc_id) => SampClientSdkHookAction::Block,
-        _ => {
-            if event.reset_read().is_err() {
-                SampClientSdkHookAction::Block
-            } else {
-                SampClientSdkHookAction::Continue
-            }
-        }
-    }
+    SampClientSdkHookAction::Block
 }
 
 unsafe extern "C" fn send_rpc_callback(
