@@ -74,6 +74,31 @@ std::vector<std::uint8_t> makeDownloadUrl(AssetType type, std::uint32_t checksum
 	return bytes;
 }
 
+void testRpcIdIsolation()
+{
+	static_assert(static_cast<std::uint8_t>(RpcId::ModelRequest) == 220);
+	static_assert(static_cast<std::uint8_t>(RpcId::ClientSupportsCustomVehicleModels) == 221);
+	static_assert(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels) == 222);
+	static_assert(static_cast<std::uint8_t>(RpcId::RequestDff) == 223);
+	static_assert(static_cast<std::uint8_t>(RpcId::RequestTxd) == 224);
+	static_assert(static_cast<std::uint8_t>(RpcId::ModelUrl) == 225);
+	static_assert(static_cast<std::uint8_t>(RpcId::FinishDownload) == 226);
+	static_assert(static_cast<std::uint8_t>(RpcId::DownloadCompleted) == 227);
+
+	// These native SA-MP/0.3.DL IDs must never be claimed by the extension.
+	for (const std::uint8_t nativeRpc : {179,181,182,183,184,185,186,187,188,189})
+	{
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ModelRequest));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ClientSupportsCustomVehicleModels));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::RequestDff));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::RequestTxd));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::ModelUrl));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::FinishDownload));
+		assert(nativeRpc != static_cast<std::uint8_t>(RpcId::DownloadCompleted));
+	}
+}
+
 void testManifestDecode()
 {
 	const auto bytes = makeVehicleRequest();
@@ -697,6 +722,7 @@ void testAssetIntegrity()
 
 int main()
 {
+	testRpcIdIsolation();
 	testManifestDecode();
 	testMalformedManifest();
 	testModelCountAndPoolIndexValidation();
