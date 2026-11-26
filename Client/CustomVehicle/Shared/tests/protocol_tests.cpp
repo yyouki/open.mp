@@ -1,6 +1,7 @@
 #include <custom_vehicle/protocol.hpp>
 #include <custom_vehicle/session.hpp>
 #include <custom_vehicle/network_adapter.hpp>
+#include <custom_vehicle/asset_cache.hpp>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -8,7 +9,10 @@
 
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -465,6 +469,49 @@ void testNetworkAdapterFlow()
 		dffUrl.data(), dffUrl.size()) == RpcDisposition::ForwardToGame);
 }
 
+
+void testAssetCache()
+{
+	constexpr std::array<std::uint8_t, 9> bytes = { '1','2','3','4','5','6','7','8','9' };
+	constexpr std::uint32_t checksum = 0xCBF43926u;
+	const auto uniqueSuffix = std::to_string(
+		std::chrono::steady_clock::now().time_since_epoch().count());
+	const std::filesystem::path root =
+		std::filesystem::temp_directory_path() / ("openmp-custom-vehicle-cache-" + uniqueSuffix);
+	std::error_code error;
+	std::filesystem::remove_all(root, error);
+
+	{
+		AssetCache cache(root);
+		assert(!cache.contains(AssetType::Dff, checksum, static_cast<std::uint32_t>(bytes.size())));
+		assert(cache.pathFor(AssetType::Dff, checksum) != cache.pathFor(AssetType::Txd, checksum));
+		assert(cache.store(AssetType::Dff, checksum,
+			static_cast<std::uint32_t>(bytes.size()), bytes.data(), bytes.size()));
+		assert(cache.contains(AssetType::Dff, checksum, static_cast<std::uint32_t>(bytes.size())));
+
+		// Invalid input cannot replace an already verified cache entry.
+		assert(!cache.store(AssetType::Dff, checksum,
+			static_cast<std::uint32_t>(bytes.size() - 1), bytes.data(), bytes.size()));
+		assert(cache.contains(AssetType::Dff, checksum, static_cast<std::uint32_t>(bytes.size())));
+
+		// Corrupt the on-disk file and make sure the next store repairs it.
+		{
+			std::ofstream corrupt(cache.pathFor(AssetType::Dff, checksum),
+				std::ios::binary | std::ios::trunc);
+			constexpr char damaged[] = "12345678X";
+			corrupt.write(damaged, sizeof(damaged) - 1);
+			assert(corrupt.good());
+		}
+		assert(!cache.contains(AssetType::Dff, checksum, static_cast<std::uint32_t>(bytes.size())));
+		assert(cache.store(AssetType::Dff, checksum,
+			static_cast<std::uint32_t>(bytes.size()), bytes.data(), bytes.size()));
+		assert(cache.contains(AssetType::Dff, checksum, static_cast<std::uint32_t>(bytes.size())));
+	}
+
+	std::filesystem::remove_all(root, error);
+	assert(!error);
+}
+
 void testAssetIntegrity()
 {
 	constexpr std::array<std::uint8_t, 9> sample = { '1','2','3','4','5','6','7','8','9' };
@@ -488,6 +535,7 @@ int main()
 	testSessionRejectsMismatchedUrlAndCorruptFile();
 	testManifestGrowthAndPoolUniqueness();
 	testNetworkAdapterFlow();
+	testAssetCache();
 	testAssetIntegrity();
 	return 0;
 }
