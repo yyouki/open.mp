@@ -57,6 +57,10 @@ The downloader must call `retryActiveAsset` after its own timeout/backoff
 policy. Before `close()`, the host must stop and join every worker that could
 call `completeAsset`. Do not call back into `NativeBridge` synchronously from
 `sendRpc` or `beginDownload`: both are invoked while adapter state is locked.
+The JNI boundary limits one RPC payload to 1 MiB and one completed asset to
+512 MiB because the current Java callback contract passes the full asset as a
+`byte[]`. Larger assets need a streaming-file completion API rather than a
+larger Java array.
 
 The cache path is deterministic:
 `dff-<8 lowercase hex CRC32>.dff` or
