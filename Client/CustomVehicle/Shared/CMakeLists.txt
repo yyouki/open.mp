@@ -6,6 +6,7 @@ add_library(custom_vehicle_protocol STATIC
 	src/protocol.cpp
 	src/session.cpp
 	src/network_adapter.cpp
+	src/asset_cache.cpp
 )
 
 target_include_directories(custom_vehicle_protocol
