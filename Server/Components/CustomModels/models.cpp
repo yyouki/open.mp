@@ -40,9 +40,37 @@ static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
 	}
 
 	const String fileNameString(fileName.data(), fileName.size());
-	if (fileNameString.find_first_of("\\\\:") != String::npos)
+	if (fileNameString.find_first_of("\\:") != String::npos)
 	{
 		return false;
+	}
+
+	if (fileNameString.front() == '/' || fileNameString.back() == '/')
+	{
+		return false;
+	}
+
+	// Reject empty URL path segments, which the HTTP server refuses to serve.
+	for (size_t segmentStart = 0; segmentStart < fileNameString.size();)
+	{
+		const size_t separator = fileNameString.find('/', segmentStart);
+		const size_t segmentEnd = separator == String::npos ? fileNameString.size() : separator;
+		if (segmentEnd == segmentStart)
+		{
+			return false;
+		}
+
+		const StringView segment(fileNameString.data() + segmentStart, segmentEnd - segmentStart);
+		if (segment == "." || segment == "..")
+		{
+			return false;
+		}
+
+		if (separator == String::npos)
+		{
+			break;
+		}
+		segmentStart = separator + 1;
 	}
 
 	for (unsigned char character : fileNameString)
