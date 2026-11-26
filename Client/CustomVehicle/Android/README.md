@@ -60,8 +60,10 @@ call `completeAsset`. Do not call back into `NativeBridge` synchronously from
 
 The cache path is deterministic:
 `dff-<8 lowercase hex CRC32>.dff` or
-`txd-<8 lowercase hex CRC32>.txd`. The host may pass a verified cache path to
-its model loader after download completion.
+`txd-<8 lowercase hex CRC32>.txd`. After `completeAsset()` returns true,
+call `hasAsset(type, checksum, expectedSize)` to re-read and verify the file
+from disk. Only then should the host pass `assetPath(type, checksum)` to its
+model loader.
 
 ## What this does not provide
 
