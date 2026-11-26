@@ -12,6 +12,7 @@ import java.util.Objects;
  * it to the stock client, and -1 indicates invalid arguments.
  */
 public final class NativeBridge implements AutoCloseable {
+    private static final long MAX_ASSET_SIZE_BYTES = 512L * 1024L * 1024L;
     public interface Callbacks {
         /**
          * Enqueue an outgoing RPC on the multiplayer network thread.
@@ -101,7 +102,7 @@ public final class NativeBridge implements AutoCloseable {
     public synchronized boolean hasAsset(int assetType, long checksum, long expectedSize) {
         if ((assetType != 1 && assetType != 2)
                 || checksum < 0 || checksum > 0xFFFF_FFFFL
-                || expectedSize <= 0 || expectedSize > 0xFFFF_FFFFL) {
+                || expectedSize <= 0 || expectedSize > MAX_ASSET_SIZE_BYTES) {
             return false;
         }
         return handle != 0 && nativeHasAsset(handle, assetType, checksum, expectedSize);
