@@ -58,6 +58,7 @@ public:
 	bool acceptDownloadAcknowledgement(const std::uint8_t* data, std::size_t size,
 		SessionError& error) noexcept;
 	bool retryActiveAsset() noexcept;
+	bool awaitingDownloadUrl() const noexcept;
 	void reset() noexcept;
 
 	CapabilityState capabilityState() const noexcept;
