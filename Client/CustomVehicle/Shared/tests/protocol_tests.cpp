@@ -346,22 +346,27 @@ void testManifestGrowthAndPoolUniqueness()
 	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
 	DecodeError decodeError = DecodeError::None;
 
-	auto first = makeVehicleRequest(11, 12, 20, 21, 1, 3, 30001);
+	auto first = makeVehicleRequest(11, 12, 20, 21, 0, 1, 30001);
 	assert(session.acceptModelManifest(first.data(), first.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
 
-	// Late model registrations append to the manifest and may increase Count.
-	auto second = makeVehicleRequest(13, 14, 22, 23, 2, 3, 30002);
+	// Late model registrations append to the independent vehicle pool.
+	auto second = makeVehicleRequest(13, 14, 22, 23, 1, 2, 30002);
 	assert(session.acceptModelManifest(second.data(), second.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
 
-	// A duplicate pool index or a decreasing Count is not a valid append.
-	auto duplicatePool = makeVehicleRequest(15, 16, 24, 25, 1, 4, 30003);
+	// A skipped index, duplicate index, or decreasing Count is not a valid append.
+	auto skippedPool = makeVehicleRequest(15, 16, 24, 25, 3, 4, 30003);
+	assert(session.acceptModelManifest(skippedPool.data(), skippedPool.size(), decodeError, sessionError)
+		== ManifestDisposition::Rejected);
+	assert(sessionError == SessionError::InconsistentManifest);
+
+	auto duplicatePool = makeVehicleRequest(17, 18, 26, 27, 1, 3, 30004);
 	assert(session.acceptModelManifest(duplicatePool.data(), duplicatePool.size(), decodeError, sessionError)
 		== ManifestDisposition::Rejected);
 	assert(sessionError == SessionError::InconsistentManifest);
 
-	auto smallerCount = makeVehicleRequest(17, 18, 26, 27, 0, 2, 30004);
+	auto smallerCount = makeVehicleRequest(19, 20, 28, 29, 0, 1, 30005);
 	assert(session.acceptModelManifest(smallerCount.data(), smallerCount.size(), decodeError, sessionError)
 		== ManifestDisposition::Rejected);
 	assert(sessionError == SessionError::InconsistentManifest);
