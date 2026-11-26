@@ -1,11 +1,13 @@
 #include <custom_vehicle/network_adapter.hpp>
 
 #include <array>
+#include <utility>
 
 namespace custom_vehicle::protocol
 {
 bool ClientNetworkAdapter::beginConnection() noexcept
 {
+	std::lock_guard lock(mutex_);
 	session_.beginNegotiation();
 	if (!transport_.sendRpc(RpcId::ClientSupportsCustomVehicleModels, nullptr, 0))
 	{
@@ -20,6 +22,8 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 	const std::uint8_t* payload,
 	std::size_t size) noexcept
 {
+	std::lock_guard lock(mutex_);
+
 	switch (static_cast<RpcId>(rpcId))
 	{
 		case RpcId::ServerSupportsCustomVehicleModels:
@@ -39,10 +43,11 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 				return RpcDisposition::ForwardToGame;
 			}
 
-			// The sink copies the callback-scoped URL and schedules the download asynchronously.
+			// The sink must copy the URL and enqueue I/O without re-entering this adapter.
 			if (!downloader_.beginDownload(download))
 			{
-				retryActiveAsset();
+				session_.retryActiveAsset();
+				requestNextAssetUnlocked();
 			}
 			return RpcDisposition::Consume;
 		}
@@ -54,7 +59,7 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 				// This may be the acknowledgement for a native 0.3.DL asset transfer.
 				return RpcDisposition::ForwardToGame;
 			}
-			requestNextAsset();
+			requestNextAssetUnlocked();
 			return RpcDisposition::Consume;
 		}
 		case RpcId::ModelRequest:
@@ -74,7 +79,7 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 					session_.acceptModelManifest(payload, size, decodeError, sessionError);
 				if (disposition == ManifestDisposition::AcceptedVehicle)
 				{
-					requestNextAsset();
+					requestNextAssetUnlocked();
 				}
 			}
 			catch (...)
@@ -88,7 +93,7 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 	}
 }
 
-bool ClientNetworkAdapter::requestNextAsset() noexcept
+bool ClientNetworkAdapter::requestNextAssetUnlocked() noexcept
 {
 	AssetRequest request;
 	if (!session_.nextAssetRequest(request))
@@ -120,18 +125,19 @@ bool ClientNetworkAdapter::completeAsset(
 	const std::uint8_t* data,
 	std::size_t size) noexcept
 {
+	std::lock_guard lock(mutex_);
 	SessionError error = SessionError::None;
 	if (!session_.completeAsset(type, checksum, data, size, error))
 	{
 		// An integrity failure re-queues the active asset for another URL request.
-		requestNextAsset();
+		requestNextAssetUnlocked();
 		return false;
 	}
 
 	if (!transport_.sendRpc(RpcId::FinishDownload, nullptr, 0))
 	{
 		session_.retryActiveAsset();
-		requestNextAsset();
+		requestNextAssetUnlocked();
 		return false;
 	}
 	return true;
@@ -139,10 +145,17 @@ bool ClientNetworkAdapter::completeAsset(
 
 bool ClientNetworkAdapter::retryActiveAsset() noexcept
 {
+	std::lock_guard lock(mutex_);
 	if (!session_.retryActiveAsset())
 	{
 		return false;
 	}
-	return requestNextAsset();
+	return requestNextAssetUnlocked();
+}
+
+std::vector<ModelRequest> ClientNetworkAdapter::vehicleModels() const
+{
+	std::lock_guard lock(mutex_);
+	return session_.vehicleModels();
 }
 } // namespace custom_vehicle::protocol
