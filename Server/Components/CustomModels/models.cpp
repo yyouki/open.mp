@@ -1237,6 +1237,7 @@ public:
 				queryExtension<PlayerCustomVehicleModelsData>(*player);
 			if (vehicleData)
 			{
+				// This extension exists only for players that explicitly opted in earlier.
 				vehicleData->setSupported(vehicleModelsEnabled);
 			}
 
@@ -1244,6 +1245,18 @@ public:
 				(vehicleData && vehicleData->supportsCustomVehicleModels()))
 			{
 				webServer->allowIPAddress(player->getNetworkData().networkID.address.v4);
+			}
+
+			// If the endpoint was unavailable during capability negotiation, resume the
+			// opted-in client's vehicle manifest now that downloads can actually succeed.
+			if (vehicleData && vehicleData->supportsCustomVehicleModels())
+			{
+				PlayerCustomModelsData* playerData =
+					queryExtension<PlayerCustomModelsData>(*player);
+				if (playerData && playerData->hasClientInitialized())
+				{
+					sendCustomVehicleModels(*player);
+				}
 			}
 		}
 
