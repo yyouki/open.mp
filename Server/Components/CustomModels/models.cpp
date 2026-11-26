@@ -40,9 +40,7 @@ static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
 	}
 
 	const String fileNameString(fileName.data(), fileName.size());
-	if (fileNameString.find_first_of("\\:") != String::npos)
-	{
-		return false;
+	if (fileNameString.find_first_of("\\\\:?#");
 	}
 
 	if (fileNameString.front() == '/' || fileNameString.back() == '/')
