@@ -39,10 +39,9 @@ as `samp_client_sdk.asi`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
-- Starts RPC 221 only when the selected profile reaches its verified active
-  game state: R1/DL use state 14; R3-1/R5-1 accept AwaitingJoin state 15 and
-  connected state 14. The sender polls the cached SDK state and resets the
-  extension session when the client disconnects or reconnects.
+- Starts RPC 221 only when the selected profile reaches its verified connected
+  game state 14. State 15 (AwaitingJoin) is deliberately excluded. The sender
+  polls the cached SDK state and resets the extension session on disconnect.
 
 ## Build
 
@@ -69,7 +68,7 @@ it as a workflow artifact.
 1. Install a compatible ASI loader and the upstream `samp_client_sdk.asi`
    host into the GTA: San Andreas 1.0 US directory.
 2. Copy `custom_vehicle_windows.asi` into that directory.
-3. Start one of the supported SA-MP 0.3.7 builds and connect to an open.mp server
+3. Start one of the supported SA-MP 0.3.7 builds and connect using SA-MP 0.3.7 R1/R3-1/R5-1 or 0.3.DL R1 to an open.mp server
    with experimental custom vehicle models enabled.
 
 The plugin exports `CustomVehicleWindows_Shutdown`. A plugin manager must call
