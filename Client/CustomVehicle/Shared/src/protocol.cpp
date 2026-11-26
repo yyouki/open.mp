@@ -121,7 +121,8 @@ bool isValidHttpUrl(std::string_view url) noexcept
 
 	for (unsigned char character : url)
 	{
-		if (character <= 0x20 || character == 0x7F || character == '\\')
+		// RPC URLs cross JNI through NewStringUTF; require URI-safe ASCII bytes.
+		if (character <= 0x20 || character > 0x7E || character == '\\')
 		{
 			return false;
 		}
