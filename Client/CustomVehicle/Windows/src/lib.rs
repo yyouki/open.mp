@@ -749,19 +749,30 @@ fn stop_workers(
     }
 }
 
-fn cleanup_context(
-    context: &Arc<BridgeContext>,
-    mut subscriptions: Vec<Subscription>,
-    workers: Vec<JoinHandle<()>>,
-) {
-    let mut unregister_failed = false;
-    for subscription in &mut subscriptions {
-        if subscription.unregister_and_wait(Duration::from_secs(10)).is_err() {
-            unregister_failed = true;
+fn drain_subscriptions(
+    subscriptions: Vec<Subscription>,
+) -> Result<(), Vec<Subscription>> {
+    let mut undrained = Vec::new();
+    for subscription in subscriptions {
+        if let Err(error) = subscription.unregister_and_wait() {
+            // The SDK returns ownership when synchronized removal fails; retain it for retry.
+            undrained.push(error.into_subscription());
         }
     }
 
-    if unregister_failed {
+    if undrained.is_empty() {
+        Ok(())
+    } else {
+        Err(undrained)
+    }
+}
+
+fn cleanup_context(
+    context: &Arc<BridgeContext>,
+    subscriptions: Vec<Subscription>,
+    workers: Vec<JoinHandle<()>>,
+) {
+    if let Err(subscriptions) = drain_subscriptions(subscriptions) {
         // Retain every callback dependency until a later shutdown can drain active hooks.
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
         state.context = Some(Arc::clone(context));
@@ -794,13 +805,7 @@ pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
         return TRUE;
     };
 
-    let mut unregister_failed = false;
-    for subscription in &mut subscriptions {
-        if subscription.unregister_and_wait(Duration::from_secs(10)).is_err() {
-            unregister_failed = true;
-        }
-    }
-    if unregister_failed {
+    if let Err(subscriptions) = drain_subscriptions(subscriptions) {
         // Keep the adapter, callback context, and workers alive if any hook may still be active.
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
         state.context = Some(context);
