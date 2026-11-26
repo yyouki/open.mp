@@ -57,6 +57,7 @@ public:
 		std::size_t size, SessionError& error) noexcept;
 	bool acceptDownloadAcknowledgement(const std::uint8_t* data, std::size_t size,
 		SessionError& error) noexcept;
+	bool retryActiveAsset() noexcept;
 	void reset() noexcept;
 
 	CapabilityState capabilityState() const noexcept;
