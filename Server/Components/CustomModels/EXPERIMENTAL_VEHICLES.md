@@ -43,37 +43,46 @@ category introduced by this experiment. Such clients continue to receive only
 the native 0.3.DL skin/object artwork records, and vehicles are streamed using
 their base model IDs.
 
-A client must explicitly opt in by sending RPC 186
-(`ClientSupportsCustomVehicleModels`). The server replies with RPC 187
-(`ServerSupportsCustomVehicleModels`) and then sends its model manifest,
-including vehicle records. A client that does not implement the new category
-must not send this capability RPC.
+A client must explicitly opt in by sending RPC 221
+(`ClientSupportsCustomVehicleModels`). The server replies with RPC 222
+(`ServerSupportsCustomVehicleModels`) and then sends the custom vehicle
+manifest. A client that does not implement the new category must not send
+this capability RPC.
 
-The server uses the following existing artwork RPCs for the transfer:
+The custom vehicle extension deliberately uses a separate RPC block so it
+does not collide with stock SA-MP actor RPCs or the native 0.3.DL artwork
+download pipeline:
 
-| RPC | Purpose |
-| --- | --- |
-| 179 | Model record; vehicle records use model type `3` |
-| 181 | Request DFF by checksum |
-| 182 | Request TXD by checksum |
-| 183 | Download URL response |
-| 184 | Client reports completion |
-| 185 | Server confirms completion |
-| 186 | Client advertises custom vehicle model support |
-| 187 | Server acknowledges support |
+| RPC | Direction | Purpose |
+| --- | --- | --- |
+| 220 | Server → client | Vehicle model manifest; model type is `3` |
+| 221 | Client → server | Advertise custom vehicle model support |
+| 222 | Server → client | Acknowledge custom vehicle support |
+| 223 | Client → server | Request vehicle DFF by checksum |
+| 224 | Client → server | Request vehicle TXD by checksum |
+| 225 | Server → client | Vehicle asset download URL |
+| 226 | Client → server | Report vehicle asset completion |
+| 227 | Server → client | Confirm vehicle asset completion |
 
-For RPC 179, the manifest index (`poolID`) and total count (`Count`) are
-shared by the model records sent to that client. The server builds a contiguous
-manifest per client. Ordinary 0.3.DL clients receive skin/object records;
-opted-in clients receive those records plus vehicle records.
+The native SA-MP/0.3.DL artwork RPCs remain unchanged: 179 carries native
+skin/object model records, 181/182 request their DFF/TXD files, 183 carries
+their URLs, and 184/185 complete the native artwork transfer. The custom
+vehicle client adapter does not intercept those IDs.
 
-Capability timing is handled in both cases. When RPC 186 arrives before client
-initialization, the initial manifest includes all supported records. When it
-arrives after the native 0.3.DL manifest, vehicle records are appended after the
-existing native records. Later model registrations append a single new record
-with the next pool index instead of retransmitting the full manifest. A client
-must honor the supplied `poolID` and `Count`; it must not assume records are
-grouped by model type or that the type-3 records always begin at index zero.
+RPC 220 uses the same 39-byte model-record layout as the legacy artwork
+manifest: `poolID:u32`, `Count:i32`, `type:u8`, `virtualWorld:i32`,
+`baseId:i32`, `newId:i32`, DFF/TXD checksums and sizes, then
+`timeOn:u8` and `timeOff:u8`. Its pool is independent from the native
+0.3.DL skin/object pool. Vehicle indices begin at zero and `Count` is the
+number of registered vehicle models advertised to that client.
+
+Capability timing is handled in both cases. When RPC 221 arrives before client
+initialization, the initial vehicle manifest is sent during client init. When
+it arrives after client initialization, the server sends the vehicle manifest
+immediately. Later vehicle registrations append one record with the next
+vehicle pool index instead of retransmitting the full manifest. A client must
+honor the supplied `poolID` and `Count`; it must not mix the vehicle pool
+with the native skin/object artwork pool.
 
 ## Client implementation boundary
 
@@ -85,7 +94,7 @@ through vehicle creation and streaming.
 Client-binary reconstruction, RenderWare ownership, `samp.dll` patch files,
 and exact SA-MP executable validation are separate client-research artifacts;
 they are not part of the open.mp source tree. Stock clients must never send
-RPC 186 and continue to receive base vehicle IDs only.
+RPC 221 and continue to receive base vehicle IDs only.
 
 ## Test status
 
@@ -98,7 +107,7 @@ The first compatibility checks should confirm that:
 
 - a stock 0.3.DL client receives no vehicle type-3 records and remains on the
   base vehicle model;
-- a modified no-ASI 0.3.DL client completes the 186/187 handshake, downloads
+- a modified 0.3.DL client completes the 221/222 handshake, downloads
   both assets, and replaces the correct vehicle artwork;
 - stream-in/out, reconnect, respawn, passenger/driver sync, vehicle colors,
   components, and NPC vehicle interactions continue to work.
