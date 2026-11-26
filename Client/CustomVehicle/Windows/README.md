@@ -38,6 +38,10 @@ as `samp_client_sdk.asi`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
+- Starts RPC 186 only when the selected profile reaches its verified active
+  game state: R1 uses state 14; R3-1/R5-1 accept their observed AwaitingJoin
+  state 15 and connected state 14. The sender polls the cached SDK state and
+  resets the extension session when the client disconnects or reconnects.
 
 ## Build
 
