@@ -67,7 +67,7 @@ int32_t custom_vehicle_adapter_handle_server_rpc(
 	size_t payload_size);
 
 // Call after the downloader has persisted the file in the asset cache.
-// A successful result queues RPC 184; RPC 185 advances the serialized download queue.
+// A successful result queues vehicle finish RPC 226; vehicle ACK RPC 227 advances the serialized download queue.
 int32_t custom_vehicle_adapter_complete_asset(
 	custom_vehicle_adapter* adapter,
 	uint8_t asset_type,
