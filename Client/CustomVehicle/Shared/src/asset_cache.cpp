@@ -3,6 +3,8 @@
 #include <array>
 #include <fstream>
 #include <limits>
+#include <string>
+#include <utility>
 #include <system_error>
 
 namespace custom_vehicle::protocol
