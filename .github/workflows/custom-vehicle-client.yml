@@ -51,16 +51,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK
-        run: sdkmanager --install "ndk;27.2.12479018"
+      - name: Download and verify Android NDK r30
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/android-ndk-r30-linux.zip" \
+            https://dl.google.com/android/repository/android-ndk-r30-linux.zip
+          echo "5107f898313790e449e87eee2183d9a20602dee9  $RUNNER_TEMP/android-ndk-r30-linux.zip" | sha1sum --check
+          mkdir -p "$RUNNER_TEMP/android-ndk"
+          unzip -q "$RUNNER_TEMP/android-ndk-r30-linux.zip" -d "$RUNNER_TEMP/android-ndk"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk/android-ndk-r30" >> "$GITHUB_ENV"
 
       - name: Configure Android ABI
         run: >-
           cmake -S Client/CustomVehicle/Shared
           -B "build/android-${{ matrix.abi }}"
-          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"
+          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
           -DANDROID_ABI="${{ matrix.abi }}"
           -DANDROID_PLATFORM=android-24
           -DBUILD_TESTING=OFF
