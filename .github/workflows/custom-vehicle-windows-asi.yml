@@ -42,6 +42,12 @@ jobs:
           CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
         run: cargo build --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
 
+      - name: Test Windows x86 adapter
+        shell: pwsh
+        env:
+          CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
+        run: cargo test --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
+
       - name: Stage ASI artifact
         shell: pwsh
         run: |
