@@ -1,5 +1,9 @@
 #include <custom_vehicle/protocol.hpp>
 
+#ifdef NDEBUG
+#undef NDEBUG // Keep assertions active even in Release test builds.
+#endif
+
 #include <array>
 #include <cassert>
 #include <cstdint>
