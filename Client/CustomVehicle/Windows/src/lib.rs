@@ -677,14 +677,23 @@ fn cache_path(root: &Path, job: &DownloadJob) -> PathBuf {
 }
 
 fn read_verified_cache(root: &Path, job: &DownloadJob) -> Option<Vec<u8>> {
-    let path = cache_path(root, job);
-    let mut file = File::open(path).ok()?;
+    // Resolve the cache root and entry first; never follow a cache symlink outside the root.
+    let canonical_root = root.canonicalize().ok()?;
+    let canonical_path = cache_path(root, job).canonicalize().ok()?;
+    if !canonical_path.starts_with(&canonical_root) || !canonical_path.is_file() {
+        return None;
+    }
+
+    let file = File::open(canonical_path).ok()?;
     if file.metadata().ok()?.len() != u64::from(job.expected_size) {
         return None;
     }
 
     let mut bytes = Vec::with_capacity(job.expected_size as usize);
-    file.read_to_end(&mut bytes).ok()?;
+    // Bound the read even if the cache file changes after the metadata check.
+    file.take(u64::from(job.expected_size).saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
     (bytes.len() == job.expected_size as usize && crc32(&bytes) == job.checksum)
         .then_some(bytes)
 }
@@ -698,22 +707,28 @@ fn store_verified_cache(root: &Path, job: &DownloadJob, bytes: &[u8]) -> std::io
     }
 
     fs::create_dir_all(root)?;
-    let destination = cache_path(root, job);
+    let canonical_root = root.canonicalize()?;
+    let destination = cache_path(&canonical_root, job);
 
-    if read_verified_cache(root, job).is_some() {
+    if read_verified_cache(&canonical_root, job).is_some() {
         return Ok(());
     }
 
-    if destination.exists() {
-        fs::remove_file(&destination)?;
+    // Remove the link itself, not a path resolved through an existing symlink.
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => fs::remove_file(&destination)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
 
     let temporary = destination.with_extension(match job.asset_type {
         1 => "dff.part",
         _ => "txd.part",
     });
-    if temporary.exists() {
-        fs::remove_file(&temporary)?;
+    match fs::symlink_metadata(&temporary) {
+        Ok(_) => fs::remove_file(&temporary)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
 
     let mut file = OpenOptions::new()
@@ -724,8 +739,10 @@ fn store_verified_cache(root: &Path, job: &DownloadJob, bytes: &[u8]) -> std::io
     file.sync_all()?;
     drop(file);
 
-    let mut persisted = Vec::new();
-    File::open(&temporary)?.read_to_end(&mut persisted)?;
+    let mut persisted = Vec::with_capacity(job.expected_size as usize);
+    File::open(&temporary)?
+        .take(u64::from(job.expected_size).saturating_add(1))
+        .read_to_end(&mut persisted)?;
     if persisted.len() != job.expected_size as usize || crc32(&persisted) != job.checksum {
         fs::remove_file(&temporary)?;
         return Err(std::io::Error::new(
@@ -735,6 +752,13 @@ fn store_verified_cache(root: &Path, job: &DownloadJob, bytes: &[u8]) -> std::io
     }
 
     fs::rename(&temporary, &destination)?;
+    if read_verified_cache(&canonical_root, job).is_none() {
+        let _ = fs::remove_file(&destination);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "final cache entry failed path, size, or CRC32 verification",
+        ));
+    }
     Ok(())
 }
 
