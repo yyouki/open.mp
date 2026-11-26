@@ -235,8 +235,8 @@ fn initialize() {
         Err(_) => return,
     };
 
-    // These builds have independently verified direct network bridges in the pinned ASI host.
-    // DL R1 is intentionally gated until native artwork and custom transfers are multiplexed.
+    // The pinned ASI host provides direct network bridges for these four client profiles.
+    // Custom vehicles use RPC 220-227, leaving native DL artwork traffic untouched.
     match samp.version() {
         Ok(
             SampClientSdkClientVersion::R1
