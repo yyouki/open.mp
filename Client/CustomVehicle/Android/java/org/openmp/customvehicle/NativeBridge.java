@@ -94,7 +94,20 @@ public final class NativeBridge implements AutoCloseable {
         return handle == 0 ? null : nativeCopyModel(handle, index);
     }
 
-    /** Returns the verified cache path for a DFF (type 1) or TXD (type 2). */
+    /**
+     * Checks the on-disk asset size and CRC32 again before exposing it to a model loader.
+     * Call this after completeAsset() returns true.
+     */
+    public synchronized boolean hasAsset(int assetType, long checksum, long expectedSize) {
+        if ((assetType != 1 && assetType != 2)
+                || checksum < 0 || checksum > 0xFFFF_FFFFL
+                || expectedSize <= 0 || expectedSize > 0xFFFF_FFFFL) {
+            return false;
+        }
+        return handle != 0 && nativeHasAsset(handle, assetType, checksum, expectedSize);
+    }
+
+    /** Returns the deterministic cache path; check hasAsset() before passing it to a loader. */
     public String assetPath(int assetType, long checksum) {
         if ((assetType != 1 && assetType != 2) || checksum < 0 || checksum > 0xFFFF_FFFFL) {
             throw new IllegalArgumentException("Invalid asset type or CRC32");
@@ -125,6 +138,8 @@ public final class NativeBridge implements AutoCloseable {
     private static native int nativeHandleServerRpc(long handle, int rpcId, byte[] payload);
     private static native boolean nativeCompleteAsset(
             long handle, int assetType, long checksum, long expectedSize, byte[] data);
+    private static native boolean nativeHasAsset(
+            long handle, int assetType, long checksum, long expectedSize);
     private static native boolean nativeRetryActiveAsset(long handle);
     private static native long[] nativeCopyModel(long handle, int index);
 }
