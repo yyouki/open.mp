@@ -813,13 +813,11 @@ private:
 			NetCode::RPC::ServerSupportsCustomVehicleModels response;
 			PacketHelper::send(response, peer);
 
-			// If the ordinary DL manifest was already sent, append vehicle
-			// records after it. Otherwise onPlayerClientInit sends the full list.
+			// Send the isolated vehicle manifest if the native client-init phase has already passed.
 			PlayerCustomModelsData* playerData = queryExtension<PlayerCustomModelsData>(peer);
-			if (isFirstCapability && playerData && playerData->hasClientInitialized() &&
-				self.sendCustomVehicleModels(peer) > 0)
+			if (isFirstCapability && playerData && playerData->hasClientInitialized())
 			{
-				self.forceCustomModelDownload(peer);
+				self.sendCustomVehicleModels(peer);
 			}
 			return true;
 		}
@@ -1359,6 +1357,11 @@ public:
 			}
 
 			ModelInfo* registeredModel = existing->second.second;
+			// A checksum cannot be shared across native artwork and the separate vehicle protocol.
+			if (registeredModel->getType() != type)
+			{
+				return false;
+			}
 			const ModelFile& registeredFile = expectedType == ModelDownloadType::DFF
 				? registeredModel->getDFF()
 				: registeredModel->getTXD();
