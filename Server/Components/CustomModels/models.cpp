@@ -31,6 +31,74 @@ static auto rUri = std::regex("[A-Za-z0-9-._~:/?#\\[\\]@!$&'()*+,;=]+"); // very
 
 using namespace Impl;
 
+// Keep registered asset paths inside the artwork directory and reject names the HTTP server cannot serve.
+static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
+{
+	if (fileName.empty())
+	{
+		return false;
+	}
+
+	const String fileNameString(fileName.data(), fileName.size());
+	if (fileNameString.find_first_of("\\\\:") != String::npos)
+	{
+		return false;
+	}
+
+	for (unsigned char character : fileNameString)
+	{
+		if (character < 0x20 || character == 0x7F)
+		{
+			return false;
+		}
+	}
+
+	const ghc::filesystem::path relativeFilePath(fileNameString);
+	if (relativeFilePath.empty() || relativeFilePath.is_absolute() ||
+		relativeFilePath.has_root_name() || relativeFilePath.has_root_directory())
+	{
+		return false;
+	}
+
+	for (const auto& component : relativeFilePath)
+	{
+		if (component.empty() || component == "." || component == "..")
+		{
+			return false;
+		}
+	}
+
+	std::error_code error;
+	const ghc::filesystem::path canonicalRoot = ghc::filesystem::canonical(
+		ghc::filesystem::path(String(modelsPath.data(), modelsPath.size())), error);
+	if (error)
+	{
+		return false;
+	}
+
+	const ghc::filesystem::path canonicalFile = ghc::filesystem::canonical(canonicalRoot / relativeFilePath, error);
+	if (error || !ghc::filesystem::is_regular_file(canonicalFile, error) || error)
+	{
+		return false;
+	}
+
+	const ghc::filesystem::path relativeCanonicalFile = canonicalFile.lexically_relative(canonicalRoot);
+	if (relativeCanonicalFile.empty() || relativeCanonicalFile.is_absolute())
+	{
+		return false;
+	}
+
+	for (const auto& component : relativeCanonicalFile)
+	{
+		if (component == "..")
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 struct ModelFile
 {
 	String name;
@@ -984,6 +1052,12 @@ public:
 		{
 			// Sadly this error will be displayed on gmx. Dunno what do about it.
 			core->logLn(LogLevel::Error, "[artwork:error] Model %d is already in use", id);
+			return false;
+		}
+
+		if (!isSafeModelFilePath(modelsPath, dffName) || !isSafeModelFilePath(modelsPath, txdName))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD paths must resolve to regular files inside the models directory.");
 			return false;
 		}
 
