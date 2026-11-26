@@ -556,7 +556,8 @@ Java_org_openmp_customvehicle_NativeBridge_nativeHasAsset(
 {
 	AndroidBridgeContext* context = fromHandle(handle);
 	if (context == nullptr || !validUnsigned32(checksum)
-		|| !validUnsigned32(expectedSize) || expectedSize == 0)
+		|| !validUnsigned32(expectedSize) || expectedSize == 0
+		|| static_cast<std::uint64_t>(expectedSize) > MaxAndroidAssetBytes)
 	{
 		return JNI_FALSE;
 	}
