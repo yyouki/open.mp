@@ -35,12 +35,12 @@ use windows_sys::Win32::{
 };
 use windows_sys::core::BOOL;
 
-const RPC_MODEL_REQUEST: u8 = 179;
-const RPC_REQUEST_DFF: u8 = 181;
-const RPC_REQUEST_TXD: u8 = 182;
-const RPC_FINISH_DOWNLOAD: u8 = 184;
-const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 186;
-const RPC_SERVER_SUPPORTS_VEHICLES: u8 = 187;
+const RPC_MODEL_REQUEST: u8 = 220;
+const RPC_REQUEST_DFF: u8 = 223;
+const RPC_REQUEST_TXD: u8 = 224;
+const RPC_FINISH_DOWNLOAD: u8 = 226;
+const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 221;
+const RPC_SERVER_SUPPORTS_VEHICLES: u8 = 222;
 
 const BRIDGE_ABI_VERSION: u32 = 1;
 const MAX_RPC_BYTES: usize = 1024 * 1024;
@@ -241,7 +241,8 @@ fn initialize() {
         Ok(
             SampClientSdkClientVersion::R1
             | SampClientSdkClientVersion::R3_1
-            | SampClientSdkClientVersion::R5_1,
+            | SampClientSdkClientVersion::R5_1
+            | SampClientSdkClientVersion::Dl,
         ) => {}
         _ => return,
     }
@@ -506,6 +507,7 @@ fn outgoing_worker(
                 SampClientSdkClientVersion::R1
                 | SampClientSdkClientVersion::R3_1
                 | SampClientSdkClientVersion::R5_1
+                | SampClientSdkClientVersion::Dl
             ),
         ) => version,
         _ => {
@@ -556,11 +558,13 @@ fn outgoing_worker(
             continue;
         }
 
-        // Verified host profiles report R1=14, R3-1/R5-1=15 during AwaitingJoin,
-        // and all three report 14 once connected. No guessed offsets are used here.
+        // Verified host profiles report R1/DL=14, R3-1/R5-1=15 during AwaitingJoin,
+        // and all supported profiles report 14 once connected. No guessed offsets are used here.
         let game_state = samp.game_state().ok();
         let connected = match version {
-            SampClientSdkClientVersion::R1 => game_state == Some(14),
+            SampClientSdkClientVersion::R1 | SampClientSdkClientVersion::Dl => {
+                game_state == Some(14)
+            }
             SampClientSdkClientVersion::R3_1 | SampClientSdkClientVersion::R5_1 => {
                 matches!(game_state, Some(14 | 15))
             }
