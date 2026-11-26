@@ -2,6 +2,7 @@
 #include <custom_vehicle/session.hpp>
 #include <custom_vehicle/network_adapter.hpp>
 #include <custom_vehicle/asset_cache.hpp>
+#include <custom_vehicle/bridge.h>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -470,6 +471,151 @@ void testNetworkAdapterFlow()
 }
 
 
+
+struct BridgeTestState
+{
+	struct SentRpc
+	{
+		std::uint8_t id;
+		std::vector<std::uint8_t> payload;
+	};
+
+	std::vector<SentRpc> sent;
+	std::vector<std::string> downloadUrls;
+};
+
+std::int32_t bridgeTestSendRpc(
+	void* userData,
+	std::uint8_t rpcId,
+	const std::uint8_t* payload,
+	std::size_t payloadSize)
+{
+	if (userData == nullptr || (payload == nullptr && payloadSize != 0))
+	{
+		return 0;
+	}
+
+	auto& state = *static_cast<BridgeTestState*>(userData);
+	BridgeTestState::SentRpc call { rpcId, {} };
+	if (payloadSize != 0)
+	{
+		call.payload.assign(payload, payload + payloadSize);
+	}
+	state.sent.push_back(std::move(call));
+	return 1;
+}
+
+std::int32_t bridgeTestBeginDownload(
+	void* userData,
+	std::uint8_t,
+	std::uint32_t,
+	std::uint32_t,
+	const char* url,
+	std::size_t urlSize)
+{
+	if (userData == nullptr || (url == nullptr && urlSize != 0))
+	{
+		return 0;
+	}
+
+	auto& state = *static_cast<BridgeTestState*>(userData);
+	state.downloadUrls.emplace_back(url == nullptr ? "" : std::string(url, urlSize));
+	return 1;
+}
+
+void testCAbiBridge()
+{
+	BridgeTestState state;
+	custom_vehicle_callbacks_v1 callbacks {};
+	callbacks.struct_size = sizeof(callbacks);
+	callbacks.abi_version = CUSTOM_VEHICLE_BRIDGE_ABI_VERSION;
+	callbacks.user_data = &state;
+	callbacks.send_rpc = bridgeTestSendRpc;
+	callbacks.begin_download = bridgeTestBeginDownload;
+
+	custom_vehicle_adapter* adapter = custom_vehicle_adapter_create(&callbacks);
+	assert(adapter != nullptr);
+	assert(custom_vehicle_adapter_model_count(adapter) == 0);
+
+	assert(custom_vehicle_adapter_begin_connection(adapter) == 1);
+	assert(state.sent.size() == 1);
+	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::ClientSupportsCustomVehicleModels));
+
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
+		nullptr,
+		0) == 1);
+
+	constexpr std::array<std::uint8_t, 4> dff = { 'd','f','f','!' };
+	constexpr std::array<std::uint8_t, 4> txd = { 't','x','d','!' };
+	const std::uint32_t dffCrc = calculateCrc32(dff.data(), dff.size());
+	const std::uint32_t txdCrc = calculateCrc32(txd.data(), txd.size());
+	const auto manifest = makeVehicleRequest(
+		dffCrc,
+		txdCrc,
+		static_cast<std::uint32_t>(dff.size()),
+		static_cast<std::uint32_t>(txd.size()));
+
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::ModelRequest),
+		manifest.data(),
+		manifest.size()) == 1);
+	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::RequestDff));
+
+	assert(custom_vehicle_adapter_model_count(adapter) == 1);
+	custom_vehicle_model_request_v1 model {};
+	assert(custom_vehicle_adapter_copy_model(adapter, 0, &model) == 1);
+	assert(model.new_id == 30001);
+	assert(model.base_id == 400);
+	assert(model.dff_checksum == dffCrc);
+	assert(model.txd_checksum == txdCrc);
+	assert(custom_vehicle_adapter_copy_model(adapter, 1, &model) == 0);
+
+	auto dffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/cabi.dff");
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::ModelUrl),
+		dffUrl.data(),
+		dffUrl.size()) == 1);
+	assert(state.downloadUrls.size() == 1);
+	assert(state.downloadUrls.back() == "https://example.test/cabi.dff");
+	assert(custom_vehicle_adapter_complete_asset(
+		adapter, static_cast<std::uint8_t>(AssetType::Dff), dffCrc, dff.data(), dff.size()) == 1);
+	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::FinishDownload));
+
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::DownloadCompleted),
+		nullptr,
+		0) == 1);
+	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::RequestTxd));
+
+	auto txdUrl = makeDownloadUrl(AssetType::Txd, txdCrc, "https://example.test/cabi.txd");
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::ModelUrl),
+		txdUrl.data(),
+		txdUrl.size()) == 1);
+	assert(custom_vehicle_adapter_complete_asset(
+		adapter, static_cast<std::uint8_t>(AssetType::Txd), txdCrc, txd.data(), txd.size()) == 1);
+	assert(custom_vehicle_adapter_handle_server_rpc(
+		adapter,
+		static_cast<std::uint8_t>(RpcId::DownloadCompleted),
+		nullptr,
+		0) == 1);
+
+	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 0) == 0);
+	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 1) == -1);
+	custom_vehicle_adapter_end_connection(adapter);
+	assert(custom_vehicle_adapter_model_count(adapter) == 0);
+	custom_vehicle_adapter_destroy(adapter);
+
+	callbacks.abi_version++;
+	assert(custom_vehicle_adapter_create(&callbacks) == nullptr);
+}
+
 void testAssetCache()
 {
 	constexpr std::array<std::uint8_t, 9> bytes = { '1','2','3','4','5','6','7','8','9' };
@@ -535,6 +681,7 @@ int main()
 	testSessionRejectsMismatchedUrlAndCorruptFile();
 	testManifestGrowthAndPoolUniqueness();
 	testNetworkAdapterFlow();
+	testCAbiBridge();
 	testAssetCache();
 	testAssetIntegrity();
 	return 0;
