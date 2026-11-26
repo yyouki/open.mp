@@ -62,8 +62,23 @@ The first implementation is in [Shared](Shared/). It currently provides:
 - A session state machine for RPC 186/187 capability negotiation, vehicle
   manifest collection, sequential asset requests, URL matching, file
   verification, RPC 184 finish notifications, and RPC 185 acknowledgements.
-- Retry behavior for truncated or checksum-mismatching assets. Invalid data
-  never advances the download-completion state.
+- A platform-neutral RPC adapter that sends the capability handshake, consumes
+  experimental vehicle manifests, forwards native skin/object manifests, issues
+  DFF/TXD checksum requests, and drives the download completion handshake.
+- Serialized access to the session state so the RPC callback and the asynchronous
+  download worker cannot mutate the asset queue concurrently.
+- URL ownership checks: a malformed URL for an active custom transfer is
+  consumed rather than exposed to the stock 0.3.DL artwork parser; unrelated
+  native URL traffic is forwarded.
+- Explicit connection teardown and retry handling for queued or interrupted
+  asset transfers.
+
+The adapter depends on two platform interfaces: `RpcTransport` sends raw
+RakNet RPC payloads, and `AssetDownloadSink` copies a callback-scoped URL and
+schedules download work off the network callback thread. The sink must not
+re-enter the adapter from `beginDownload`, because it is called while the
+session lock is held. No concrete HTTP client, platform hook, cache, or native
+game model loader is included yet.
 
 RPC 179 currently encodes: `poolId:u32`, `modelCount:i32`,
 `type:u8`, `virtualWorld:i32`, `baseId:i32`, `newId:i32`,
@@ -75,8 +90,9 @@ out-of-range custom IDs are rejected.
 
 The RPC IDs above belong to this experimental open.mp extension. They are not a
 claim that stock SA-MP clients understand custom vehicles or these extension
-messages. The shared session is a protocol engine, not a network hook, HTTP
-downloader, DFF/TXD loader, or game integration.
+messages. The shared adapter can be connected to a verified client network hook,
+but it is not itself an ASI plugin, Android plugin, HTTP downloader, file cache,
+DFF/TXD loader, or in-game vehicle integration.
 
 Build and run its tests:
 
