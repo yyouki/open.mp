@@ -107,7 +107,7 @@ The first compatibility checks should confirm that:
 
 - a stock 0.3.DL client receives no vehicle type-3 records and remains on the
   base vehicle model;
-- a modified 0.3.DL client completes the 221/222 handshake, downloads
+- a compatible modified 0.3.DL client completes the 221/222 handshake, downloads
   both assets, and replaces the correct vehicle artwork;
 - stream-in/out, reconnect, respawn, passenger/driver sync, vehicle colors,
   components, and NPC vehicle interactions continue to work.
