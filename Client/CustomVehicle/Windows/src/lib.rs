@@ -511,7 +511,7 @@ fn outgoing_worker(
         }
     };
 
-    let version = match samp.version() {
+    let _version = match samp.version() {
         Ok(
             version @ (
                 SampClientSdkClientVersion::R1
