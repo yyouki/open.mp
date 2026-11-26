@@ -410,6 +410,12 @@ void testNetworkAdapterFlow()
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
 		nativeManifest.data(), nativeManifest.size()) == RpcDisposition::ForwardToGame);
 
+	auto malformedDffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
+	malformedDffUrl[0] = 5; // Invalid transport marker while a custom DFF URL is expected.
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
+		malformedDffUrl.data(), malformedDffUrl.size()) == RpcDisposition::Consume);
+	assert(downloader.jobs.empty());
+
 	auto dffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
 		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
@@ -434,6 +440,11 @@ void testNetworkAdapterFlow()
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
 		nullptr, 0) == RpcDisposition::Consume);
 	assert(adapter.vehicleModels().size() == 1);
+
+	adapter.endConnection();
+	assert(adapter.vehicleModels().empty());
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
+		dffUrl.data(), dffUrl.size()) == RpcDisposition::ForwardToGame);
 }
 
 void testAssetIntegrity()
