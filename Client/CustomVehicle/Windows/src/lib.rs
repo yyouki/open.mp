@@ -880,3 +880,22 @@ pub extern "system" fn CustomVehicleWindows_CopyModel(
     unsafe { custom_vehicle_adapter_copy_model(adapter, index, output) }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::is_custom_vehicle_rpc;
+
+    #[test]
+    fn custom_vehicle_rpc_range_is_isolated() {
+        for rpc_id in 220..=227 {
+            assert!(is_custom_vehicle_rpc(rpc_id), "extension RPC {rpc_id} was not classified");
+        }
+
+        for rpc_id in [179, 181, 182, 183, 184, 185, 186, 187, 188, 189, 219, 228, 255] {
+            assert!(
+                !is_custom_vehicle_rpc(rpc_id),
+                "native or unrelated RPC {rpc_id} was classified as a vehicle extension"
+            );
+        }
+    }
+}
