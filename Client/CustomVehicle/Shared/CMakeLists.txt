@@ -56,3 +56,15 @@ if(BUILD_TESTING)
 
 	add_test(NAME custom_vehicle_protocol_tests COMMAND custom_vehicle_protocol_tests)
 endif()
+
+if(ANDROID)
+	# The Android JNI host links the same portable protocol/session/cache implementation.
+	set_target_properties(custom_vehicle_protocol PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+	add_library(custom_vehicle_android SHARED
+		${CMAKE_CURRENT_SOURCE_DIR}/../Android/src/jni_bridge.cpp
+	)
+	target_link_libraries(custom_vehicle_android PRIVATE custom_vehicle_protocol)
+	target_compile_features(custom_vehicle_android PRIVATE cxx_std_17)
+	target_compile_options(custom_vehicle_android PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
