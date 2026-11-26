@@ -29,7 +29,7 @@ installed for an unrecognized executable.
 | Client target | Current status | Required implementation |
 | --- | --- | --- |
 | SA-MP 0.3.7 R1 / R3-1 / R5-1 | Windows x86 research baseline | Version-aware network adapter and verified GTA native backend |
-| SA-MP 0.3.DL R1 | Windows x86 research baseline | Custom-vehicle extension adapter; do not assume native DL vehicle support |
+| SA-MP 0.3.DL R1 | Windows x86 network/download adapter enabled | Separate vehicle RPC channel; native DL artwork remains untouched |
 | Other SA-MP revisions | Not yet supported by this client | Separate verified network profile and regression test |
 | open.mp server with a legacy SA-MP client | Server-side path exists | Client adapter must negotiate the experimental RPC extension |
 | Distinct open.mp client binary | Not yet verified | Identify binary/version and add a dedicated adapter profile |
@@ -49,37 +49,35 @@ verified, this project must not call guessed `CStreaming`, vehicle constructors,
 pool allocation, or world-insertion addresses. This is a hard blocker for
 end-to-end rendering, not just a missing wrapper.
 
-SA-MP 0.3.DL has an additional protocol-integration gap: its native artwork
-pipeline also uses RPC 181/182/183/184/185. The current adapter can identify
-custom transfers by the active checksum request, but it does not yet coordinate
-or multiplex native DL transfers that may be in flight at the same time.
-Consequently, DL R1 is a research target only; it is not qualified for
-simultaneous native artwork and custom vehicle downloads.
+The extension deliberately does not reuse native SA-MP/0.3.DL artwork
+RPC IDs. Native model/artwork messages stay on 179 and 181-189, while custom
+vehicle manifests and downloads use open.mp extension RPCs 220-227. That keeps
+actor operations and stock DL artwork traffic out of the custom transfer state
+machine, including when both download channels are active at once.
 
 ## Shared core
 
 The first implementation is in [Shared](Shared/). It currently provides:
 
-- Decoder and validation for the 39-byte RPC 179 model manifest.
-- Decoder for RPC 183 download URLs, including transport marker 6,
+- Decoder and validation for the 39-byte RPC 220 vehicle manifest.
+- Decoder for RPC 225 vehicle download URLs, including transport marker 6,
   `ModelDownloadType` values `DFF=1` and `TXD=2`, checksum, and
   length-prefixed URL.
-- Encoder for checksum requests RPC 181 (DFF) and RPC 182 (TXD).
+- Encoder for vehicle checksum requests RPC 223 (DFF) and RPC 224 (TXD).
 - Portable CRC32 and exact size/checksum verification for downloaded assets.
 - A local DFF/TXD cache keyed by asset type and checksum. Writes use a `.part`
   file, verify the persisted bytes, and then rename to the final cache path.
   Existing entries are revalidated; paths resolving outside the cache root are rejected.
-- A session state machine for RPC 186/187 capability negotiation, vehicle
+- A session state machine for RPC 221/222 capability negotiation, vehicle
   manifest collection, sequential asset requests, URL matching, file
-  verification, RPC 184 finish notifications, and RPC 185 acknowledgements.
+  verification, RPC 226 finish notifications, and RPC 227 acknowledgements.
 - A platform-neutral RPC adapter that sends the capability handshake, consumes
   experimental vehicle manifests, forwards native skin/object manifests, issues
   DFF/TXD checksum requests, and drives the download completion handshake.
 - Serialized access to the session state so the RPC callback and the asynchronous
   download worker cannot mutate the asset queue concurrently.
-- URL ownership checks: a malformed URL for an active custom transfer is
-  consumed rather than exposed to the stock 0.3.DL artwork parser; unrelated
-  native URL traffic is forwarded.
+- RPC isolation: only extension IDs 220-227 are consumed; native RPC 179 and
+  181-189 are forwarded to the original SA-MP/0.3.DL client unchanged.
 - Explicit connection teardown and retry handling for queued or interrupted
   asset transfers.
 - A versioned C ABI in `include/custom_vehicle/bridge.h` for hosts written in
@@ -100,7 +98,7 @@ session lock is held. No concrete HTTP client, platform hook, or native game
 model loader is included yet; the cache is an API that the platform downloader
 must call before reporting a completed asset.
 
-RPC 179 currently encodes: `poolId:u32`, `modelCount:i32`,
+RPC 220 currently encodes: `poolId:u32`, `modelCount:i32`,
 `type:u8`, `virtualWorld:i32`, `baseId:i32`, `newId:i32`,
 `dffChecksum:u32`, `txdChecksum:u32`, `dffSize:u32`,
 `txdSize:u32`, `timeOn:u8`, and `timeOff:u8`.
@@ -108,7 +106,7 @@ The wire payload is 39 bytes. Fixed-width integers are decoded as little-endian
 values; negative counts, invalid pool indices, unsupported base IDs, and
 out-of-range custom IDs are rejected.
 
-The RPC IDs above belong to this experimental open.mp extension. They are not a
+The RPC IDs 220-227 belong to this experimental open.mp extension. They are not a
 claim that stock SA-MP clients understand custom vehicles or these extension
 messages. The shared adapter can be connected to a verified client network hook,
 but it is not itself an ASI plugin, Android plugin, HTTP downloader, file cache,
