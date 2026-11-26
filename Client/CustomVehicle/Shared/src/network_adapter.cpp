@@ -17,6 +17,12 @@ bool ClientNetworkAdapter::beginConnection() noexcept
 	return true;
 }
 
+void ClientNetworkAdapter::endConnection() noexcept
+{
+	std::lock_guard lock(mutex_);
+	session_.reset();
+}
+
 RpcDisposition ClientNetworkAdapter::handleServerRpc(
 	std::uint8_t rpcId,
 	const std::uint8_t* payload,
@@ -35,12 +41,14 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		}
 		case RpcId::ModelUrl:
 		{
+			const bool belongsToCustomTransfer = session_.awaitingDownloadUrl();
 			AssetDownload download;
 			DecodeError decodeError = DecodeError::None;
 			SessionError sessionError = SessionError::None;
 			if (!session_.acceptDownloadUrl(payload, size, download, decodeError, sessionError))
 			{
-				return RpcDisposition::ForwardToGame;
+				// A malformed or mismatched custom URL must never reach the stock DL parser.
+				return belongsToCustomTransfer ? RpcDisposition::Consume : RpcDisposition::ForwardToGame;
 			}
 
 			// The sink must copy the URL and enqueue I/O without re-entering this adapter.
