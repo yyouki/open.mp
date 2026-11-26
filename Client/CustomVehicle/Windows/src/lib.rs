@@ -740,8 +740,17 @@ fn store_verified_cache(root: &Path, job: &DownloadJob, bytes: &[u8]) -> std::io
     file.sync_all()?;
     drop(file);
 
+    let canonical_temporary = temporary.canonicalize()?;
+    if !canonical_temporary.starts_with(&canonical_root) || !canonical_temporary.is_file() {
+        let _ = fs::remove_file(&temporary);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "temporary cache path escaped the configured cache root",
+        ));
+    }
+
     let mut persisted = Vec::with_capacity(job.expected_size as usize);
-    File::open(&temporary)?
+    File::open(canonical_temporary)?
         .take(u64::from(job.expected_size).saturating_add(1))
         .read_to_end(&mut persisted)?;
     if persisted.len() != job.expected_size as usize || crc32(&persisted) != job.checksum {
@@ -922,5 +931,37 @@ mod tests {
                 "native or unrelated RPC {rpc_id} was classified as a vehicle extension"
             );
         }
+    }
+
+    #[test]
+    fn cache_crc32_matches_standard_vector() {
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn cache_round_trip_and_tamper_detection() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openmp-custom-vehicle-{unique}"));
+        let bytes = b"custom vehicle cache test";
+        let job = DownloadJob {
+            asset_type: 1,
+            checksum: crc32(bytes),
+            expected_size: bytes.len() as u32,
+            url: "https://example.test/model.dff".to_owned(),
+        };
+
+        store_verified_cache(&root, &job, bytes).expect("verified cache write should succeed");
+        assert_eq!(read_verified_cache(&root, &job).as_deref(), Some(bytes.as_slice()));
+
+        let path = cache_path(&root, &job);
+        fs::write(&path, b"modified cache entry").expect("test should modify the cache file");
+        assert!(read_verified_cache(&root, &job).is_none());
+
+        fs::remove_dir_all(&root).expect("test cache directory should be removable");
     }
 }
