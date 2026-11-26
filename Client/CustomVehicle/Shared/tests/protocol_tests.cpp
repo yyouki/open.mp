@@ -261,7 +261,7 @@ void testSessionDownloadLifecycle()
 	assert(download.url == "https://example.test/model.dff");
 	assert(session.completeAsset(download.type, download.checksum, dff.data(), dff.size(), sessionError));
 
-	// Serialize downloads: the next file waits for RPC 185 after RPC 184.
+	// Serialize downloads: the next file waits for vehicle ACK 227 after finish 226.
 	assert(!session.nextAssetRequest(request));
 	assert(session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
 	assert(session.nextAssetRequest(request));
@@ -415,10 +415,30 @@ void testNetworkAdapterFlow()
 	assert(transport.sentCalls.back().id == RpcId::RequestDff);
 	assert(transport.sentCalls.back().payload.size() == AssetRequestWireSize);
 
-	auto nativeManifest = manifest;
-	nativeManifest[8] = static_cast<std::uint8_t>(ModelType::Skin);
+	// The extension manifest channel is vehicle-only and fails closed on other model types.
+	auto invalidExtensionManifest = manifest;
+	invalidExtensionManifest[8] = static_cast<std::uint8_t>(ModelType::Skin);
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
-		nativeManifest.data(), nativeManifest.size()) == RpcDisposition::ForwardToGame);
+		invalidExtensionManifest.data(), invalidExtensionManifest.size()) == RpcDisposition::Consume);
+
+	// Native SA-MP and 0.3.DL RPCs are never intercepted by this extension.
+	constexpr std::array<std::uint8_t, 1> nativePayload = { 0x80 };
+	for (const std::uint8_t nativeRpc : {
+		static_cast<std::uint8_t>(179),
+		static_cast<std::uint8_t>(181),
+		static_cast<std::uint8_t>(182),
+		static_cast<std::uint8_t>(183),
+		static_cast<std::uint8_t>(184),
+		static_cast<std::uint8_t>(185),
+		static_cast<std::uint8_t>(186),
+		static_cast<std::uint8_t>(187),
+		static_cast<std::uint8_t>(188),
+		static_cast<std::uint8_t>(189)
+	})
+	{
+		assert(adapter.handleServerRpc(nativeRpc, nativePayload.data(), nativePayload.size())
+			== RpcDisposition::ForwardToGame);
+	}
 
 	auto malformedDffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
 	malformedDffUrl[0] = 5; // Invalid transport marker while a custom DFF URL is expected.
@@ -606,6 +626,12 @@ void testCAbiBridge()
 		nullptr,
 		0) == 1);
 
+	// Native actor/artwork IDs are passed through unchanged.
+	for (const std::uint8_t nativeRpc : {179,181,182,183,184,185,186,187,188,189})
+	{
+		assert(custom_vehicle_adapter_handle_server_rpc(
+			adapter, nativeRpc, nullptr, 0) == 0);
+	}
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 0) == 0);
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 1) == -1);
 	custom_vehicle_adapter_end_connection(adapter);
