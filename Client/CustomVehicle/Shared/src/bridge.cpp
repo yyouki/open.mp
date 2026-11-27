@@ -2,6 +2,7 @@
 #include <custom_vehicle/network_adapter.hpp>
 #include <custom_vehicle/model_slot_registry.hpp>
 #include <custom_vehicle/native_vehicle_model_backend.hpp>
+#include <custom_vehicle/vehicle_stream_queue.hpp>
 
 #include <algorithm>
 #include <array>
@@ -118,6 +119,61 @@ bool copyVehicleModelRequest(
 	destination.timeOn = source.time_on;
 	destination.timeOff = source.time_off;
 	return true;
+}
+
+bool copyStreamInVehicleRequest(
+	const custom_vehicle_stream_in_vehicle_v1& source,
+	custom_vehicle::native::VehicleStreamRequest& destination) noexcept
+{
+	auto& vehicle = destination.vehicle;
+	vehicle.vehicleId = source.vehicle_id;
+	vehicle.modelId = source.custom_model_id;
+	vehicle.position = { source.position[0], source.position[1], source.position[2] };
+	vehicle.angle = source.angle;
+	vehicle.colour1 = source.colour1;
+	vehicle.colour2 = source.colour2;
+	vehicle.health = source.health;
+	vehicle.interior = source.interior;
+	vehicle.doorDamage = source.door_damage;
+	vehicle.panelDamage = source.panel_damage;
+	vehicle.lightDamage = source.light_damage;
+	vehicle.tyreDamage = source.tyre_damage;
+	vehicle.siren = source.siren;
+	std::copy(
+		std::begin(source.mods),
+		std::end(source.mods),
+		vehicle.mods.begin());
+	vehicle.paintjob = source.paintjob;
+	vehicle.bodyColour1 = source.body_colour1;
+	vehicle.bodyColour2 = source.body_colour2;
+	destination.baseModelId = source.base_model_id;
+	return true;
+}
+
+custom_vehicle_stream_in_vehicle_v1 makeStreamInVehicleRequest(
+	const custom_vehicle::native::VehicleStreamRequest& source) noexcept
+{
+	const auto& vehicle = source.vehicle;
+	custom_vehicle_stream_in_vehicle_v1 result {};
+	result.vehicle_id = vehicle.vehicleId;
+	result.custom_model_id = vehicle.modelId;
+	result.base_model_id = source.baseModelId;
+	std::copy(vehicle.position.begin(), vehicle.position.end(), result.position);
+	result.angle = vehicle.angle;
+	result.colour1 = vehicle.colour1;
+	result.colour2 = vehicle.colour2;
+	result.health = vehicle.health;
+	result.interior = vehicle.interior;
+	result.door_damage = vehicle.doorDamage;
+	result.panel_damage = vehicle.panelDamage;
+	result.light_damage = vehicle.lightDamage;
+	result.tyre_damage = vehicle.tyreDamage;
+	result.siren = vehicle.siren;
+	std::copy(vehicle.mods.begin(), vehicle.mods.end(), std::begin(result.mods));
+	result.paintjob = vehicle.paintjob;
+	result.body_colour1 = vehicle.bodyColour1;
+	result.body_colour2 = vehicle.bodyColour2;
+	return result;
 }
 
 custom_vehicle_model_request_v1 makeVehicleModelRequest(
@@ -372,6 +428,11 @@ struct custom_vehicle_native_vehicle_model_backend
 		: controller(first_slot, last_slot)
 	{
 	}
+};
+
+struct custom_vehicle_pending_vehicle_queue
+{
+	custom_vehicle::native::VehicleStreamQueue queue;
 };
 
 extern "C"
@@ -1065,5 +1126,128 @@ int32_t custom_vehicle_native_vehicle_model_backend_is_active(
 	{
 		return 0;
 	}
+
+custom_vehicle_pending_vehicle_queue* custom_vehicle_pending_vehicle_queue_create(void)
+{
+	try
+	{
+		return new custom_vehicle_pending_vehicle_queue {};
+	}
+	catch (...)
+	{
+		return nullptr;
+	}
+}
+
+int32_t custom_vehicle_pending_vehicle_queue_destroy(
+	custom_vehicle_pending_vehicle_queue* queue)
+{
+	if (queue == nullptr || queue->queue.size() != 0)
+	{
+		return 0;
+	}
+	delete queue;
+	return 1;
+}
+
+size_t custom_vehicle_pending_vehicle_queue_size(
+	const custom_vehicle_pending_vehicle_queue* queue)
+{
+	return queue == nullptr ? 0 : queue->queue.size();
+}
+
+int32_t custom_vehicle_pending_vehicle_queue_enqueue(
+	custom_vehicle_pending_vehicle_queue* queue,
+	const custom_vehicle_stream_in_vehicle_v1* request)
+{
+	if (queue == nullptr || request == nullptr)
+	{
+		return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_DATA;
+	}
+
+	custom_vehicle::native::VehicleStreamRequest copied;
+	if (!copyStreamInVehicleRequest(*request, copied))
+	{
+		return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_DATA;
+	}
+
+	try
+	{
+		using custom_vehicle::native::VehicleStreamQueueResult;
+		switch (queue->queue.enqueue(copied))
+		{
+			case VehicleStreamQueueResult::Queued:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED;
+			case VehicleStreamQueueResult::Updated:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_UPDATED;
+			case VehicleStreamQueueResult::InvalidVehicleId:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_VEHICLE_ID;
+			case VehicleStreamQueueResult::InvalidCustomModelId:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_CUSTOM_MODEL;
+			case VehicleStreamQueueResult::InvalidBaseModelId:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_BASE_MODEL;
+			case VehicleStreamQueueResult::InvalidVehicleData:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_DATA;
+			case VehicleStreamQueueResult::Full:
+				return CUSTOM_VEHICLE_STREAM_QUEUE_FULL;
+		}
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_STREAM_QUEUE_FULL;
+	}
+	return CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_DATA;
+}
+
+int32_t custom_vehicle_pending_vehicle_queue_pop(
+	custom_vehicle_pending_vehicle_queue* queue,
+	custom_vehicle_stream_in_vehicle_v1* output)
+{
+	if (queue == nullptr || output == nullptr)
+	{
+		return -1;
+	}
+	try
+	{
+		custom_vehicle::native::VehicleStreamRequest request;
+		if (!queue->queue.pop(request))
+		{
+			return 0;
+		}
+		*output = makeStreamInVehicleRequest(request);
+		return 1;
+	}
+	catch (...)
+	{
+		return -1;
+	}
+}
+
+int32_t custom_vehicle_pending_vehicle_queue_cancel(
+	custom_vehicle_pending_vehicle_queue* queue,
+	uint16_t vehicle_id)
+{
+	if (queue == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		return queue->queue.cancel(vehicle_id) ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+void custom_vehicle_pending_vehicle_queue_clear(
+	custom_vehicle_pending_vehicle_queue* queue)
+{
+	if (queue != nullptr)
+	{
+		queue->queue.clear();
+	}
+}
 }
 } // extern "C"
