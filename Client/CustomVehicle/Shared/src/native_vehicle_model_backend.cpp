@@ -44,85 +44,112 @@ VehicleModelBackendResult VehicleModelLifecycleController::activate(
 		{
 			return VehicleModelBackendResult::ModelRetiring;
 		}
-		if (entry.stage == VehicleModelResourceStage::ClumpAttached
-			&& entry.model.baseId == model.baseId
+		const bool same_generation =
+			entry.model.baseId == model.baseId
 			&& entry.model.dffChecksum == model.dffChecksum
 			&& entry.model.txdChecksum == model.txdChecksum
 			&& entry.model.dffSize == model.dffSize
-			&& entry.model.txdSize == model.txdSize)
+			&& entry.model.txdSize == model.txdSize
+			&& entry.model.timeOn == model.timeOn
+			&& entry.model.timeOff == model.timeOff;
+		if (!same_generation)
+		{
+			// The current generation remains active until the caller explicitly
+			// retires it and every vehicle releases its lease.
+			return VehicleModelBackendResult::ModelReplacementRequired;
+		}
+		if (entry.stage == VehicleModelResourceStage::ClumpAttached)
 		{
 			native_model_slot = entry.native_model_slot;
 			return VehicleModelBackendResult::AlreadyActive;
 		}
-		// The current generation remains active until the caller explicitly
-		// retires it and every vehicle releases its lease. Do not imply that
-		// retirement has already started.
-		return VehicleModelBackendResult::ModelReplacementRequired;
 	}
-
-	std::int32_t slot = -1;
-	const auto reserve_result = slots_.reserve(
-		model.newId,
-		operations.is_slot_vacant,
-		user_data,
-		slot);
-	switch (reserve_result)
+	else
 	{
-		case ModelSlotReserveResult::Reserved:
-			break;
-		case ModelSlotReserveResult::AlreadyReserved:
-			// A slot without a matching lifecycle entry indicates corrupted
-			// ownership state. Do not guess which native resources own it.
-			return VehicleModelBackendResult::CleanupPending;
-		case ModelSlotReserveResult::InvalidCustomModelId:
-		case ModelSlotReserveResult::InvalidSlotRange:
-			return VehicleModelBackendResult::InvalidRequest;
-		case ModelSlotReserveResult::NoFreeSlot:
-			return VehicleModelBackendResult::NoFreeSlot;
-		case ModelSlotReserveResult::ModelRetiring:
-			return VehicleModelBackendResult::ModelRetiring;
-		case ModelSlotReserveResult::MissingVacancyQuery:
-			return VehicleModelBackendResult::MissingOperations;
-	}
-
-	entry.model = model;
-	entry.native_model_slot = slot;
-	entry.stage = VehicleModelResourceStage::Reserved;
-	entry.present = true;
-	entry.retiring = false;
-
-	if (!operations.create_model_info(user_data, slot, entry.model))
-	{
-		return rollbackFailedActivation(
-			entry,
+		std::int32_t slot = -1;
+		const auto reserve_result = slots_.reserve(
 			model.newId,
-			VehicleModelBackendResult::CreateModelInfoFailed,
-			operations,
-			user_data);
-	}
-	entry.stage = VehicleModelResourceStage::ModelInfoCreated;
+			operations.is_slot_vacant,
+			user_data,
+			slot);
+		switch (reserve_result)
+		{
+			case ModelSlotReserveResult::Reserved:
+				break;
+			case ModelSlotReserveResult::AlreadyReserved:
+				// A slot without a matching lifecycle entry indicates corrupted
+				// ownership state. Do not guess which native resources own it.
+				return VehicleModelBackendResult::CleanupPending;
+			case ModelSlotReserveResult::InvalidCustomModelId:
+			case ModelSlotReserveResult::InvalidSlotRange:
+				return VehicleModelBackendResult::InvalidRequest;
+			case ModelSlotReserveResult::NoFreeSlot:
+				return VehicleModelBackendResult::NoFreeSlot;
+			case ModelSlotReserveResult::ModelRetiring:
+				return VehicleModelBackendResult::ModelRetiring;
+			case ModelSlotReserveResult::MissingVacancyQuery:
+				return VehicleModelBackendResult::MissingOperations;
+		}
 
-	if (!operations.load_vehicle_assets(user_data, slot, entry.model))
-	{
-		return rollbackFailedActivation(
-			entry,
-			model.newId,
-			VehicleModelBackendResult::LoadAssetsFailed,
-			operations,
-			user_data);
+		entry.model = model;
+		entry.native_model_slot = slot;
+		entry.stage = VehicleModelResourceStage::Reserved;
+		entry.present = true;
+		entry.retiring = false;
 	}
-	entry.stage = VehicleModelResourceStage::AssetsLoaded;
 
-	if (!operations.attach_vehicle_clump(user_data, slot, entry.model))
+	const std::int32_t slot = entry.native_model_slot;
+	if (entry.stage == VehicleModelResourceStage::Reserved)
 	{
-		return rollbackFailedActivation(
-			entry,
-			model.newId,
-			VehicleModelBackendResult::AttachClumpFailed,
-			operations,
-			user_data);
+		if (!operations.create_model_info(user_data, slot, entry.model))
+		{
+			return rollbackFailedActivation(
+				entry,
+				model.newId,
+				VehicleModelBackendResult::CreateModelInfoFailed,
+				operations,
+				user_data);
+		}
+		entry.stage = VehicleModelResourceStage::ModelInfoCreated;
 	}
-	entry.stage = VehicleModelResourceStage::ClumpAttached;
+
+	if (entry.stage == VehicleModelResourceStage::ModelInfoCreated
+		|| entry.stage == VehicleModelResourceStage::AssetsRequested)
+	{
+		const VehicleAssetLoadResult load_result =
+			operations.request_or_poll_vehicle_assets(user_data, slot, entry.model);
+		switch (load_result)
+		{
+			case VehicleAssetLoadResult::Pending:
+				entry.stage = VehicleModelResourceStage::AssetsRequested;
+				return VehicleModelBackendResult::NativeAssetsPending;
+			case VehicleAssetLoadResult::Ready:
+				entry.stage = VehicleModelResourceStage::AssetsLoaded;
+				break;
+			case VehicleAssetLoadResult::Failed:
+			default:
+				return rollbackFailedActivation(
+					entry,
+					model.newId,
+					VehicleModelBackendResult::LoadAssetsFailed,
+					operations,
+					user_data);
+		}
+	}
+
+	if (entry.stage == VehicleModelResourceStage::AssetsLoaded)
+	{
+		if (!operations.attach_vehicle_clump(user_data, slot, entry.model))
+		{
+			return rollbackFailedActivation(
+				entry,
+				model.newId,
+				VehicleModelBackendResult::AttachClumpFailed,
+				operations,
+				user_data);
+		}
+		entry.stage = VehicleModelResourceStage::ClumpAttached;
+	}
 
 	native_model_slot = slot;
 	return VehicleModelBackendResult::Activated;
@@ -278,7 +305,7 @@ bool VehicleModelLifecycleController::hasRequiredOperations(
 {
 	return operations.is_slot_vacant != nullptr
 		&& operations.create_model_info != nullptr
-		&& operations.load_vehicle_assets != nullptr
+		&& operations.request_or_poll_vehicle_assets != nullptr
 		&& operations.attach_vehicle_clump != nullptr
 		&& operations.destroy_model != nullptr;
 }
