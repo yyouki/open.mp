@@ -619,6 +619,9 @@ private:
 	class PlayerCustomVehicleModelsData final : public IPlayerCustomVehicleModelsData
 	{
 		bool supported_ = false;
+		bool hasPendingDownload_ = false;
+		ModelDownloadType pendingType_ = ModelDownloadType::NONE;
+		uint32_t pendingChecksum_ = 0;
 
 	public:
 		bool supportsCustomVehicleModels() const override
@@ -629,11 +632,50 @@ private:
 		void setSupported(bool supported)
 		{
 			supported_ = supported;
+			if (!supported_)
+			{
+				clearPendingDownload();
+			}
+		}
+
+		bool beginPendingDownload(ModelDownloadType type, uint32_t checksum)
+		{
+			// Retries may request a fresh URL for the same asset, but a different
+			// asset must wait until the current transfer has been acknowledged.
+			if (hasPendingDownload_ &&
+				(pendingType_ != type || pendingChecksum_ != checksum))
+			{
+				return false;
+			}
+
+			hasPendingDownload_ = true;
+			pendingType_ = type;
+			pendingChecksum_ = checksum;
+			return true;
+		}
+
+		bool completePendingDownload()
+		{
+			if (!hasPendingDownload_)
+			{
+				return false;
+			}
+
+			clearPendingDownload();
+			return true;
+		}
+
+		void clearPendingDownload()
+		{
+			hasPendingDownload_ = false;
+			pendingType_ = ModelDownloadType::NONE;
+			pendingChecksum_ = 0;
 		}
 
 		void reset() override
 		{
 			supported_ = false;
+			clearPendingDownload();
 		}
 
 		void freeExtension() override
@@ -926,6 +968,13 @@ private:
 				return true;
 			}
 
+			PlayerCustomVehicleModelsData* vehicleData =
+				queryExtension<PlayerCustomVehicleModelsData>(peer);
+			if (vehicleData == nullptr)
+			{
+				return true;
+			}
+
 			const auto itr = self.checksums.find(checksum);
 			if (itr == self.checksums.end())
 			{
@@ -970,11 +1019,14 @@ private:
 						return true;
 					}
 
-					NetCode::RPC::VehicleModelUrl urlRPC(
-						downloadUrl,
-						static_cast<uint8_t>(type),
-						file.checksum);
-					PacketHelper::send(urlRPC, peer);
+					if (vehicleData->beginPendingDownload(type, file.checksum))
+					{
+						NetCode::RPC::VehicleModelUrl urlRPC(
+							downloadUrl,
+							static_cast<uint8_t>(type),
+							file.checksum);
+						PacketHelper::send(urlRPC, peer);
+					}
 				}
 			}
 			if (data != nullptr)
@@ -1000,6 +1052,14 @@ private:
 		{
 			if (!self.supportsCustomVehicles(peer))
 			{
+				return true;
+			}
+
+			PlayerCustomVehicleModelsData* vehicleData =
+				queryExtension<PlayerCustomVehicleModelsData>(peer);
+			if (vehicleData == nullptr || !vehicleData->completePendingDownload())
+			{
+				// Ignore duplicate or unsolicited completion RPCs.
 				return true;
 			}
 
