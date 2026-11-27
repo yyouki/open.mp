@@ -57,6 +57,15 @@ The upstream MIT license is included in `LICENSES/samp-client-sdk-MIT.txt`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
+- Exposes `CustomVehicleWindows_DecodeStreamInVehicle` for native RPC-164
+  dispatchers. It returns `-1` for malformed/unknown vehicles, `0` for a
+  stock vehicle, `1` for a registered custom model with ready assets, or `2`
+  while DFF/TXD assets are pending. The output uses the 76-byte
+  `custom_vehicle_stream_in_vehicle_v1` C ABI layout declared in
+  `Shared/include/custom_vehicle/bridge.h`.
+- Exposes `CustomVehicleWindows_IsModelReady` to recheck that the registered
+  model's DFF and TXD are locally verified and server-acknowledged before native
+  loading. Neither export performs RenderWare registration or vehicle creation.
 - Starts RPC 221 after the server's InitGame RPC (139). R1/R3-1/R5-1/DL R1
   additionally wait for verified game state 14 and can detect an already-active
   connection when loaded late. R2/R4-2 rely on packet/RPC lifecycle events because
