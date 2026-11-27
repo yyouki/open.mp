@@ -107,12 +107,21 @@ The first implementation is in [Shared](Shared/). It currently provides:
   vector, and class internals outside the Rust/ASI ABI.
 - A transactional native model lifecycle controller in
   `native_vehicle_model_backend.hpp`. It sequences model-info creation,
-  DFF/TXD loading, clump attachment, vehicle-use leases, and reverse cleanup.
-  Failed activation rolls back completed stages; failed teardown leaves the
-  slot retired and reserved for an explicit cleanup retry. The controller
-  invokes platform callbacks synchronously on its caller's thread and contains
-  no GTA addresses or game pointers. A Windows backend must call it only from
-  the verified game thread and supply the actual GTA operations.
+  native streaming request/poll, clump attachment, vehicle-use leases, and
+  reverse cleanup. Native asset callbacks return `Pending`, `Ready`, or
+  `Failed`; a pending request retains its slot and resumes on a later game tick
+  without blocking. Failed activation rolls back completed stages; failed
+  teardown leaves the slot retired and reserved for an explicit cleanup retry.
+  The controller contains no GTA addresses or game pointers. A Windows backend
+  must call it only from the verified game thread and supply the actual GTA
+  operations through the stable C ABI.
+- The lifecycle C ABI passes a copied 44-byte model manifest to native callbacks
+  and publishes named cleanup stages: Reserved, ModelInfoCreated,
+  AssetsRequested, AssetsLoaded, and ClumpAttached. Callbacks execute
+  synchronously while lifecycle state is locked and must not re-enter the
+  controller; the destroy callback must be idempotent and report success only
+  after all native pointers, streaming requests, clump resources and references
+  have been cleared.
 - Android JNI exposes the same RPC 164 decoder to Java hosts; the returned
   status distinguishes native vehicles, ready custom vehicles, and custom models
   whose assets are still pending. Float fields are passed as IEEE-754 bit patterns.
