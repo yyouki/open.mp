@@ -93,6 +93,17 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_native_model_slot_registry_retire;
 	(void)custom_vehicle_native_model_slot_registry_can_release;
 	(void)custom_vehicle_native_model_slot_registry_release;
+	(void)custom_vehicle_native_vehicle_model_backend_create;
+	(void)custom_vehicle_native_vehicle_model_backend_destroy;
+	(void)custom_vehicle_native_vehicle_model_backend_has_valid_range;
+	(void)custom_vehicle_native_vehicle_model_backend_size;
+	(void)custom_vehicle_native_vehicle_model_backend_activate;
+	(void)custom_vehicle_native_vehicle_model_backend_retain_for_vehicle;
+	(void)custom_vehicle_native_vehicle_model_backend_release_vehicle_use;
+	(void)custom_vehicle_native_vehicle_model_backend_retire;
+	(void)custom_vehicle_native_vehicle_model_backend_retry_cleanup;
+	(void)custom_vehicle_native_vehicle_model_backend_find;
+	(void)custom_vehicle_native_vehicle_model_backend_is_active;
 	{
 		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
 		(void)stream;
