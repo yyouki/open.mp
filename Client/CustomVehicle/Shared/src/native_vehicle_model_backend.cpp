@@ -1,5 +1,7 @@
 #include <custom_vehicle/native_vehicle_model_backend.hpp>
 
+#include <limits>
+
 namespace custom_vehicle::native
 {
 VehicleModelLifecycleController::VehicleModelLifecycleController(
@@ -165,13 +167,20 @@ bool VehicleModelLifecycleController::retainForVehicle(
 	}
 
 	std::lock_guard<std::mutex> lock(mutex_);
-	const Entry& entry = entries_[customIndex(custom_model_id)];
+	Entry& entry = entries_[customIndex(custom_model_id)];
 	if (!entry.present || entry.retiring
-		|| entry.stage != VehicleModelResourceStage::ClumpAttached)
+		|| entry.stage != VehicleModelResourceStage::ClumpAttached
+		|| entry.anonymous_vehicle_uses == std::numeric_limits<std::size_t>::max())
 	{
 		return false;
 	}
-	return slots_.retain(custom_model_id, native_model_slot);
+
+	if (!slots_.retain(custom_model_id, native_model_slot))
+	{
+		return false;
+	}
+	++entry.anonymous_vehicle_uses;
+	return true;
 }
 
 bool VehicleModelLifecycleController::releaseVehicleUse(
@@ -184,9 +193,126 @@ bool VehicleModelLifecycleController::releaseVehicleUse(
 	}
 
 	std::lock_guard<std::mutex> lock(mutex_);
+	Entry& entry = entries_[customIndex(custom_model_id)];
+	if (!entry.present || entry.anonymous_vehicle_uses == 0
+		|| !slots_.releaseUse(custom_model_id, native_model_slot))
+	{
+		return false;
+	}
+	--entry.anonymous_vehicle_uses;
+	return true;
+}
+
+VehicleModelBindingResult VehicleModelLifecycleController::bindVehicle(
+	std::uint16_t vehicle_id,
+	std::int32_t custom_model_id,
+	VehicleModelBinding& binding)
+{
+	if (vehicle_id == 0 || vehicle_id >= VehicleModelBindingVehicleIdLimit)
+	{
+		return VehicleModelBindingResult::InvalidVehicleId;
+	}
+	if (!isCustomModelId(custom_model_id))
+	{
+		return VehicleModelBindingResult::InvalidCustomModelId;
+	}
+
+	std::lock_guard<std::mutex> lock(mutex_);
 	const Entry& entry = entries_[customIndex(custom_model_id)];
-	return entry.present
-		&& slots_.releaseUse(custom_model_id, native_model_slot);
+	if (!entry.present || entry.retiring
+		|| entry.stage != VehicleModelResourceStage::ClumpAttached)
+	{
+		return VehicleModelBindingResult::ModelNotActive;
+	}
+
+	VehicleModelBinding& existing = vehicle_bindings_[vehicle_id];
+	if (existing.generation != 0)
+	{
+		if (existing.custom_model_id == custom_model_id
+			&& existing.native_model_slot == entry.native_model_slot)
+		{
+			binding = existing;
+			return VehicleModelBindingResult::AlreadyBound;
+		}
+		return VehicleModelBindingResult::VehicleAlreadyBound;
+	}
+
+	if (next_binding_generation_ == 0)
+	{
+		return VehicleModelBindingResult::GenerationExhausted;
+	}
+
+	std::int32_t retained_slot = -1;
+	if (!slots_.retain(custom_model_id, retained_slot)
+		|| retained_slot != entry.native_model_slot)
+	{
+		// A failure to acquire the expected lease is not recoverable by guessing.
+		return VehicleModelBindingResult::ModelNotActive;
+	}
+
+	VehicleModelBinding created;
+	created.vehicle_id = vehicle_id;
+	created.custom_model_id = custom_model_id;
+	created.native_model_slot = retained_slot;
+	created.generation = next_binding_generation_;
+	if (next_binding_generation_ == std::numeric_limits<std::uint64_t>::max())
+	{
+		next_binding_generation_ = 0; // Exhaust rather than reusing an old token.
+	}
+	else
+	{
+		++next_binding_generation_;
+	}
+	existing = created;
+	binding = created;
+	return VehicleModelBindingResult::Bound;
+}
+
+bool VehicleModelLifecycleController::releaseVehicleBinding(
+	const VehicleModelBinding& binding)
+{
+	if (binding.vehicle_id == 0
+		|| binding.vehicle_id >= VehicleModelBindingVehicleIdLimit
+		|| binding.generation == 0
+		|| !isCustomModelId(binding.custom_model_id))
+	{
+		return false;
+	}
+
+	std::lock_guard<std::mutex> lock(mutex_);
+	VehicleModelBinding& current = vehicle_bindings_[binding.vehicle_id];
+	if (current.generation != binding.generation
+		|| current.custom_model_id != binding.custom_model_id
+		|| current.native_model_slot != binding.native_model_slot)
+	{
+		return false; // Stale or mismatched tokens cannot release a newer binding.
+	}
+
+	if (!slots_.releaseUse(current.custom_model_id, current.native_model_slot))
+	{
+		return false;
+	}
+	current = VehicleModelBinding {};
+	return true;
+}
+
+bool VehicleModelLifecycleController::findVehicleBinding(
+	std::uint16_t vehicle_id,
+	VehicleModelBinding& binding) const
+{
+	if (vehicle_id == 0 || vehicle_id >= VehicleModelBindingVehicleIdLimit)
+	{
+		return false;
+	}
+
+	std::lock_guard<std::mutex> lock(mutex_);
+	const VehicleModelBinding& current = vehicle_bindings_[vehicle_id];
+	if (current.generation == 0)
+	{
+		return false;
+	}
+	binding = current;
+	return true;
 }
 
 VehicleModelBackendResult VehicleModelLifecycleController::retire(
