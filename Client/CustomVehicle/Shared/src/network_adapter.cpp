@@ -175,7 +175,7 @@ std::vector<ModelRequest> ClientNetworkAdapter::vehicleModels() const
 	return session_.vehicleModels();
 }
 
-bool ClientNetworkAdapter::isVehicleModelReady(std::int32_t modelId) const noexcept
+bool ClientNetworkAdapter::isVehicleModelReady(std::int32_t modelId) const
 {
 	std::lock_guard lock(mutex_);
 	return session_.isVehicleModelReady(modelId);
