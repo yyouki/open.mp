@@ -226,6 +226,27 @@ void testAssetRequestEncoding()
 	assert(written == 0);
 }
 
+void testAssetCompletionEncoding()
+{
+	std::array<std::uint8_t, AssetCompletionWireSize> payload {};
+	std::size_t written = 0;
+
+	assert(encodeAssetCompletion(AssetType::Dff, 0x12345678u,
+		payload.data(), payload.size(), written));
+	assert(written == AssetCompletionWireSize);
+	assert((payload == std::array<std::uint8_t, 5> { 1, 0x78, 0x56, 0x34, 0x12 }));
+
+	assert(encodeAssetCompletion(AssetType::Txd, 0xAABBCCDDu,
+		payload.data(), payload.size(), written));
+	assert((payload == std::array<std::uint8_t, 5> { 2, 0xDD, 0xCC, 0xBB, 0xAA }));
+
+	assert(!encodeAssetCompletion(static_cast<AssetType>(0), 1,
+		payload.data(), payload.size(), written));
+	assert(written == 0);
+	assert(!encodeAssetCompletion(AssetType::Dff, 1, payload.data(), 4, written));
+	assert(written == 0);
+}
+
 void testVehicleValidation()
 {
 	auto bytes = makeVehicleRequest();
@@ -514,7 +535,9 @@ void testNetworkAdapterFlow()
 
 	assert(adapter.completeAsset(AssetType::Dff, dffCrc, dff.data(), dff.size()));
 	assert(transport.sentCalls.back().id == RpcId::FinishDownload);
-	assert(transport.sentCalls.back().payload.empty());
+	assert(transport.sentCalls.back().payload.size() == AssetCompletionWireSize);
+	assert((transport.sentCalls.back().payload
+		== std::vector<std::uint8_t> { 1, 0x26, 0x39, 0xF4, 0xCB }));
 
 	const std::array<std::uint8_t, 1> malformedAck = { 1 };
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
@@ -529,6 +552,8 @@ void testNetworkAdapterFlow()
 	assert(downloader.jobs.size() == 2);
 	assert(adapter.completeAsset(AssetType::Txd, txdCrc, txd.data(), txd.size()));
 	assert(transport.sentCalls.back().id == RpcId::FinishDownload);
+	assert(transport.sentCalls.back().payload.size() == AssetCompletionWireSize);
+	assert(transport.sentCalls.back().payload[0] == static_cast<std::uint8_t>(AssetType::Txd));
 
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
 		nullptr, 0) == RpcDisposition::Consume);
@@ -777,6 +802,7 @@ int main()
 	testModelCountAndPoolIndexValidation();
 	testDownloadUrlCodec();
 	testAssetRequestEncoding();
+	testAssetCompletionEncoding();
 	testVehicleValidation();
 	testSessionDownloadLifecycle();
 	testSessionRejectsMismatchedUrlAndCorruptFile();
