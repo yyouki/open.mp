@@ -1,0 +1,74 @@
+name: Custom vehicle Windows x86 ASI
+
+on:
+  push:
+    paths:
+      - "Client/CustomVehicle/**"
+      - ".github/workflows/custom-vehicle-windows-asi.yml"
+  pull_request:
+    paths:
+      - "Client/CustomVehicle/**"
+      - ".github/workflows/custom-vehicle-windows-asi.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows x86 ASI adapter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+
+      - name: Checkout pinned SDK host source
+        uses: actions/checkout@v4
+        with:
+          repository: Akionka/rak-samp
+          ref: c658b939a3d5b5be512b5b27ea869995bc37b44d
+          path: build/custom-vehicle-sdk-host
+
+      - name: Build pinned SDK host
+        run: cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release --locked
+
+      - name: Configure shared C++ core (Win32)
+        run: cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-windows-x86 -A Win32 -DBUILD_TESTING=OFF
+
+      - name: Build shared C++ core
+        run: cmake --build build/custom-vehicle-windows-x86 --config Release --parallel 2
+
+      - name: Build Windows ASI plugin
+        shell: pwsh
+        env:
+          CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
+          CUSTOM_VEHICLE_HOST_DLL_PATH: ${{ github.workspace }}\build\custom-vehicle-sdk-host\target\i686-pc-windows-msvc\release\samp_client_sdk.dll
+        run: cargo build --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
+
+      - name: Test Windows x86 adapter
+        shell: pwsh
+        env:
+          CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
+          CUSTOM_VEHICLE_HOST_DLL_PATH: ${{ github.workspace }}\build\custom-vehicle-sdk-host\target\i686-pc-windows-msvc\release\samp_client_sdk.dll
+        run: cargo test --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
+
+      - name: Stage ASI artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item Client/CustomVehicle/Windows/target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll dist/custom_vehicle_windows.asi
+
+      - name: Upload Windows ASI
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-vehicle-windows-x86-asi
+          path: dist/custom_vehicle_windows.asi
+          if-no-files-found: error

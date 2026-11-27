@@ -1,0 +1,79 @@
+name: Custom vehicle client core
+
+on:
+  push:
+    paths:
+      - "Client/CustomVehicle/**"
+      - ".github/workflows/custom-vehicle-client.yml"
+  pull_request:
+    paths:
+      - "Client/CustomVehicle/**"
+      - ".github/workflows/custom-vehicle-client.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  host-build:
+    name: Shared core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/custom-vehicle --config Release --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build/custom-vehicle --build-config Release --output-on-failure
+
+  android-cross-build:
+    name: Android shared core (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86
+          - x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify Android NDK r30
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/android-ndk-r30-linux.zip" \
+            https://dl.google.com/android/repository/android-ndk-r30-linux.zip
+          echo "5107f898313790e449e87eee2183d9a20602dee9  $RUNNER_TEMP/android-ndk-r30-linux.zip" | sha1sum --check
+          mkdir -p "$RUNNER_TEMP/android-ndk"
+          unzip -q "$RUNNER_TEMP/android-ndk-r30-linux.zip" -d "$RUNNER_TEMP/android-ndk"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk/android-ndk-r30" >> "$GITHUB_ENV"
+
+      - name: Configure Android ABI
+        run: >-
+          cmake -S Client/CustomVehicle/Shared
+          -B "build/android-${{ matrix.abi }}"
+          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          -DANDROID_ABI="${{ matrix.abi }}"
+          -DANDROID_PLATFORM=android-24
+          -DBUILD_TESTING=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Android shared core
+        run: cmake --build "build/android-${{ matrix.abi }}" --config Release --parallel 2
