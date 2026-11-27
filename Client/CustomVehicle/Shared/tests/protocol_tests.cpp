@@ -385,6 +385,9 @@ void testNativeVehicleModelVehicleBindings()
 	assert(!backend.releaseVehicleBinding(first));
 	assert(backend.bindVehicle(78, 30001, conflict) == VehicleModelBindingResult::Bound);
 
+	// The legacy anonymous release API cannot release a generation-bound lease.
+	assert(!backend.releaseVehicleUse(30001, slot));
+
 	// Retirement waits for every vehicle-specific lease, not for a guessed count.
 	assert(backend.retire(30001, operations, &fixture) == VehicleModelBackendResult::ModelInUse);
 	assert(!backend.isActive(30001));
@@ -468,6 +471,8 @@ void testNativeVehicleModelVehicleBindingsCAbi()
 		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
 	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
 		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_use(
+		backend, 30001, slot) == 0); // Anonymous release cannot consume a bound lease.
 	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
 		backend, &replacement) == 1);
 	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
