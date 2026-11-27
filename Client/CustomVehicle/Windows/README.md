@@ -1,8 +1,9 @@
 # Windows x86 ASI client adapter
 
 This adapter connects the shared custom-vehicle protocol core to the upstream
-`samp-client-sdk` network hook host. It is a Windows x86 ASI plugin, not a
-standalone SA-MP client.
+`samp-client-sdk` network hook host. The pinned host binary is embedded in the
+distributed Windows x86 ASI and extracted/loaded automatically on first start.
+It is not a standalone SA-MP client.
 
 ## Supported network profiles
 
@@ -27,9 +28,17 @@ connection-failure packets. Since those profiles expose networking hooks but no
 verified native game-state reader, load the plugin before joining a server; if it is
 loaded after joining, reconnect before expecting custom vehicle negotiation.
 
-The upstream SDK is pinned to commit
-`c658b939a3d5b5be512b5b27ea869995bc37b44d`; its host must be installed separately
-as `samp_client_sdk.asi`.
+The upstream SDK host is pinned to commit
+`c658b939a3d5b5be512b5b27ea869995bc37b44d` and is built from that exact source
+revision in CI. The host payload is embedded into `custom_vehicle_windows.asi`;
+at runtime it is written to
+`%LOCALAPPDATA%\\open.mp\\custom-vehicle\\sdk-host\\samp_client_sdk.asi`
+and loaded by Windows. An already-loaded compatible host is reused. The host
+module remains loaded until process exit so other ASI plugins can safely share it.
+
+This is a single-file installation/distribution, not a statically linked single
+module: the SDK host is still a separate internal Windows module at runtime.
+The upstream MIT license is included in `LICENSES/samp-client-sdk-MIT.txt`.
 
 ## What it implements
 
@@ -55,20 +64,30 @@ as `samp_client_sdk.asi`.
 
 ## Build
 
-Requirements: Visual Studio 2022 C++ tools, CMake, stable Rust with target
-`i686-pc-windows-msvc`, and network access to the pinned GitHub SDK and crates.
+Requirements: Visual Studio 2022 C++ tools, CMake, Git, stable Rust with target
+`i686-pc-windows-msvc`, and network access to the pinned GitHub repositories and crates.
 
 From the repository root in PowerShell:
 
 ```powershell
+# Fetch the exact SDK host source revision used by CI.
+git clone https://github.com/Akionka/rak-samp.git build/custom-vehicle-sdk-host
+git -C build/custom-vehicle-sdk-host checkout c658b939a3d5b5be512b5b27ea869995bc37b44d
+
+# Build the x86 host payload before building the main ASI.
+cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release
+
 cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-windows-x86 -A Win32 -DBUILD_TESTING=OFF
 cmake --build build/custom-vehicle-windows-x86 --config Release
 
 $env:CUSTOM_VEHICLE_CORE_LIB_DIR = "$PWD/build/custom-vehicle-windows-x86/Release"
+$env:CUSTOM_VEHICLE_HOST_DLL_PATH = (Resolve-Path "build/custom-vehicle-sdk-host/target/i686-pc-windows-msvc/release/samp_client_sdk.dll").Path
 cargo build --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
 
-Copy-Item target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll custom_vehicle_windows.asi
+Copy-Item Client/CustomVehicle/Windows/target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll custom_vehicle_windows.asi
 ```
+
+The build script rejects an embedded host that is not a 32-bit x86 PE DLL.
 
 The dedicated GitHub Actions workflow builds the same x86 artifact and uploads
 `custom-vehicle-windows-x86-asi.zip`. Download the artifact from the successful
@@ -78,9 +97,10 @@ the native GTA/RenderWare rendering backend.
 
 ## Install
 
-1. Install a compatible ASI loader and the upstream `samp_client_sdk.asi`
-   host into the GTA: San Andreas 1.0 US directory.
-2. Copy `custom_vehicle_windows.asi` into that directory.
+1. Install a compatible ASI loader for GTA: San Andreas 1.0 US.
+2. Copy only `custom_vehicle_windows.asi` into the GTA directory. The embedded
+   SDK host is extracted and loaded automatically; no separate SDK-host ASI is
+   required in the GTA directory.
 3. Start one of the supported SA-MP builds (0.3.7 R1, R2, R3-1, R4-2, R5-1,
    or 0.3.DL R1) and connect to an open.mp server with experimental custom vehicle
    models enabled. For R2 and R4-2, the plugin must be loaded before connecting.
