@@ -656,9 +656,9 @@ private:
 			return true;
 		}
 
-		bool completePendingDownload()
+		bool completePendingDownload(ModelDownloadType type, uint32_t checksum)
 		{
-			if (!hasPendingDownload_)
+			if (!hasPendingDownload_ || pendingType_ != type || pendingChecksum_ != checksum)
 			{
 				return false;
 			}
@@ -1052,17 +1052,27 @@ private:
 
 		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
 		{
+			uint8_t assetType = 0;
+			uint32_t checksum = 0;
+			if (!bs.readUINT8(assetType) || !bs.readUINT32(checksum)
+				|| (assetType != static_cast<uint8_t>(ModelDownloadType::DFF)
+					&& assetType != static_cast<uint8_t>(ModelDownloadType::TXD)))
+			{
+				return false;
+			}
+
 			if (!self.enabled || !self.vehicleModelsEnabled)
 			{
 				return true;
 			}
 
+			const auto type = static_cast<ModelDownloadType>(assetType);
 			PlayerCustomVehicleModelsData* vehicleData =
 				queryExtension<PlayerCustomVehicleModelsData>(peer);
 			if (vehicleData == nullptr || !vehicleData->supportsCustomVehicleModels()
-				|| !vehicleData->completePendingDownload())
+				|| !vehicleData->completePendingDownload(type, checksum))
 			{
-				// Ignore duplicate or unsolicited completion RPCs. A valid in-flight
+				// Ignore duplicate, mismatched, or unsolicited completions. A valid in-flight
 				// transfer may finish after the local HTTP endpoint has stopped.
 				return true;
 			}
