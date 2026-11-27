@@ -12,6 +12,7 @@ extern "C" {
 typedef struct custom_vehicle_adapter custom_vehicle_adapter;
 typedef struct custom_vehicle_native_model_slot_registry custom_vehicle_native_model_slot_registry;
 typedef struct custom_vehicle_native_vehicle_model_backend custom_vehicle_native_vehicle_model_backend;
+typedef struct custom_vehicle_pending_vehicle_queue custom_vehicle_pending_vehicle_queue;
 struct custom_vehicle_model_request_v1;
 
 /* Non-zero means that the GTA model-info table entry is currently empty. */
@@ -83,6 +84,17 @@ typedef struct custom_vehicle_native_vehicle_model_callbacks_v1
 	custom_vehicle_native_model_attach_fn attach_vehicle_clump;
 	custom_vehicle_native_model_destroy_fn destroy_model;
 } custom_vehicle_native_vehicle_model_callbacks_v1;
+
+enum
+{
+	CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED = 1,
+	CUSTOM_VEHICLE_STREAM_QUEUE_UPDATED = 2,
+	CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_VEHICLE_ID = -1,
+	CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_CUSTOM_MODEL = -2,
+	CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_BASE_MODEL = -3,
+	CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_DATA = -4,
+	CUSTOM_VEHICLE_STREAM_QUEUE_FULL = -5
+};
 
 enum
 {
@@ -354,6 +366,32 @@ int32_t custom_vehicle_native_vehicle_model_backend_find(
 int32_t custom_vehicle_native_vehicle_model_backend_is_active(
 	const custom_vehicle_native_vehicle_model_backend* backend,
 	int32_t custom_model_id);
+
+/*
+ * Bounded RPC-164 handoff queue.
+ *
+ * Enqueue copied, validated custom stream-in data in the network callback.
+ * Drain it from a verified game-thread callback. Duplicate pending updates for
+ * one vehicle ID replace that vehicle's queued values without growing the
+ * queue. Cancel on the matching vehicle-remove event before native processing.
+ */
+custom_vehicle_pending_vehicle_queue* custom_vehicle_pending_vehicle_queue_create(void);
+/* Caller must quiesce concurrent API calls. Returns 1 only when the queue is empty. */
+int32_t custom_vehicle_pending_vehicle_queue_destroy(
+	custom_vehicle_pending_vehicle_queue* queue);
+size_t custom_vehicle_pending_vehicle_queue_size(
+	const custom_vehicle_pending_vehicle_queue* queue);
+int32_t custom_vehicle_pending_vehicle_queue_enqueue(
+	custom_vehicle_pending_vehicle_queue* queue,
+	const custom_vehicle_stream_in_vehicle_v1* request);
+int32_t custom_vehicle_pending_vehicle_queue_pop(
+	custom_vehicle_pending_vehicle_queue* queue,
+	custom_vehicle_stream_in_vehicle_v1* output);
+int32_t custom_vehicle_pending_vehicle_queue_cancel(
+	custom_vehicle_pending_vehicle_queue* queue,
+	uint16_t vehicle_id);
+void custom_vehicle_pending_vehicle_queue_clear(
+	custom_vehicle_pending_vehicle_queue* queue);
 
 #ifdef __cplusplus
 }
