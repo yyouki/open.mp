@@ -49,10 +49,10 @@ bool canSetVehicleSpawnInfo(IVehicle& vehicle, int modelID)
 
 		uint32_t baseID = static_cast<uint32_t>(modelID);
 		uint32_t customID = 0;
-		if (!models->getBaseModel(baseID, customID) ||
-			customID != static_cast<uint32_t>(modelID) ||
-			!Impl::isValidVehicleModel(static_cast<int>(baseID)) ||
-			!CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
+		if (!models->getBaseModel(baseID, customID)
+			|| customID != static_cast<uint32_t>(modelID)
+			|| !Impl::isValidVehicleModel(static_cast<int>(baseID))
+			|| !CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
 		{
 			return false;
 		}
@@ -70,8 +70,8 @@ bool canSetVehicleSpawnInfo(IVehicle& vehicle, int modelID)
 	};
 
 	const int currentBaseModelID = vehicle.getSpawnData().modelID;
-	return currentBaseModelID == baseModelID ||
-		(!isTrainConsistModel(currentBaseModelID) && !isTrainConsistModel(baseModelID));
+	return currentBaseModelID == baseModelID
+		|| (!isTrainConsistModel(currentBaseModelID) && !isTrainConsistModel(baseModelID));
 }
 }
 
