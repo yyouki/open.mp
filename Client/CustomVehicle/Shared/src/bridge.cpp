@@ -3,6 +3,7 @@
 #include <custom_vehicle/model_slot_registry.hpp>
 
 #include <algorithm>
+#include <array>
 #include <new>
 #include <string_view>
 #include <utility>
