@@ -51,7 +51,7 @@ std::vector<std::uint8_t> makeStreamInVehicle(std::int32_t modelId = 30001)
 	std::vector<std::uint8_t> bytes;
 	bytes.reserve(StreamInVehicleWireSize);
 	appendU16(bytes, 1234);             // Vehicle pool ID.
-	appendI32(bytes, modelId);           // Standard or custom vehicle model ID.
+	appendU32(bytes, static_cast<std::uint32_t>(modelId)); // Standard or custom vehicle model ID.
 	appendFloatLittleEndian(bytes, 1.25f);
 	appendFloatLittleEndian(bytes, -2.5f);
 	appendFloatLittleEndian(bytes, 3.75f);
@@ -197,7 +197,7 @@ void testStreamInVehicleDecode()
 		assert(vehicle.mods[index] == index + 1);
 	}
 	assert(vehicle.paintjob == 3);
-	assert(vehicle.bodyColour1 == static_cast<std::int32_t>(0xAABBCCDDu));
+	assert(static_cast<std::uint32_t>(vehicle.bodyColour1) == 0xAABBCCDDu);
 	assert(vehicle.bodyColour2 == 0x10203040);
 
 	// Native IDs remain valid, while values outside both valid ranges fail closed.
