@@ -688,10 +688,15 @@ custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_regi
 	}
 }
 
-void custom_vehicle_native_model_slot_registry_destroy(
+int32_t custom_vehicle_native_model_slot_registry_destroy(
 	custom_vehicle_native_model_slot_registry* registry)
 {
+	if (registry == nullptr || registry->registry.size() != 0)
+	{
+		return 0;
+	}
 	delete registry;
+	return 1;
 }
 
 int32_t custom_vehicle_native_model_slot_registry_has_valid_range(
@@ -850,10 +855,15 @@ custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model
 	}
 }
 
-void custom_vehicle_native_vehicle_model_backend_destroy(
+int32_t custom_vehicle_native_vehicle_model_backend_destroy(
 	custom_vehicle_native_vehicle_model_backend* backend)
 {
+	if (backend == nullptr || backend->controller.size() != 0)
+	{
+		return 0;
+	}
 	delete backend;
+	return 1;
 }
 
 int32_t custom_vehicle_native_vehicle_model_backend_has_valid_range(
