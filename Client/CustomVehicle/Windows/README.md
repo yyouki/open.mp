@@ -118,14 +118,68 @@ The plugin exports `CustomVehicleWindows_Shutdown`. A plugin manager must call
 it from a worker thread and wait for success before unloading the ASI. It must
 not be called from `DllMain`, a network callback, or the game thread.
 
-## Remaining native-game work
+## Native vehicle backend status
 
-This milestone handles RPC negotiation and verified asset delivery only. It does
-**not** yet register DFF/TXD data in RenderWare, allocate custom
-`CVehicleModelInfo` records, map custom model IDs into the game streaming
-system, or construct/render custom vehicles. Those operations require exact
-GTA executable layouts and verified ownership/cleanup contracts. No guessed
-addresses are used.
+The Windows adapter now exposes a native-facing C header at
+`Windows/include/custom_vehicle_windows.h`. Its RPC-164 decoder returns the
+validated vehicle state and distinguishes stock vehicles, custom vehicles with
+ready assets, and custom vehicles whose assets are pending. The matching
+`custom_vehicle_stream_in_vehicle_v1` payload layout is asserted in C99,
+C++17, and Rust. A separate 44-byte model-manifest ABI is also asserted.
+
+`Windows/include/gta_sa_vehicle_model_info_layout.hpp` is a compile-only
+layout reference for GTA: San Andreas 1.0 US. The Win32 CMake build checks:
+
+- `CVehicleModelInfoLayout`: 0x308 bytes.
+- `VehicleStructureLayout`: 0x314 bytes.
+- The vehicle type, vehicle-structure pointer, dirt-material, colour, upgrade,
+  remap-TXD, and animation-block offsets.
+
+The layout is based on the pinned
+[gta-reversed VehicleModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.h)
+and
+[VehicleModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.cpp).
+It is evidence only: it provides no function addresses and is not used to
+dereference live game memory. The native backend must still verify the loaded
+GTA executable profile before using any game structure or function.
+
+### Confirmed blockers for real vehicle spawning
+
+The reverse-engineered SA-MP client source
+[netrpc.cpp](https://github.com/1therealcloud/samp/blob/5dc7813555e0dd69e526511c56f20eee3f58eca6/source/net/netrpc.cpp)
+shows that stock RPC 164 rejects model IDs outside 400-611. The same client
+source's
+[game.cpp](https://github.com/1therealcloud/samp/blob/5dc7813555e0dd69e526511c56f20eee3f58eca6/source/game/game.cpp)
+indexes its keep-loaded vehicle table using `model - 400` without a range
+check. A custom model ID cannot safely be passed through the stock vehicle
+creation wrapper.
+
+GTA's `CVehicleModelInfo::SetClump` performs vehicle-specific initialization:
+it allocates a `CVehicleStructure`, calls the base clump loader, applies
+vehicle atomic callbacks and frame IDs, selects render pipelines, preprocesses
+the hierarchy, and performs vehicle material/plate setup. It is not equivalent
+to assigning a generic RenderWare clump pointer. The paired
+`DeleteRwObject` path must release that structure and the base clump resources.
+
+The initial `CVehicleStructure` pool is allocated with a capacity of 50 in
+`CVehicleModelInfo::SetupCommonData`. Every loaded vehicle clump uses a pool
+entry until its RW object is deleted. The backend must therefore coordinate
+stream-in/stream-out and resource release; it must not register an unlimited
+number of permanently loaded vehicle clumps. The capacity is recorded in the
+layout header as an initial GTA pool setting, not a universal limit for every
+possible future backend.
+
+The pinned SA-MP 0.3.DL custom-model extension sample
+[custommodels.cpp](https://github.com/1therealcloud/samp/blob/5dc7813555e0dd69e526511c56f20eee3f58eca6/source/game/custommodels.cpp)
+contains Ped and Object model-info registration paths, but no equivalent
+vehicle registration function. Vehicle registration must be implemented
+separately.
+
+The remaining implementation needs a safe custom-RPC-164 interception path,
+base-vehicle model-info cloning and initialization, TXD/DFF/animation ownership,
+streaming lifecycle, vehicle-pool construction, and cleanup of references such
+as detached car parts. None of these native operations is implemented yet, and
+no guessed addresses are used.
 
 The custom vehicle extension uses a separate RPC block (220-227). Native
 SA-MP/0.3.DL artwork messages (179 and 181-189) are forwarded unchanged to the
