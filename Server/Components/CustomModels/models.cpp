@@ -329,7 +329,8 @@ private:
 
 		uint32_t currentChecksum = 0;
 		const size_t currentSize = GetFileCRC32Checksum(modelsPath_ + "/" + fileName, currentChecksum);
-		return currentSize == expectedAsset.size && currentChecksum == expectedAsset.checksum;
+		return currentSize == expectedAsset.size
+			&& currentChecksum == expectedAsset.checksum;
 }
 
 public:
