@@ -147,7 +147,11 @@ bool ClientNetworkAdapter::completeAsset(
 		return false;
 	}
 
-	if (!transport_.sendRpc(RpcId::FinishDownload, nullptr, 0))
+	std::array<std::uint8_t, AssetCompletionWireSize> completionPayload {};
+	std::size_t bytesWritten = 0;
+	if (!encodeAssetCompletion(type, checksum, completionPayload.data(),
+		completionPayload.size(), bytesWritten)
+		|| !transport_.sendRpc(RpcId::FinishDownload, completionPayload.data(), bytesWritten))
 	{
 		session_.retryActiveAsset();
 		requestNextAssetUnlocked();
