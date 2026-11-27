@@ -55,6 +55,7 @@ public:
 	bool retryActiveAsset() noexcept;
 
 	std::vector<ModelRequest> vehicleModels() const;
+	bool isVehicleModelReady(std::int32_t modelId) const noexcept;
 
 private:
 	bool requestNextAssetUnlocked() noexcept;
