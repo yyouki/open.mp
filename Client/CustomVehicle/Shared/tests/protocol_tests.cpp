@@ -682,8 +682,10 @@ void testCAbiBridge()
 	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::FinishDownload));
 	assert(state.sent.back().payload.size() == AssetCompletionWireSize);
 	assert(state.sent.back().payload[0] == static_cast<std::uint8_t>(AssetType::Dff));
-	assert((state.sent.back().payload
-		== std::vector<std::uint8_t> { 1, 0x26, 0x39, 0xF4, 0xCB }));
+	assert(state.sent.back().payload[1] == static_cast<std::uint8_t>(dffCrc));
+	assert(state.sent.back().payload[2] == static_cast<std::uint8_t>(dffCrc >> 8));
+	assert(state.sent.back().payload[3] == static_cast<std::uint8_t>(dffCrc >> 16));
+	assert(state.sent.back().payload[4] == static_cast<std::uint8_t>(dffCrc >> 24));
 
 	assert(custom_vehicle_adapter_handle_server_rpc(
 		adapter,
