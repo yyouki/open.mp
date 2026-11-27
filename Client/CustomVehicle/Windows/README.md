@@ -320,6 +320,45 @@ These are implementation patterns for the pinned GTA SA 1.0 US source revision,
 not verified addresses for every SA-MP client revision. They are not copied
 into the adapter as native calls.
 
+### Vehicle entity model changes (GTA reversed evidence)
+
+The pinned GTA-reversed source clarifies why changing only an entity model index
+is insufficient:
+
+- `CEntity::SetModelIndex` calls `SetModelIndexNoCreate` and then
+  `CreateRwObject`. The entity's current RenderWare object, model references,
+  streaming link, and effects therefore participate in the transition.
+- `CVehicle::SetModelIndex` performs vehicle-specific setup after the base
+  entity setter: custom plate texture, extras, passenger capacity, RC flags,
+  and some vehicle weapon state.
+- Derived classes add their own frame-node setup:
+  `CAutomobile::SetModelIndex` fills car nodes,
+  `CBike::SetModelIndex` fills bike nodes, and
+  `CBoat::SetModelIndex` fills boat nodes. These are not interchangeable.
+- `CVehicle::DeleteRwObject` clears the remap TXD and removes upgrades before
+  delegating to `CEntity::DeleteRwObject`. That base teardown destroys the
+  current RpAtomic/RpClump, releases the model-info reference, removes the
+  streaming-entity link, and destroys entity effects.
+
+Accordingly, a future swap must identify the actual GTA vehicle subclass and
+use its verified class-specific path. A raw write to `m_nModelIndex`, or a
+generic `CEntity::SetModelIndex` call, does not establish a correctly
+initialized automobile/bike/boat. Removing the old RW object also removes
+vehicle upgrades, so the adapter must preserve and reapply tuning, paintjob,
+colours, damage, and any vehicle-specific state after a successful replacement.
+A failed swap must leave the original base vehicle usable or restore it fully.
+
+Pinned reference sources:
+[GTA reversed CVehicle](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Entity/Vehicle/Vehicle.cpp),
+[CAutomobile](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Entity/Vehicle/Automobile.cpp),
+[CBike](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Entity/Vehicle/Bike.cpp),
+[CBoat](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Entity/Vehicle/Boat.cpp),
+and
+[CEntity](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Entity/Entity.cpp).
+This is GTA SA 1.0 US design evidence. It does not prove equivalent entry
+points or layouts for every SA-MP revision, 0.3.DL, a distinct open.mp client,
+or Android.
+
 ### Confirmed blockers for real vehicle spawning
 
 The reverse-engineered SA-MP client source
