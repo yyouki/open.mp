@@ -401,6 +401,7 @@ void testSessionDownloadLifecycle()
 	assert(session.acceptModelManifest(manifest.data(), manifest.size(), decodeError, sessionError)
 		== ManifestDisposition::AcceptedVehicle);
 	assert(session.vehicleModels().size() == 1);
+	assert(!session.isVehicleModelReady(30001));
 
 	AssetRequest request;
 	assert(session.nextAssetRequest(request));
@@ -414,10 +415,12 @@ void testSessionDownloadLifecycle()
 	assert(download.expectedSize == dff.size());
 	assert(download.url == "https://example.test/model.dff");
 	assert(session.completeAsset(download.type, download.checksum, dff.data(), dff.size(), sessionError));
+	assert(!session.isVehicleModelReady(30001)); // Download bytes alone are not enough; wait for server ACK.
 
 	// Serialize downloads: the next file waits for vehicle ACK 227 after finish 226.
 	assert(!session.nextAssetRequest(request));
 	assert(session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
+	assert(!session.isVehicleModelReady(30001)); // TXD is still missing.
 	assert(session.nextAssetRequest(request));
 	assert(request.type == AssetType::Txd);
 	assert(request.checksum == txdCrc);
@@ -425,7 +428,10 @@ void testSessionDownloadLifecycle()
 	urlPayload = makeDownloadUrl(AssetType::Txd, txdCrc, "https://example.test/model.txd");
 	assert(session.acceptDownloadUrl(urlPayload.data(), urlPayload.size(), download, decodeError, sessionError));
 	assert(session.completeAsset(download.type, download.checksum, txd.data(), txd.size(), sessionError));
+	assert(!session.isVehicleModelReady(30001)); // Final RPC 227 acknowledgement is still pending.
 	assert(session.acceptDownloadAcknowledgement(nullptr, 0, sessionError));
+	assert(session.isVehicleModelReady(30001));
+	assert(!session.isVehicleModelReady(39999));
 	assert(!session.nextAssetRequest(request));
 }
 
@@ -577,6 +583,7 @@ void testNetworkAdapterFlow()
 		static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
 		manifest.data(), manifest.size()) == RpcDisposition::Consume);
+	assert(!adapter.isVehicleModelReady(30001));
 	assert(transport.sentCalls.back().id == RpcId::RequestDff);
 	assert(transport.sentCalls.back().payload.size() == AssetRequestWireSize);
 
@@ -663,6 +670,8 @@ void testNetworkAdapterFlow()
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::DownloadCompleted),
 		nullptr, 0) == RpcDisposition::Consume);
 	assert(adapter.vehicleModels().size() == 1);
+	assert(adapter.isVehicleModelReady(30001));
+	assert(!adapter.isVehicleModelReady(39999));
 
 	adapter.endConnection();
 	assert(adapter.vehicleModels().empty());
@@ -766,6 +775,7 @@ void testCAbiBridge()
 	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::RequestDff));
 
 	assert(custom_vehicle_adapter_model_count(adapter) == 1);
+	assert(custom_vehicle_adapter_is_model_ready(adapter, 30001) == 0);
 	custom_vehicle_model_request_v1 model {};
 	assert(custom_vehicle_adapter_copy_model(adapter, 0, &model) == 1);
 	assert(model.new_id == 30001);
@@ -819,6 +829,8 @@ void testCAbiBridge()
 		static_cast<std::uint8_t>(RpcId::DownloadCompleted),
 		nullptr,
 		0) == 1);
+	assert(custom_vehicle_adapter_is_model_ready(adapter, 30001) == 1);
+	assert(custom_vehicle_adapter_is_model_ready(adapter, 39999) == 0);
 
 	// Native actor/artwork IDs are passed through unchanged.
 	for (const std::uint8_t nativeRpc : {
