@@ -305,6 +305,17 @@ The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
   streaming-info metadata, and explicit ownership/deallocation. It is evidence
   for a possible allocator design, not permission to copy raw bytes or addresses
   into an unverified executable.
+
+For the pinned GTA SA 1.0 US reverse-engineered layout, the related table facts
+are also explicit: `CModelInfo::ms_modelInfoPtrs` begins at `0xA9B0C8` and has
+20,000 pointer entries; `CStreaming::ms_aInfoForModel` begins at `0x8E4CC0`
+and contains 26,316 records; `CStreamingInfo` is `0x14` bytes; and
+`CVehicleModelInfo` is `0x308` bytes with its vehicle visual-structure pointer
+at offset `0x5C`. The base model-info reference count is at `+0x08`, the
+unknown/sentinel field at `+0x14`, the dynamic index at `+0x16`, and the
+RenderWare object pointer at `+0x1C`. These facts are for the exact supported
+GTA SA 1.0 US executable profile only; they are not universal SA-MP, 0.3.DL,
+open.mp-client, Android, or other-architecture offsets.
 - `CClientDFF::GetLoadedClump` requests the model and then passes the vehicle
   model-info ID into `CRenderWareSA::ReadDFF`, enabling embedded vehicle
   collision loading. Before `RpClumpStreamRead`, `ReadDFF` clears any prior
@@ -340,6 +351,9 @@ The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
 
 Pinned references:
 [model-info allocation and deallocation](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
+[model-info and streaming tables](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/ModelInfo.h),
+[vehicle model-info layout](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.h),
+[streaming-info record layout](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/StreamingInfo.h),
 [vehicle interface layouts](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.h),
 [DFF loading and vehicle restream](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientDFF.cpp),
 [TXD texture ownership](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientTXD.cpp),
