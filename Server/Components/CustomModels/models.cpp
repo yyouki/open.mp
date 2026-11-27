@@ -1508,9 +1508,9 @@ public:
 			const auto isSupportedVehicleUrl = [maxUrlLength](const String& url)
 			{
 				return (url.compare(0, 7, "http://")
-					== 0
-					|| url.compare(0, 8, "https://")
-					== 0)
+							   == 0
+						   || url.compare(0, 8, "https://")
+							   == 0)
 					&& !url.empty() && url.size() <= maxUrlLength;
 			};
 			if (!isSupportedVehicleUrl(encodedDffUrl) || !isSupportedVehicleUrl(encodedTxdUrl))
