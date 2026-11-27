@@ -342,12 +342,15 @@ other-architecture offsets.
 
 The dynamic model's `CStreamingInfo` record must not be copied wholesale from
 its base model. Reset the target record to its empty state first (all three
-linked-list indices to -1, zero request flags, no loaded/requested state), then
-copy only the archive image ID, archive offset and archive size. The archive
-metadata points the DFF/TXD reader at the same IMG file data; linked-list links,
-request flags and load state belong to the target model ID and must remain
-independent. This follows the pinned MTA `CopyStreamingInfoFromModel`
-implementation and the GTA `CStreamingInfo::Init` semantics.
+linked-list indices to -1, zero request flags, and `LOADSTATE_NOT_LOADED`), then
+copy only the archive image ID, archive offset and archive size. The new
+`makeIndependentStreamingInfo()` constexpr helper encodes exactly that policy
+and the Win32 compile-check has static assertions for both copied and reset
+fields. The archive metadata points the DFF/TXD reader at the same IMG file data;
+linked-list links, request flags and load state belong to the target model ID and
+must remain independent. This follows the pinned MTA
+`CopyStreamingInfoFromModel` implementation and GTA
+`CStreamingInfo::Init` semantics.
 
 The compile-only header now asserts the exact 0x14-byte streaming record, the
 0x20-byte `CBaseModelInfo` prefix, and the model-info/streaming table constants.

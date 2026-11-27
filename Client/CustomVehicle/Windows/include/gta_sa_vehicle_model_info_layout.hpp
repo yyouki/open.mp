@@ -63,6 +63,26 @@ struct BaseModelInfoLayout
 	std::uint32_t renderware_object;
 };
 
+inline constexpr std::uint8_t StreamingLoadStateNotLoaded = 0;
+
+// Matches CStreamingInfo::Init followed by the safe MTA archive-metadata copy.
+// No linked-list links, request flags, or load state are shared with the base ID.
+constexpr StreamingInfoLayout makeIndependentStreamingInfo(
+	const StreamingInfoLayout& base) noexcept
+{
+	return StreamingInfoLayout{
+		-1,                         // next_index
+		-1,                         // previous_index
+		-1,                         // next_index_on_cd
+		0,                          // flags
+		base.image_id,              // archive image only
+		base.cd_offset,             // archive offset only
+		base.cd_size,               // archive size only
+		StreamingLoadStateNotLoaded,
+		{ 0, 0, 0 }                 // deterministic padding
+	};
+}
+
 // Created by CVehicleModelInfo::SetupCommonData in the referenced GTA build.
 // SetClump allocates one VehicleStructure; DeleteRwObject releases it.
 inline constexpr std::size_t VehicleStructurePoolInitialCapacity = 50;
