@@ -370,6 +370,8 @@ bool validateVehicleModelRequest(const ModelRequest& request) noexcept
 		&& isCustomVehicleModelId(request.newId)
 		&& isSupportedVehicleBaseId(request.baseId)
 		&& request.dffSize != 0 && request.txdSize != 0
+		&& request.dffSize <= MaxVehicleAssetBytes
+		&& request.txdSize <= MaxVehicleAssetBytes
 		&& request.dffChecksum != request.txdChecksum;
 }
 

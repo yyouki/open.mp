@@ -1135,6 +1135,17 @@ void testManifestDecode()
 	assert(request.dffSize == 512);
 	assert(request.txdSize == 1024);
 	assert(validateVehicleModelRequest(request));
+
+	// The maximum advertised size is accepted; one byte above it is rejected.
+	auto boundary = request;
+	boundary.dffSize = MaxVehicleAssetBytes;
+	boundary.txdSize = MaxVehicleAssetBytes;
+	assert(validateVehicleModelRequest(boundary));
+	boundary.dffSize = MaxVehicleAssetBytes + 1u;
+	assert(!validateVehicleModelRequest(boundary));
+	boundary.dffSize = MaxVehicleAssetBytes;
+	boundary.txdSize = MaxVehicleAssetBytes + 1u;
+	assert(!validateVehicleModelRequest(boundary));
 }
 
 void testStreamInVehicleDecode()

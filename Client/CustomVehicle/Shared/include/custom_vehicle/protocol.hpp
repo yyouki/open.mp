@@ -27,6 +27,8 @@ inline constexpr std::array<std::uint8_t, 8> CapabilityHandshakeToken = {
 };
 
 inline constexpr std::int32_t MinCustomVehicleModelId = 30001;
+// The Windows downloader and shared clients cap each DFF/TXD asset at 512 MiB.
+inline constexpr std::uint32_t MaxVehicleAssetBytes = 512u * 1024u * 1024u;
 inline constexpr std::int32_t MaxCustomVehicleModelId = 32767;
 inline constexpr std::size_t ModelRequestWireSize = 39;
 inline constexpr std::uint8_t ModelUrlTransportMarker = 6;

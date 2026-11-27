@@ -26,6 +26,8 @@ the replacement artwork sent to capable clients.
 Each registered file path is bound to the size and CRC32 recorded in the
 model manifest, regardless of whether the server uses its local web server or
 a CDN. Registering the same path again with different contents is rejected.
+Each vehicle DFF and TXD must be no larger than 512 MiB, matching the maximum
+accepted by the portable and Windows client downloaders.
 
 With the local artwork web server, the server rechecks a registered file's
 path, size, and CRC32 before serving it and again after opening it. A mismatch

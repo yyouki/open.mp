@@ -27,7 +27,11 @@ static auto rAddCharModel = std::regex(R"(AddCharModel\s*\(\s*(\d+)\s*,\s*(\d+)\
 static auto rAddSimpleModel = std::regex(R"(AddSimpleModel\s*\(\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
 static auto rAddSimpleModelTimed = std::regex(R"(AddSimpleModelTimed\s*\(\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*;*)");
 static auto rAddVehicleModel = std::regex(R"(AddVehicleModel\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*\"(.+)\"\s*,\s*\"(.+)\"\s*\)\s*;*)");
-static auto rUri = std::regex("[A-Za-z0-9-._~:/?#\\[\\]@!$&'()*+,;=]+"); // very loose interpretation of rfc3986
+static auto rUri = std::regex("[A-Za-z0-9-._~:/?#\\[\\]@!static auto rUri = std::regex("[A-Za-z0-9-._~:/?#\\[\\]@!$&'()*+,;=]+"); // very loose interpretation of rfc3986
+'()*+,;=]+"); // very loose interpretation of rfc3986
+
+// Keep server-side vehicle limits aligned with the Windows and portable clients.
+static constexpr size_t MAX_CUSTOM_VEHICLE_ASSET_BYTES = 512u * 1024u * 1024u;
 
 using namespace Impl;
 
@@ -1426,6 +1430,14 @@ public:
 		if (!txd.size)
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. %.*s doesn't exist", PRINT_VIEW(txdName));
+			return false;
+		}
+
+		if (type == CustomModels::Vehicle
+			&& (dff.size > MAX_CUSTOM_VEHICLE_ASSET_BYTES
+				|| txd.size > MAX_CUSTOM_VEHICLE_ASSET_BYTES))
+		{
+			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom vehicle model. Each DFF/TXD asset must be 512 MiB or smaller.");
 			return false;
 		}
 
