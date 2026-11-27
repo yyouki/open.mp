@@ -60,6 +60,10 @@ machine, including when both download channels are active at once.
 The first implementation is in [Shared](Shared/). It currently provides:
 
 - Decoder and validation for the 39-byte RPC 220 vehicle manifest.
+- Decoder and validation for server RPC 164 vehicle stream-in payloads (63 bytes),
+  including the 40-byte vehicle record, 14 mod slots, paintjob and body colours.
+  The decoder accepts standard IDs 400-611 and extension IDs 30001-32767,
+  rejects non-finite transform/health fields, and does not install a game hook.
 - Decoder for RPC 225 vehicle download URLs, including transport marker 6,
   `ModelDownloadType` values `DFF=1` and `TXD=2`, checksum, and
   length-prefixed URL.
