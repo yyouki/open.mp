@@ -177,6 +177,7 @@ private:
 		protocol::ModelRequest model {};
 		std::int32_t native_model_slot = -1;
 		VehicleModelResourceStage stage = VehicleModelResourceStage::Reserved;
+		std::size_t anonymous_vehicle_uses = 0;
 		bool present = false;
 		bool retiring = false;
 	};
