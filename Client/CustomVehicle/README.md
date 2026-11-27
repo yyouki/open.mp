@@ -115,6 +115,12 @@ The first implementation is in [Shared](Shared/). It currently provides:
   The controller contains no GTA addresses or game pointers. A Windows backend
   must call it only from the verified game thread and supply the actual GTA
   operations through the stable C ABI.
+- A fixed-capacity per-vehicle binding table connects each SA-MP vehicle-pool
+  ID to its active custom model and native slot. Bind operations are idempotent
+  for the same vehicle/model, reject a different model while an old binding is
+  active, and return a generation token. Release requires the exact copied
+  24-byte binding record, so stale cleanup after vehicle-pool ID reuse cannot
+  release a newer vehicle's model lease. The C ABI is tested from C99 and C++.
 - The lifecycle C ABI passes a copied 44-byte model manifest to native callbacks
   and publishes named cleanup stages: Reserved, ModelInfoCreated,
   AssetsRequested, AssetsLoaded, and ClumpAttached. Callbacks execute
@@ -194,14 +200,17 @@ The next native integration must be implemented as one guarded path:
 2. Connect the existing RPC 164/165 handoff queue to a verified GTA
    game-thread consumer. Preserve ordinary vehicles byte-for-byte, ensure
    removals cancel pending work, and verify the corresponding vehicle still
-   exists before applying any native mutation.
+   exists before applying any native mutation. Bind each confirmed custom
+   vehicle with its pool ID and generation token; release only after native
+   entity teardown, never from an unverified or stale remove callback.
 3. Avoid passing an external ID directly to the stock `CGame::CreateVehicle`
    wrapper: its `model - 400` keep-loaded array access is not range-checked.
    Construct the vehicle through a verified base-model path, then associate
    its native entity with a safely registered internal vehicle model slot.
-4. Clone/initialize a real vehicle model-info record, attach verified DFF/TXD
-   and required animation/streaming metadata, run the vehicle-specific clump
-   setup, and unwind every acquired resource on failure or stream-out.
+4. Clone/initialize a real vehicle model-info record before DFF parsing;
+   provide the embedded-collision loading context, a reference-safe TXD strategy,
+   required animation/streaming metadata, and vehicle-specific clump setup.
+   Unwind every acquired resource on failure or stream-out.
 5. Keep model-info slots, vehicle entities, RenderWare objects, TXD references,
    detached car parts, and streaming references synchronized through deletion
    and same-ID model replacement.
