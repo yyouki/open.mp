@@ -57,6 +57,8 @@ public:
 		std::int32_t last_slot = LastEngineModelInfoSlot);
 
 	[[nodiscard]] bool hasValidRange() const noexcept;
+	[[nodiscard]] std::int32_t firstSlot() const noexcept;
+	[[nodiscard]] std::int32_t lastSlot() const noexcept;
 
 	ModelSlotReserveResult reserve(
 		std::int32_t custom_model_id,
