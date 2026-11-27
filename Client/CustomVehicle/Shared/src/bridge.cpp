@@ -223,14 +223,9 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 			return decoded.modelId >= 400 && decoded.modelId <= 611 ? 0 : -1;
 		}
 
-		const std::vector<custom_vehicle::protocol::ModelRequest> models =
-			adapter->adapter.vehicleModels();
-		const auto model = std::find_if(models.begin(), models.end(),
-			[&decoded](const custom_vehicle::protocol::ModelRequest& entry)
-			{
-				return entry.newId == decoded.modelId;
-			});
-		if (model == models.end())
+		custom_vehicle::protocol::ModelRequest model;
+		bool modelReady = false;
+		if (!adapter->adapter.resolveVehicleModel(decoded.modelId, model, modelReady))
 		{
 			return -1;
 		}
@@ -238,7 +233,7 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 		custom_vehicle_stream_in_vehicle_v1 result {};
 		result.vehicle_id = decoded.vehicleId;
 		result.custom_model_id = decoded.modelId;
-		result.base_model_id = model->baseId;
+		result.base_model_id = model.baseId;
 		std::copy(decoded.position.begin(), decoded.position.end(), result.position);
 		result.angle = decoded.angle;
 		result.colour1 = decoded.colour1;
@@ -256,7 +251,7 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 		result.body_colour2 = decoded.bodyColour2;
 		*output = result;
 
-		return adapter->adapter.isVehicleModelReady(decoded.modelId) ? 1 : 2;
+		return modelReady ? 1 : 2;
 	}
 	catch (...)
 	{
