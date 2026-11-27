@@ -194,7 +194,7 @@ void testStreamInVehicleDecode()
 	assert(vehicle.siren == 1);
 	for (std::size_t index = 0; index < StreamInVehicleModCount; ++index)
 	{
-		assert(vehicle.mods[index] == index + 1);
+		assert(vehicle.mods[index] == static_cast<std::uint8_t>(index + 1));
 	}
 	assert(vehicle.paintjob == 3);
 	assert(static_cast<std::uint32_t>(vehicle.bodyColour1) == 0xAABBCCDDu);
