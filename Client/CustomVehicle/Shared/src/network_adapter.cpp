@@ -174,4 +174,10 @@ std::vector<ModelRequest> ClientNetworkAdapter::vehicleModels() const
 	std::lock_guard lock(mutex_);
 	return session_.vehicleModels();
 }
+
+bool ClientNetworkAdapter::isVehicleModelReady(std::int32_t modelId) const noexcept
+{
+	std::lock_guard lock(mutex_);
+	return session_.isVehicleModelReady(modelId);
+}
 } // namespace custom_vehicle::protocol
