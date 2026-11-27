@@ -33,6 +33,8 @@ inline constexpr std::size_t AssetCompletionWireSize = 5;
 // Server RPC 164: a 40-byte vehicle record followed by 14 mods, paintjob and two colours.
 inline constexpr std::size_t StreamInVehicleModCount = 14;
 inline constexpr std::size_t StreamInVehicleWireSize = 63;
+// Packed SA-MP VehiclePoolQueueEntry starts with WORD ID then int32 model ID.
+inline constexpr std::size_t StreamInVehicleModelFieldOffset = 2;
 
 struct ModelRequest
 {
@@ -92,6 +94,16 @@ bool decodeStreamInVehicle(
 	const std::uint8_t* data,
 	std::size_t size,
 	StreamInVehicleData& result,
+	DecodeError& error) noexcept;
+// Rewrites only the four-byte model field after validating a custom RPC 164 record.
+bool rewriteStreamInVehicleToBaseModel(
+	const std::uint8_t* data,
+	std::size_t size,
+	std::int32_t expectedCustomModelId,
+	std::int32_t baseModelId,
+	std::uint8_t* output,
+	std::size_t outputCapacity,
+	std::size_t& bytesWritten,
 	DecodeError& error) noexcept;
 bool encodeAssetRequest(AssetType type, std::uint32_t checksum, std::uint8_t* output,
 	std::size_t capacity, std::size_t& bytesWritten, RpcId& rpcId) noexcept;
