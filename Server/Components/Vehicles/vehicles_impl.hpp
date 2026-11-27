@@ -449,10 +449,10 @@ public:
 
 		uint32_t baseID = static_cast<uint32_t>(modelID);
 		uint32_t customID = 0;
-		if (!modelsComponent->getBaseModel(baseID, customID) ||
-			customID != static_cast<uint32_t>(modelID) ||
-			!isValidVehicleModel(static_cast<int>(baseID)) ||
-			!CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
+		if (!modelsComponent->getBaseModel(baseID, customID)
+			|| customID != static_cast<uint32_t>(modelID)
+			|| !isValidVehicleModel(static_cast<int>(baseID))
+			|| !CustomModels::isSupportedBaseVehicleModel(static_cast<int>(baseID)))
 		{
 			return false;
 		}
@@ -484,8 +484,8 @@ public:
 		}
 
 		const bool isTrainModel = baseModelID == 538 || baseModelID == 537;
-		if ((!isStatic && (isTrainModel || baseModelID == 449)) ||
-			(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
+		if ((!isStatic && (isTrainModel || baseModelID == 449))
+			|| (customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 		{
 			return nullptr;
 		}
@@ -558,10 +558,10 @@ public:
 		int baseModelID = data.modelID;
 		int customModelID = 0;
 		// Train locomotives and carriages must be created by the group-aware train path.
-		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
-			baseModelID == 537 || baseModelID == 538 ||
-			baseModelID == 569 || baseModelID == 570 ||
-			(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
+		if (!resolveVehicleModel(data.modelID, baseModelID, customModelID)
+			|| baseModelID == 537 || baseModelID == 538
+			|| baseModelID == 569 || baseModelID == 570
+			|| (customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 		{
 			return nullptr;
 		}
