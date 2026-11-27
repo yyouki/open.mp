@@ -4,6 +4,7 @@
 #include <custom_vehicle/asset_cache.hpp>
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/model_slot_registry.hpp>
+#include <custom_vehicle/vehicle_stream_queue.hpp>
 #include <custom_vehicle/native_vehicle_model_backend.hpp>
 
 #ifdef NDEBUG
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -668,6 +670,164 @@ void testNativeVehicleModelSlotRegistry()
 	assert(invalidRange.reserve(30004, isNativeModelSlotVacant, &nativeState, repeatedSlot)
 		== ModelSlotReserveResult::InvalidSlotRange);
 	assert(invalidRange.size() == 0);
+}
+
+custom_vehicle::native::VehicleStreamRequest makePendingVehicleStreamRequest(
+	std::uint16_t vehicleId,
+	std::int32_t customModelId = 30001,
+	std::int32_t baseModelId = 400,
+	float x = 1.0f)
+{
+	custom_vehicle::native::VehicleStreamRequest request;
+	request.vehicle.vehicleId = vehicleId;
+	request.vehicle.modelId = customModelId;
+	request.vehicle.position = { x, 2.0f, 3.0f };
+	request.vehicle.angle = 90.0f;
+	request.vehicle.colour1 = 6;
+	request.vehicle.colour2 = 7;
+	request.vehicle.health = 950.0f;
+	request.vehicle.interior = 0;
+	request.vehicle.siren = 1;
+	request.vehicle.paintjob = 2;
+	request.baseModelId = baseModelId;
+	return request;
+}
+
+void testVehicleStreamQueue()
+{
+	using custom_vehicle::native::VehicleStreamQueue;
+	using custom_vehicle::native::VehicleStreamQueueResult;
+
+	VehicleStreamQueue queue;
+	assert(queue.size() == 0);
+
+	auto first = makePendingVehicleStreamRequest(1, 30001, 400, 1.0f);
+	assert(queue.enqueue(first) == VehicleStreamQueueResult::Queued);
+	assert(queue.size() == 1);
+
+	// A newer stream-in for the same vehicle replaces pending values in place.
+	auto updated = makePendingVehicleStreamRequest(1, 30002, 411, 42.5f);
+	assert(queue.enqueue(updated) == VehicleStreamQueueResult::Updated);
+	assert(queue.size() == 1);
+
+	auto second = makePendingVehicleStreamRequest(2, 30001, 400, 99.0f);
+	assert(queue.enqueue(second) == VehicleStreamQueueResult::Queued);
+	assert(queue.size() == 2);
+
+	custom_vehicle::native::VehicleStreamRequest popped;
+	assert(queue.pop(popped));
+	assert(popped.vehicle.vehicleId == 1);
+	assert(popped.vehicle.modelId == 30002);
+	assert(popped.baseModelId == 411);
+	assert(popped.vehicle.position[0] == 42.5f);
+	assert(queue.pop(popped));
+	assert(popped.vehicle.vehicleId == 2);
+	assert(popped.vehicle.position[0] == 99.0f);
+	assert(queue.size() == 0);
+	assert(!queue.pop(popped));
+
+	// Cancel removes a not-yet-consumed stream-in, so a later slot reuse is clean.
+	assert(queue.enqueue(first) == VehicleStreamQueueResult::Queued);
+	assert(queue.enqueue(second) == VehicleStreamQueueResult::Queued);
+	assert(queue.cancel(1));
+	assert(!queue.cancel(1));
+	assert(queue.size() == 1);
+	assert(queue.pop(popped) && popped.vehicle.vehicleId == 2);
+	assert(!queue.pop(popped));
+
+	assert(queue.enqueue(makePendingVehicleStreamRequest(0))
+		== VehicleStreamQueueResult::InvalidVehicleId);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(2000))
+		== VehicleStreamQueueResult::InvalidVehicleId);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(3, 411))
+		== VehicleStreamQueueResult::InvalidCustomModelId);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(3, 30001, 537))
+		== VehicleStreamQueueResult::InvalidBaseModelId);
+	auto invalidData = makePendingVehicleStreamRequest(3);
+	invalidData.vehicle.angle = std::numeric_limits<float>::infinity();
+	assert(queue.enqueue(invalidData) == VehicleStreamQueueResult::InvalidVehicleData);
+
+	// Every server vehicle ID has one bounded pending slot; a duplicate still updates at capacity.
+	for (std::uint16_t id = 1; id < custom_vehicle::native::VehicleStreamQueueVehicleIdLimit; ++id)
+	{
+		assert(queue.enqueue(makePendingVehicleStreamRequest(id))
+			== VehicleStreamQueueResult::Queued);
+	}
+	assert(queue.size() == custom_vehicle::native::VehicleStreamQueueCapacity);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(1, 30002, 411, 7.0f))
+		== VehicleStreamQueueResult::Updated);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(2000))
+		== VehicleStreamQueueResult::InvalidVehicleId);
+	assert(queue.enqueue(makePendingVehicleStreamRequest(1))
+		== VehicleStreamQueueResult::Updated);
+	assert(queue.size() == custom_vehicle::native::VehicleStreamQueueCapacity);
+	queue.clear();
+	assert(queue.size() == 0);
+	assert(!queue.pop(popped));
+}
+
+void testVehicleStreamQueueCAbi()
+{
+	auto* queue = custom_vehicle_pending_vehicle_queue_create();
+	assert(queue != nullptr);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 0);
+
+	custom_vehicle_stream_in_vehicle_v1 request {};
+	request.vehicle_id = 17;
+	request.custom_model_id = 30001;
+	request.base_model_id = 400;
+	request.position[0] = 10.0f;
+	request.position[1] = 20.0f;
+	request.position[2] = 30.0f;
+	request.angle = 180.0f;
+	request.health = 800.0f;
+	request.paintjob = 2;
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
+
+	custom_vehicle_stream_in_vehicle_v1 updated = request;
+	updated.custom_model_id = 30002;
+	updated.base_model_id = 411;
+	updated.position[0] = 77.0f;
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &updated)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_UPDATED);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
+	assert(custom_vehicle_pending_vehicle_queue_destroy(queue) == 0);
+
+	custom_vehicle_stream_in_vehicle_v1 output {};
+	assert(custom_vehicle_pending_vehicle_queue_pop(queue, &output) == 1);
+	assert(output.vehicle_id == 17);
+	assert(output.custom_model_id == 30002);
+	assert(output.base_model_id == 411);
+	assert(output.position[0] == 77.0f);
+	assert(output.health == 800.0f);
+	assert(custom_vehicle_pending_vehicle_queue_pop(queue, &output) == 0);
+
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED);
+	assert(custom_vehicle_pending_vehicle_queue_cancel(queue, 17) == 1);
+	assert(custom_vehicle_pending_vehicle_queue_cancel(queue, 17) == 0);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 0);
+	assert(custom_vehicle_pending_vehicle_queue_destroy(queue) == 1);
+	assert(custom_vehicle_pending_vehicle_queue_destroy(nullptr) == 0);
+
+	queue = custom_vehicle_pending_vehicle_queue_create();
+	assert(queue != nullptr);
+	request.vehicle_id = 0;
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_VEHICLE_ID);
+	request.vehicle_id = 18;
+	request.custom_model_id = 411;
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_CUSTOM_MODEL);
+	request.custom_model_id = 30001;
+	request.base_model_id = 537;
+	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
+		== CUSTOM_VEHICLE_STREAM_QUEUE_INVALID_BASE_MODEL);
+	assert(custom_vehicle_pending_vehicle_queue_pop(queue, &output) == 0);
+	custom_vehicle_pending_vehicle_queue_clear(queue);
+	assert(custom_vehicle_pending_vehicle_queue_destroy(queue) == 1);
 }
 
 void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value)
@@ -1788,6 +1948,8 @@ int main()
 	testNativeVehicleModelLifecycle();
 	testNativeVehicleModelLifecycleCAbi();
 	testNativeVehicleModelSlotRegistryCAbi();
+	testVehicleStreamQueue();
+	testVehicleStreamQueueCAbi();
 	testManifestDecode();
 	testStreamInVehicleDecode();
 	testStreamInVehicleBaseRewrite();
