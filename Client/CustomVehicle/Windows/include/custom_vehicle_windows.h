@@ -80,6 +80,19 @@ int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_RewriteStreamInVehicle(
 int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_IsModelReady(
     int32_t custom_model_id);
 
+/* Number of custom stream-in records waiting for game-thread processing. */
+size_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleCount(void);
+
+/* Pop one copied RPC 164 record. Call only from the verified GTA game thread.
+ * Returns 1 when a record is copied, 0 when the queue is empty, or -1 on error.
+ */
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PopPendingVehicle(
+    custom_vehicle_stream_in_vehicle_v1* output);
+
+/* Cancel a not-yet-popped stream-in record after the corresponding RPC 165. */
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_CancelPendingVehicle(
+    uint16_t vehicle_id);
+
 #ifdef __cplusplus
 }
 #endif
