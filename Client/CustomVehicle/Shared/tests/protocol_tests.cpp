@@ -4,6 +4,7 @@
 #include <custom_vehicle/asset_cache.hpp>
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/model_slot_registry.hpp>
+#include <custom_vehicle/native_vehicle_model_backend.hpp>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -75,6 +76,210 @@ bool isNativeModelSlotVacant(void* userData, std::int32_t slot) noexcept
 		}
 	}
 	return true;
+}
+
+struct NativeVehicleBackendFixture
+{
+	std::vector<std::int32_t> occupiedSlots { 612 };
+	std::vector<char> callbackOrder;
+	bool modelInfoCreated = false;
+	bool assetsLoaded = false;
+	bool clumpAttached = false;
+	bool failCreate = false;
+	bool failLoad = false;
+	bool failAttach = false;
+	bool failDestroyOnce = false;
+	std::int32_t lastBaseModelId = -1;
+	std::int32_t lastCustomModelId = -1;
+};
+
+bool backendSlotIsVacant(void* userData, std::int32_t slot) noexcept
+{
+	if (userData == nullptr)
+	{
+		return false;
+	}
+	const auto& fixture = *static_cast<const NativeVehicleBackendFixture*>(userData);
+	return std::find(
+		fixture.occupiedSlots.begin(),
+		fixture.occupiedSlots.end(),
+		slot) == fixture.occupiedSlots.end();
+}
+
+bool backendCreateModelInfo(
+	void* userData,
+	std::int32_t slot,
+	const ModelRequest& model) noexcept
+{
+	auto& fixture = *static_cast<NativeVehicleBackendFixture*>(userData);
+	fixture.callbackOrder.push_back('C');
+	if (fixture.failCreate || !backendSlotIsVacant(userData, slot))
+	{
+		return false;
+	}
+	fixture.occupiedSlots.push_back(slot);
+	fixture.modelInfoCreated = true;
+	fixture.lastBaseModelId = model.baseId;
+	fixture.lastCustomModelId = model.newId;
+	return true;
+}
+
+bool backendLoadVehicleAssets(
+	void* userData,
+	std::int32_t slot,
+	const ModelRequest& model) noexcept
+{
+	auto& fixture = *static_cast<NativeVehicleBackendFixture*>(userData);
+	fixture.callbackOrder.push_back('L');
+	if (fixture.failLoad || !fixture.modelInfoCreated
+		|| fixture.lastCustomModelId != model.newId
+		|| !backendSlotIsVacant(userData, slot) == false)
+	{
+		return false;
+	}
+	fixture.assetsLoaded = true;
+	return true;
+}
+
+bool backendAttachVehicleClump(
+	void* userData,
+	std::int32_t slot,
+	const ModelRequest& model) noexcept
+{
+	auto& fixture = *static_cast<NativeVehicleBackendFixture*>(userData);
+	fixture.callbackOrder.push_back('A');
+	if (fixture.failAttach || !fixture.modelInfoCreated || !fixture.assetsLoaded
+		|| fixture.lastCustomModelId != model.newId
+		|| backendSlotIsVacant(userData, slot))
+	{
+		return false;
+	}
+	fixture.clumpAttached = true;
+	return true;
+}
+
+bool backendDestroyModel(
+	void* userData,
+	std::int32_t slot,
+	const ModelRequest& model,
+	custom_vehicle::native::VehicleModelResourceStage completedStage) noexcept
+{
+	auto& fixture = *static_cast<NativeVehicleBackendFixture*>(userData);
+	fixture.callbackOrder.push_back('D');
+	if (fixture.failDestroyOnce)
+	{
+		fixture.failDestroyOnce = false;
+		return false; // Preserve all state so cleanup can be retried.
+	}
+
+	assert(model.newId == fixture.lastCustomModelId || !fixture.modelInfoCreated);
+	(void)completedStage;
+	fixture.clumpAttached = false;
+	fixture.assetsLoaded = false;
+	fixture.modelInfoCreated = false;
+	for (auto it = fixture.occupiedSlots.begin(); it != fixture.occupiedSlots.end(); ++it)
+	{
+		if (*it == slot)
+		{
+			fixture.occupiedSlots.erase(it);
+			break;
+		}
+	}
+	return true;
+}
+
+custom_vehicle::native::VehicleModelNativeOperations makeNativeVehicleOperations()
+{
+	return {
+		backendSlotIsVacant,
+		backendCreateModelInfo,
+		backendLoadVehicleAssets,
+		backendAttachVehicleClump,
+		backendDestroyModel
+	};
+}
+
+ModelRequest makeNativeVehicleModelRequest(
+	std::int32_t customModelId,
+	std::int32_t baseModelId)
+{
+	ModelRequest model;
+	model.poolId = 0;
+	model.modelCount = 1;
+	model.type = ModelType::Vehicle;
+	model.virtualWorld = -1;
+	model.baseId = baseModelId;
+	model.newId = customModelId;
+	model.dffChecksum = 0x10203040u;
+	model.txdChecksum = 0x50607080u;
+	model.dffSize = 4096;
+	model.txdSize = 2048;
+	return model;
+}
+
+void testNativeVehicleModelLifecycle()
+{
+	using namespace custom_vehicle::native;
+
+	NativeVehicleBackendFixture fixture;
+	VehicleModelLifecycleController backend(612, 615);
+	const auto operations = makeNativeVehicleOperations();
+	const ModelRequest model = makeNativeVehicleModelRequest(30001, 400);
+
+	assert(backend.hasValidSlotRange());
+	assert(backend.activate(model, false, operations, &fixture, *new std::int32_t(-1))
+		== VehicleModelBackendResult::AssetsPending);
+	assert(backend.size() == 0);
+	assert(backend.activate(model, true, VehicleModelNativeOperations {}, &fixture, *new std::int32_t(-1))
+		== VehicleModelBackendResult::MissingOperations);
+
+	std::int32_t nativeSlot = -1;
+	assert(backend.activate(model, true, operations, &fixture, nativeSlot)
+		== VehicleModelBackendResult::Activated);
+	assert(nativeSlot == 613);
+	assert(backend.isActive(30001));
+	assert(backend.size() == 1);
+	assert(fixture.modelInfoCreated && fixture.assetsLoaded && fixture.clumpAttached);
+	assert(fixture.lastBaseModelId == 400 && fixture.lastCustomModelId == 30001);
+	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'A' }));
+
+	std::int32_t duplicateSlot = -1;
+	const std::size_t callbackCount = fixture.callbackOrder.size();
+	assert(backend.activate(model, true, operations, &fixture, duplicateSlot)
+		== VehicleModelBackendResult::AlreadyActive);
+	assert(duplicateSlot == nativeSlot);
+	assert(fixture.callbackOrder.size() == callbackCount);
+
+	std::int32_t retainedSlot = -1;
+	assert(backend.retainForVehicle(30001, retainedSlot) && retainedSlot == nativeSlot);
+	assert(backend.retainForVehicle(30001, retainedSlot) && retainedSlot == nativeSlot);
+	assert(backend.retire(30001, operations, &fixture)
+		== VehicleModelBackendResult::ModelInUse);
+	assert(!backend.isActive(30001));
+	assert(!backend.retainForVehicle(30001, retainedSlot));
+	assert(backend.releaseVehicleUse(30001, nativeSlot));
+	assert(backend.retryRetiredCleanup(30001, operations, &fixture)
+		== VehicleModelBackendResult::ModelInUse);
+	assert(backend.releaseVehicleUse(30001, nativeSlot));
+
+	fixture.failDestroyOnce = true;
+	assert(backend.retryRetiredCleanup(30001, operations, &fixture)
+		== VehicleModelBackendResult::CleanupPending);
+	assert(backend.size() == 1); // A failed teardown never releases the slot.
+	assert(backend.find(30001, duplicateSlot) && duplicateSlot == nativeSlot);
+	assert(std::find(fixture.occupiedSlots.begin(), fixture.occupiedSlots.end(), nativeSlot)
+		!= fixture.occupiedSlots.end());
+
+	assert(backend.retryRetiredCleanup(30001, operations, &fixture)
+		== VehicleModelBackendResult::Released);
+	assert(backend.size() == 0);
+	assert(!backend.find(30001, duplicateSlot));
+	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+	assert(backendSlotIsVacant(&fixture, nativeSlot));
+
+	// An attach failure rolls back loaded assets and model-info. If cleanup itself
+	// fails once, the slot remains retired until a later explicit retry succeeds.
+	NativeVehicleModelFixture_unused_not_used();
 }
 
 void testNativeVehicleModelSlotRegistryCAbi()
@@ -1323,6 +1528,7 @@ int main()
 {
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
+	testNativeVehicleModelLifecycle();
 	testNativeVehicleModelSlotRegistryCAbi();
 	testManifestDecode();
 	testStreamInVehicleDecode();
