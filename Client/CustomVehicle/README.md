@@ -90,6 +90,10 @@ The first implementation is in [Shared](Shared/). It currently provides:
   181-189 are forwarded to the original SA-MP/0.3.DL client unchanged.
 - Explicit connection teardown and retry handling for queued or interrupted
   asset transfers.
+- A C ABI decoder for server RPC 164 that resolves a custom model ID to its
+  registered base vehicle and reports whether its DFF/TXD assets are ready. This
+  is a platform hand-off contract only; native GTA vehicle construction/rendering
+  remains a separate milestone.
 - A versioned C ABI in `include/custom_vehicle/bridge.h` for hosts written in
   C, Rust, or JNI-backed Android code. The C boundary exposes opaque adapter
   handles, RPC/download callbacks, and copied model snapshots without exposing
