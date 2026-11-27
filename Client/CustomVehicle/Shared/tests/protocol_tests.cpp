@@ -3,6 +3,7 @@
 #include <custom_vehicle/network_adapter.hpp>
 #include <custom_vehicle/asset_cache.hpp>
 #include <custom_vehicle/bridge.h>
+#include <custom_vehicle/model_slot_registry.hpp>
 
 #ifdef NDEBUG
 #undef NDEBUG // Keep assertions active even in Release test builds.
@@ -32,6 +33,104 @@ static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68)
 
 namespace
 {
+struct NativeSlotVacancyState
+{
+	std::vector<std::int32_t> occupiedSlots;
+};
+
+bool isNativeModelSlotVacant(void* userData, std::int32_t slot) noexcept
+{
+	if (userData == nullptr)
+	{
+		return false;
+	}
+	const auto& state = *static_cast<const NativeSlotVacancyState*>(userData);
+	for (const std::int32_t occupied : state.occupiedSlots)
+	{
+		if (occupied == slot)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void testNativeVehicleModelSlotRegistry()
+{
+	using namespace custom_vehicle::native;
+
+	NativeSlotVacancyState nativeState { { 612, 613 } };
+	VehicleModelSlotRegistry registry(612, 615);
+	assert(registry.hasValidRange());
+	assert(registry.size() == 0);
+
+	std::int32_t nativeSlot = -1;
+	assert(registry.reserve(30001, isNativeModelSlotVacant, &nativeState, nativeSlot)
+		== ModelSlotReserveResult::Reserved);
+	assert(nativeSlot == 614); // Occupied GTA slots are skipped.
+	assert(registry.size() == 1);
+
+	std::int32_t repeatedSlot = -1;
+	assert(registry.reserve(30001, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::AlreadyReserved);
+	assert(repeatedSlot == nativeSlot); // Manifest replay is idempotent.
+
+	std::int32_t secondSlot = -1;
+	assert(registry.reserve(30002, isNativeModelSlotVacant, &nativeState, secondSlot)
+		== ModelSlotReserveResult::Reserved);
+	assert(secondSlot == 615);
+	assert(secondSlot != nativeSlot);
+
+	assert(registry.reserve(30003, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::NoFreeSlot);
+	assert(registry.reserve(30000, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::InvalidCustomModelId);
+	assert(registry.reserve(32768, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::InvalidCustomModelId);
+	assert(registry.reserve(30003, nullptr, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::MissingVacancyQuery);
+
+	std::int32_t retainedSlot = -1;
+	assert(registry.retain(30001, retainedSlot));
+	assert(retainedSlot == nativeSlot);
+	assert(registry.retain(30001, retainedSlot)); // Two vehicles use this model.
+	assert(registry.retire(30001));
+	assert(registry.retire(30001)); // Retirement is idempotent.
+	assert(!registry.retain(30001, retainedSlot)); // No new vehicles after retirement.
+	assert(!registry.canRelease(30001));
+	assert(!registry.releaseUse(30001, secondSlot)); // A mismatched slot cannot drop a lease.
+	assert(registry.releaseUse(30001, nativeSlot));
+	assert(!registry.canRelease(30001));
+	assert(registry.releaseUse(30001, nativeSlot));
+	assert(registry.canRelease(30001));
+
+	assert(registry.release(30001, secondSlot, isNativeModelSlotVacant, &nativeState)
+		== ModelSlotReleaseResult::SlotMismatch);
+	assert(registry.release(30001, nativeSlot, isNativeModelSlotVacant, &nativeState)
+		== ModelSlotReleaseResult::NativeSlotStillOccupied);
+	assert(registry.find(30001, repeatedSlot) && repeatedSlot == nativeSlot);
+
+	// Native teardown clears the model-info pointer before the mapping is reusable.
+	nativeState.occupiedSlots.push_back(nativeSlot);
+	assert(registry.release(30001, nativeSlot, isNativeModelSlotVacant, &nativeState)
+		== ModelSlotReleaseResult::NativeSlotStillOccupied);
+	nativeState.occupiedSlots.pop_back();
+	assert(registry.release(30001, nativeSlot, isNativeModelSlotVacant, &nativeState)
+		== ModelSlotReleaseResult::Released);
+	assert(!registry.find(30001, repeatedSlot));
+	assert(registry.size() == 1); // Model 30002 still owns its slot.
+
+	assert(registry.reserve(30003, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::Reserved);
+	assert(repeatedSlot == nativeSlot); // A cleared slot can be reused safely.
+
+	VehicleModelSlotRegistry invalidRange(611, 19999);
+	assert(!invalidRange.hasValidRange());
+	assert(invalidRange.reserve(30004, isNativeModelSlotVacant, &nativeState, repeatedSlot)
+		== ModelSlotReserveResult::InvalidSlotRange);
+	assert(invalidRange.size() == 0);
+}
+
 void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value)
 {
 	bytes.push_back(static_cast<std::uint8_t>(value));
@@ -953,6 +1052,7 @@ void testAssetIntegrity()
 int main()
 {
 	testRpcIdIsolation();
+	testNativeVehicleModelSlotRegistry();
 	testManifestDecode();
 	testStreamInVehicleDecode();
 	testMalformedManifest();
