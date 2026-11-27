@@ -27,14 +27,25 @@ typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
  * must not re-enter the backend API. On a failed create/load/attach callback,
  * that callback must leave no resources of its own operation behind.
  *
- * destroy_model must be idempotent. It is passed the last fully completed
- * stage and returns non-zero only when all native resources have been cleared.
- * A zero return keeps the slot retired and reserved for a later cleanup retry.
+ * request_or_poll_vehicle_assets is called on successive game ticks. It
+ * returns FAILED (0), PENDING (1), or READY (2); it must be idempotent and must
+ * not block while GTA streaming works. destroy_model must be idempotent. It is
+ * passed the last fully completed stage and returns non-zero only when all
+ * native resources have been cleared. A zero return keeps the slot retired and
+ * reserved for a later cleanup retry.
  */
+enum
+{
+	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED = 0,
+	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING = 1,
+	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY = 2
+};
+
 typedef int32_t (*custom_vehicle_native_model_create_fn)(
 	void* user_data,
 	int32_t native_model_slot,
 	const struct custom_vehicle_model_request_v1* model);
+/* Called repeatedly from the game thread: request once, then poll until Ready/Failed. */
 typedef int32_t (*custom_vehicle_native_model_load_fn)(
 	void* user_data,
 	int32_t native_model_slot,
@@ -58,7 +69,7 @@ typedef struct custom_vehicle_native_vehicle_model_callbacks_v1
 	void* user_data;
 	custom_vehicle_native_slot_vacancy_fn is_slot_vacant;
 	custom_vehicle_native_model_create_fn create_model_info;
-	custom_vehicle_native_model_load_fn load_vehicle_assets;
+	custom_vehicle_native_model_load_fn request_or_poll_vehicle_assets;
 	custom_vehicle_native_model_attach_fn attach_vehicle_clump;
 	custom_vehicle_native_model_destroy_fn destroy_model;
 } custom_vehicle_native_vehicle_model_callbacks_v1;
@@ -69,6 +80,7 @@ enum
 	CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE = 2,
 	CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING = 3,
 	CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED = 4,
+	CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING = 5,
 	CUSTOM_VEHICLE_NATIVE_MODEL_NOT_FOUND = 0,
 	CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST = -1,
 	CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS = -2,
