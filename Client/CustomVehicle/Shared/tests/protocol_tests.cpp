@@ -22,6 +22,14 @@
 
 using namespace custom_vehicle::protocol;
 
+static_assert(sizeof(custom_vehicle_stream_in_vehicle_v1) == 76);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, vehicle_id) == 0);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, custom_model_id) == 4);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, position) == 12);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, health) == 32);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, mods) == 51);
+static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68);
+
 namespace
 {
 void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value)

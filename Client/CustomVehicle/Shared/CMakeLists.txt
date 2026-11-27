@@ -24,6 +24,7 @@ add_library(custom_vehicle_bridge_c_header_check OBJECT
 target_include_directories(custom_vehicle_bridge_c_header_check
 	PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/include
+		${CMAKE_CURRENT_SOURCE_DIR}/../Windows/include
 )
 target_compile_features(custom_vehicle_bridge_c_header_check PRIVATE c_std_99)
 
@@ -55,6 +56,24 @@ if(BUILD_TESTING)
 	endif()
 
 	add_test(NAME custom_vehicle_protocol_tests COMMAND custom_vehicle_protocol_tests)
+endif()
+
+if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+	# Compile-time GTA SA 1.0 US native vehicle layout evidence for the x86 ASI.
+	# This target performs no native calls and links no game addresses.
+	add_library(custom_vehicle_native_layout_check OBJECT
+		${CMAKE_CURRENT_SOURCE_DIR}/../Windows/tests/native_vehicle_model_info_layout_check.cpp
+	)
+	target_include_directories(custom_vehicle_native_layout_check
+		PRIVATE
+			${CMAKE_CURRENT_SOURCE_DIR}/../Windows/include
+	)
+	target_compile_features(custom_vehicle_native_layout_check PRIVATE cxx_std_17)
+	if(MSVC)
+		target_compile_options(custom_vehicle_native_layout_check PRIVATE /W4 /WX)
+	else()
+		target_compile_options(custom_vehicle_native_layout_check PRIVATE -Wall -Wextra -Wpedantic -Werror)
+	endif()
 endif()
 
 if(ANDROID)

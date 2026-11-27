@@ -1,4 +1,27 @@
 #include <custom_vehicle/bridge.h>
+#include <custom_vehicle_windows.h>
+
+/* C99-compatible compile-time ABI checks for the Windows/native spawn bridge. */
+typedef char custom_vehicle_stream_in_vehicle_size_must_be_76[
+	sizeof(custom_vehicle_stream_in_vehicle_v1) == 76 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_position_must_be_at_12[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, position) == 12 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_health_must_be_at_32[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, health) == 32 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_mods_must_be_at_51[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, mods) == 51 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_body_colours_must_be_at_68[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68 ? 1 : -1];
+typedef char custom_vehicle_model_request_size_must_be_44[
+	sizeof(custom_vehicle_model_request_v1) == 44 ? 1 : -1];
+typedef char custom_vehicle_model_request_type_must_be_at_8[
+	offsetof(custom_vehicle_model_request_v1, type) == 8 ? 1 : -1];
+typedef char custom_vehicle_model_request_base_id_must_be_at_16[
+	offsetof(custom_vehicle_model_request_v1, base_id) == 16 ? 1 : -1];
+typedef char custom_vehicle_model_request_dff_checksum_must_be_at_24[
+	offsetof(custom_vehicle_model_request_v1, dff_checksum) == 24 ? 1 : -1];
+typedef char custom_vehicle_model_request_time_on_must_be_at_40[
+	offsetof(custom_vehicle_model_request_v1, time_on) == 40 ? 1 : -1];
 
 static int32_t send_rpc(
 	void* user_data,
@@ -52,6 +75,11 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_adapter_copy_model;
 	(void)custom_vehicle_adapter_is_model_ready;
 	(void)custom_vehicle_adapter_decode_stream_in_vehicle;
+	(void)CustomVehicleWindows_Shutdown;
+	(void)CustomVehicleWindows_ModelCount;
+	(void)CustomVehicleWindows_CopyModel;
+	(void)CustomVehicleWindows_DecodeStreamInVehicle;
+	(void)CustomVehicleWindows_IsModelReady;
 	{
 		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
 		(void)stream;
