@@ -29,8 +29,8 @@ as `samp_client_sdk.asi`.
   forwards unrelated messages to the original client.
 - Uses the portable shared session state machine for validation and sequencing.
 - Sends vehicle DFF/TXD requests (RPC 223/224) and completion notifications
-  (RPC 226) through the SDK's game-thread RPC queue. The server acknowledges
-  verified files with RPC 227.
+  (RPC 226, asset type plus CRC32 checksum) through the SDK's game-thread RPC
+  queue. The server validates the pending asset and acknowledges it with RPC 227.
 - Downloads DFF/TXD files on a worker thread over HTTP/HTTPS.
 - Validates exact size and CRC32, then writes files to
   `%LOCALAPPDATA%\\open.mp\\custom-vehicle` using deterministic names and a
