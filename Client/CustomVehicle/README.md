@@ -98,6 +98,9 @@ The first implementation is in [Shared](Shared/). It currently provides:
   C, Rust, or JNI-backed Android code. The C boundary exposes opaque adapter
   handles, RPC/download callbacks, and copied model snapshots without exposing
   C++ STL types. CI also compiles this header as C.
+- Android JNI exposes the same RPC 164 decoder to Java hosts; the returned
+  status distinguishes native vehicles, ready custom vehicles, and custom models
+  whose assets are still pending. Float fields are passed as IEEE-754 bit patterns.
 - An Android JNI wrapper in [Android](Android/) that links the shared adapter,
   verifies downloaded bytes, and stores DFF/TXD files in an app-private cache.
   It builds a `.so` for Android ARM64, ARMv7, x86, and x86_64. This is an
