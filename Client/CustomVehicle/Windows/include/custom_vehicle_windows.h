@@ -31,6 +31,12 @@ extern "C" {
  */
 int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_Shutdown(void);
 
+/* Game-thread SDK callback status and bounded diagnostic counters. */
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_GameThreadCallbackRegistered(void);
+uint32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_GameThreadTickCount(void);
+/* Queue length sampled by the most recent game-thread callback; does not pop records. */
+size_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleCountOnGameThread(void);
+
 /* Returns the number of custom model records currently held by the adapter. */
 size_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_ModelCount(void);
 
