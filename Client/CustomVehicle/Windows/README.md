@@ -75,7 +75,7 @@ git clone https://github.com/Akionka/rak-samp.git build/custom-vehicle-sdk-host
 git -C build/custom-vehicle-sdk-host checkout c658b939a3d5b5be512b5b27ea869995bc37b44d
 
 # Build the x86 host payload before building the main ASI.
-cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release
+cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release --locked
 
 cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-windows-x86 -A Win32 -DBUILD_TESTING=OFF
 cmake --build build/custom-vehicle-windows-x86 --config Release
