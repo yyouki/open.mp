@@ -12,7 +12,7 @@ use samp_client_sdk::{
     Subscription,
 };
 use modkit_abi::{GameContextTokenV1, SubscriptionId};
-use modkit_sdk::{Core, GameContext, Host};
+use modkit_sdk::{Core, GameContext, Host, ServiceError};
 use std::{
     ffi::c_void,
     fs::{self, File, OpenOptions},
@@ -352,8 +352,21 @@ fn register_native_game_tick(context: &Arc<BridgeContext>) -> Option<NativeTickR
     // The embedded SDK host is already loaded by initialize(); this newer facade
     // exposes the host-issued, callback-scoped GTA game-thread execution token.
     let host = Host::connect(Duration::from_secs(5)).ok()?;
-    let gta = host.gta_sa_service().ok()?;
     let core = host.core().ok()?;
+    let mut gta = None;
+    for attempt in 0..15 {
+        match host.gta_sa_service() {
+            Ok(service) => {
+                gta = Some(service);
+                break;
+            }
+            Err(ServiceError::NotReady) if attempt < 14 => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(_) => return None,
+        }
+    }
+    let gta = gta?;
 
     // The host owns this weak callback context after successful registration and
     // calls the release callback only after the in-flight tick callbacks drain.
@@ -1514,6 +1527,43 @@ pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
 
     stop_workers(&context, workers);
     TRUE
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_GameThreadCallbackRegistered() -> i32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    let Some(context) = state.context.as_ref() else {
+        return 0;
+    };
+    if context.native_tick_registered.load(Ordering::Acquire) {
+        1
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_GameThreadTickCount() -> u32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    state
+        .context
+        .as_ref()
+        .map(|context| context.game_thread_tick_count.load(Ordering::Acquire))
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_PendingVehicleCountOnGameThread() -> usize {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    state
+        .context
+        .as_ref()
+        .map(|context| {
+            context
+                .pending_vehicle_count_on_game_thread
+                .load(Ordering::Acquire)
+        })
+        .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
