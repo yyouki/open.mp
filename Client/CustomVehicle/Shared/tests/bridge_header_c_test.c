@@ -50,14 +50,12 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_adapter_retry_active_asset;
 	(void)custom_vehicle_adapter_model_count;
 	(void)custom_vehicle_adapter_copy_model;
+	(void)custom_vehicle_adapter_is_model_ready;
+	(void)custom_vehicle_adapter_decode_stream_in_vehicle;
+	{
+		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
+		(void)stream;
+	}
 	(void)callbacks;
 	(void)model;
 }
-
-/* Ensure the stream-in record remains usable from a C translation unit. */
-static custom_vehicle_stream_in_vehicle_v1 stream_in_vehicle_record;
-static int32_t (*decode_stream_in_vehicle)(
-	const custom_vehicle_adapter*,
-	const uint8_t*,
-	size_t,
-	custom_vehicle_stream_in_vehicle_v1*) = custom_vehicle_adapter_decode_stream_in_vehicle;
