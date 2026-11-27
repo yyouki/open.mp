@@ -11,14 +11,22 @@ The pinned upstream host verifies direct SA-MP bridges for GTA: San Andreas
 
 | Client build | Status in this adapter |
 | --- | --- |
-| SA-MP 0.3.7 R1 | Network/download adapter enabled |
-| SA-MP 0.3.7 R3-1 | Network/download adapter enabled |
-| SA-MP 0.3.7 R5-1 | Network/download adapter enabled |
+| SA-MP 0.3.7 R1 | Network/download adapter enabled; native game-state gate available |
+| SA-MP 0.3.7 R2 | Network/download adapter enabled through packet/RPC hooks; no native game-state profile |
+| SA-MP 0.3.7 R3-1 | Network/download adapter enabled; native game-state gate available |
+| SA-MP 0.3.7 R4-2 | Network/download adapter enabled through packet/RPC hooks; no native game-state profile |
+| SA-MP 0.3.7 R5-1 | Network/download adapter enabled; native game-state gate available |
 | SA-MP 0.3.DL R1 | Network/download adapter enabled; native artwork channel remains untouched |
-| SA-MP R2 / R4-2 and other builds | Not enabled by this adapter |
+| Other builds | Not enabled by this adapter |
 
-The adapter checks the detected client version before installing RPC hooks. Unknown
-and unsupported versions fail closed. The upstream SDK is pinned to commit
+The adapter checks the detected client version before installing hooks. Unknown
+and unsupported versions fail closed. For R2 and R4-2, connection negotiation starts
+when incoming RPC 139 (InitGame) is observed and stops on SA-MP RakNet disconnect or
+connection-failure packets. Since those profiles expose networking hooks but no
+verified native game-state reader, load the plugin before joining a server; if it is
+loaded after joining, reconnect before expecting custom vehicle negotiation.
+
+The upstream SDK is pinned to commit
 `c658b939a3d5b5be512b5b27ea869995bc37b44d`; its host must be installed separately
 as `samp_client_sdk.asi`.
 
@@ -71,8 +79,9 @@ the native GTA/RenderWare rendering backend.
 1. Install a compatible ASI loader and the upstream `samp_client_sdk.asi`
    host into the GTA: San Andreas 1.0 US directory.
 2. Copy `custom_vehicle_windows.asi` into that directory.
-3. Start one of the supported SA-MP 0.3.7 builds and connect using SA-MP 0.3.7 R1/R3-1/R5-1 or 0.3.DL R1 to an open.mp server
-   with experimental custom vehicle models enabled.
+3. Start one of the supported SA-MP builds (0.3.7 R1, R2, R3-1, R4-2, R5-1,
+   or 0.3.DL R1) and connect to an open.mp server with experimental custom vehicle
+   models enabled. For R2 and R4-2, the plugin must be loaded before connecting.
 
 The plugin exports `CustomVehicleWindows_Shutdown`. A plugin manager must call
 it from a worker thread and wait for success before unloading the ASI. It must
