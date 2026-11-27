@@ -54,9 +54,10 @@ VehicleModelBackendResult VehicleModelLifecycleController::activate(
 			native_model_slot = entry.native_model_slot;
 			return VehicleModelBackendResult::AlreadyActive;
 		}
-		// Never overwrite an allocated native model in-place. Retire and fully
-		// release the existing generation before a replacement can be installed.
-		return VehicleModelBackendResult::ModelRetiring;
+		// The current generation remains active until the caller explicitly
+		// retires it and every vehicle releases its lease. Do not imply that
+		// retirement has already started.
+		return VehicleModelBackendResult::ModelReplacementRequired;
 	}
 
 	std::int32_t slot = -1;
