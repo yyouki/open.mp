@@ -61,7 +61,10 @@ Copy-Item target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll custom_
 ```
 
 The dedicated GitHub Actions workflow builds the same x86 artifact and uploads
-it as a workflow artifact.
+`custom-vehicle-windows-x86-asi.zip`. Download the artifact from the successful
+workflow run, extract `custom_vehicle_windows.asi`, and follow the install steps
+above. The artifact contains only the network/download adapter; it does not add
+the native GTA/RenderWare rendering backend.
 
 ## Install
 
