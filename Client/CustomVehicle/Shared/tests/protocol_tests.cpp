@@ -503,6 +503,35 @@ void testNativeVehicleModelLifecycle()
 	assert(backendSlotIsVacant(&fixture, duplicateSlot));
 	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
 
+	// A native streaming failure rolls back the created model-info record.
+	fixture.failLoad = true;
+	const ModelRequest thirdModel = makeNativeVehicleModelRequest(30003, 402);
+	std::int32_t thirdSlot = -1;
+	assert(backend.activate(thirdModel, true, operations, &fixture, thirdSlot)
+		== VehicleModelBackendResult::LoadAssetsFailed);
+	assert(backend.size() == 0);
+	assert(thirdSlot == -1);
+	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+	fixture.failLoad = false;
+
+	// A model-info creation failure also leaves no reserved slot behind.
+	fixture.failCreate = true;
+	const ModelRequest fourthModel = makeNativeVehicleModelRequest(30004, 403);
+	assert(backend.activate(fourthModel, true, operations, &fixture, thirdSlot)
+		== VehicleModelBackendResult::CreateModelInfoFailed);
+	assert(backend.size() == 0);
+	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+	fixture.failCreate = false;
+
+	// Every slot may be occupied by native models; fail closed without mutation.
+	VehicleModelLifecycleController exhausted(612, 612);
+	assert(exhausted.activate(
+		makeNativeVehicleModelRequest(30005, 404),
+		true,
+		operations,
+		&fixture,
+		thirdSlot) == VehicleModelBackendResult::NoFreeSlot);
+	assert(exhausted.size() == 0);
 }
 
 void testNativeVehicleModelSlotRegistryCAbi()
