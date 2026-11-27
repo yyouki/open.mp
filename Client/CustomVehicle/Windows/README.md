@@ -68,17 +68,31 @@ The upstream MIT license is included in `LICENSES/samp-client-sdk-MIT.txt`.
   while DFF/TXD assets are pending. The output uses the 76-byte
   `custom_vehicle_stream_in_vehicle_v1` C ABI layout declared in
   `Shared/include/custom_vehicle/bridge.h`.
-- Exposes `CustomVehicleWindows_RewriteStreamInVehicle`, which validates the
-  exact 63-byte RPC 164 payload and copies it while rewriting only the four-byte
-  model ID to the manifest's compatible base ID. It returns the same ready vs.
-  pending status and leaves output/metadata unchanged for stock or invalid
-  packets. A native dispatcher must queue model activation and only forward the
-  rewritten payload after the corresponding game-thread operation is ready.
+- Intercepts incoming vehicle stream-in RPC 164 before the stock handler.
+  Stock model IDs 400-611 are forwarded unchanged. A valid custom ID is checked
+  against the manifest, rewritten to its compatible base vehicle ID, and copied
+  into a bounded queue for game-thread processing. Unknown custom IDs and
+  custom stream-in records that cannot be queued are blocked instead of being
+  passed to the native handler with an out-of-range model index.
+- Cancels a queued-but-not-yet-popped stream-in record when matching vehicle
+  removal RPC 165 arrives. Pending records are also cleared when the multiplayer
+  session ends or the adapter shuts down.
+- Exposes `CustomVehicleWindows_PendingVehicleCount`,
+  `CustomVehicleWindows_PopPendingVehicle`, and
+  `CustomVehicleWindows_CancelPendingVehicle`. The pop export copies one
+  76-byte `custom_vehicle_stream_in_vehicle_v1` record and must be called only
+  from the verified GTA game thread. It includes the SA-MP vehicle ID, custom
+  model ID, compatible base model ID, transform, health, damage, tuning,
+  paintjob, and colours.
+- Exposes `CustomVehicleWindows_RewriteStreamInVehicle` for native hosts that
+  need the same exact 63-byte RPC 164 validation/rewrite operation directly.
+  It changes only the four-byte model ID and leaves output/metadata untouched
+  for stock or invalid packets.
 - Exposes `CustomVehicleWindows_IsModelReady` to recheck that the registered
   model's DFF and TXD are locally verified and server-acknowledged before native
-  loading. These exports do not perform RenderWare registration or vehicle
-  creation; the incoming RPC 164 hook still forwards stock and custom RPC 164
-  unchanged until the native activation/cleanup path is implemented.
+  loading. The current network integration creates a valid base vehicle and
+  queues its custom record; it does not yet register a GTA model-info object,
+  attach a RenderWare clump, or swap the spawned vehicle to the custom model.
 - Starts RPC 221 after the server's InitGame RPC (139). R1/R3-1/R5-1/DL R1
   additionally wait for verified game state 14 and can detect an already-active
   connection when loaded late. R2/R4-2 rely on packet/RPC lifecycle events because
@@ -219,10 +233,18 @@ TXD/animation references, and related native pointers. It may report success
 only after the native model-info slot is empty. Failed cleanup keeps the slot
 retired and reserved for an explicit retry; the slot must never be reused early.
 
-These are lifecycle contracts only. The Windows adapter has not yet supplied
-the concrete GTA operations, connected them to `Gta::on_tick`, or connected
-the controller to the incoming RPC 164 path. The hook still forwards RPC 164
-unchanged, and this milestone does not spawn or render a custom vehicle.
+These are lifecycle contracts only. The incoming RPC 164 network hook now
+rewrites custom vehicles to their compatible base IDs and queues copied records.
+The matching RPC 165 handler cancels records that have not yet been popped.
+`CustomVehicleWindows_PopPendingVehicle` exposes that queue to a future
+game-thread consumer, but no consumer is registered yet and the lifecycle
+controller is not connected to concrete GTA callbacks or `Gta::on_tick`.
+
+Consequently, the stock client can construct the compatible base vehicle, but
+the current adapter does not yet create a custom `CVehicleModelInfo`, stream
+custom DFF/TXD data into RenderWare, attach the vehicle clump, or replace the
+base model on the spawned entity. This is an RPC handoff milestone, not a
+working custom-vehicle renderer.
 
 ### Reference lifecycle from MTA (design evidence only)
 
@@ -280,11 +302,12 @@ contains Ped and Object model-info registration paths, but no equivalent
 vehicle registration function. Vehicle registration must be implemented
 separately.
 
-The remaining implementation needs a safe custom-RPC-164 interception path,
+The remaining implementation needs the verified game-thread consumer,
 base-vehicle model-info cloning and initialization, TXD/DFF/animation ownership,
-streaming lifecycle, vehicle-pool construction, and cleanup of references such
-as detached car parts. None of these native operations is implemented yet, and
-no guessed addresses are used.
+GTA streaming lifecycle, safe vehicle-entity model replacement, per-vehicle
+leases, and cleanup of references such as detached car parts. The RPC 164/165
+handoff is implemented; none of those concrete native renderer operations is
+implemented yet, and no guessed native function addresses are used.
 
 The custom vehicle extension uses a separate RPC block (220-227). Native
 SA-MP/0.3.DL artwork messages (179 and 181-189) are forwarded unchanged to the
