@@ -106,8 +106,8 @@ void testNativeVehicleModelSlotRegistry()
 
 	assert(registry.release(30001, secondSlot, isNativeModelSlotVacant, &nativeState)
 		== ModelSlotReleaseResult::SlotMismatch);
-	assert(registry.release(30001, nativeSlot, isNativeModelSlotVacant, &nativeState)
-		== ModelSlotReleaseResult::NativeSlotStillOccupied);
+	assert(registry.release(30001, nativeSlot, nullptr, &nativeState)
+		== ModelSlotReleaseResult::MissingVacancyQuery);
 	assert(registry.find(30001, repeatedSlot) && repeatedSlot == nativeSlot);
 
 	// Native teardown clears the model-info pointer before the mapping is reusable.
