@@ -22,7 +22,12 @@ direct native game-state reader:
 | Other builds | Not enabled by this adapter |
 
 The adapter checks the detected client version before installing hooks. Unknown
-and unsupported versions fail closed. For R2 and R4-2, connection negotiation starts
+and unsupported versions fail closed. The pinned native GTA service is stricter:
+it accepts only the exact 32-bit GTA SA 1.0 US executable with SHA-256
+`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`
+and image base `0x00400000`. The six network-hook profiles below do not expand
+that native executable profile. Other GTA executables, 64-bit variants, Android,
+and other operating systems do not have a native renderer implementation here. For R2 and R4-2, connection negotiation starts
 when incoming RPC 139 (InitGame) is observed and stops on SA-MP RakNet disconnect or
 connection-failure packets. Since those profiles expose networking hooks but no
 verified native game-state reader, load the plugin before joining a server; if it is
@@ -163,56 +168,6 @@ registry. It must inspect the game model table only from a verified safe thread.
 
 ### Native vehicle lifecycle C ABI
 
-The shared core now exposes an opaque `custom_vehicle_native_vehicle_model_backend`
-through `Shared/include/custom_vehicle/bridge.h`. The backend coordinates
-model-info allocation, native asset streaming, clump attachment, vehicle-use
-leases, retirement, and retryable teardown without exposing C++ classes or GTA
-pointers across the C ABI.
-
-The native asset callback returns one of three named values:
-
-- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING` (1): issue or continue a GTA
-  streaming request and return to the game loop. Call
-  `custom_vehicle_native_vehicle_model_backend_activate` again on a later
-  game tick to poll it.
-- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY` (2): streaming is complete; the
-  controller proceeds to the vehicle-specific clump-attachment callback.
-- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED` (0): roll back every completed
-  stage. The callback itself must not leave partial resources when it returns
-  failure.
-
-The result `CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING` (3) means that the
-manifest's downloaded DFF/TXD are not yet locally verified and server-acked.
-`CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING` (5) means the files are
-ready but GTA's native streaming is still in progress. Only
-`CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED` (1) or
-`CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE` (2) means the custom model can
-be assigned to a vehicle. Pending status never marks the model active.
-
-The lifecycle callback struct is synchronous and is called while the controller
-lock is held. Do not block while requesting/polling GTA streaming, and do not
-re-enter the lifecycle API from a callback. Retain one vehicle-use lease for
-each live GTA vehicle referencing the custom model; release it on vehicle
-removal. Retirement prevents new leases. If vehicles are still using the model,
-the API reports `CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE` (-9); retry cleanup after
-the final lease is released.
-
-The destroy callback receives the last fully completed resource stage:
-`RESERVED=0`, `MODEL_INFO_CREATED=1`, `ASSETS_REQUESTED=2`,
-`ASSETS_LOADED=3`, or `CLUMP_ATTACHED=4`. It must be idempotent and clear
-all resources through that stage, including pending streaming requests,
-model-info table entries, RenderWare clumps, `CVehicleStructure` allocations,
-TXD/animation references and related native pointers. It may return success
-only after the native model-info slot is empty. A failed cleanup keeps the slot
-retired and reserved for a later retry; it must never be reused prematurely.
-
-These are lifecycle contracts only. The Windows adapter has not yet supplied
-the concrete GTA callbacks, connected them to `Gta::on_tick`, or connected the
-controller to the incoming RPC 164 path. The hook still forwards RPC 164
-unchanged, and custom vehicles are not yet spawned or rendered.
-
-### Native vehicle lifecycle C ABI
-
 The shared core exposes an opaque `custom_vehicle_native_vehicle_model_backend`
 through `Shared/include/custom_vehicle/bridge.h`. It coordinates model-info
 creation, native asset streaming, vehicle clump attachment, vehicle-use leases,
@@ -246,6 +201,14 @@ vehicle-use lease for every live vehicle that refers to the custom model and
 release it on vehicle removal. Retirement stops new leases; if old vehicles
 remain, the API returns `CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE` (-9) until all
 leases are released.
+
+The C ABI destroy functions refuse to discard live ownership state:
+`custom_vehicle_native_vehicle_model_backend_destroy` returns 0 while any
+model lifecycle entry remains, including entries awaiting cleanup. It returns
+1 and destroys the controller only after every entry has been fully released.
+The slot-registry destroy function follows the same rule for reserved slots.
+Callers must stop concurrent API use before attempting destruction; a refused
+destroy leaves the handle valid for cleanup retries.
 
 The destroy callback receives the last fully completed resource stage:
 `RESERVED=0`, `MODEL_INFO_CREATED=1`, `ASSETS_REQUESTED=2`,
