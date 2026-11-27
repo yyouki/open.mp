@@ -186,6 +186,16 @@ unsafe extern "C" {
         payload_size: usize,
         output: *mut CustomVehicleStreamInVehicleV1,
     ) -> i32;
+    fn custom_vehicle_adapter_rewrite_stream_in_vehicle(
+        adapter: *const CustomVehicleAdapter,
+        payload: *const u8,
+        payload_size: usize,
+        output: *mut u8,
+        output_capacity: usize,
+        output_size: *mut usize,
+        custom_model_id: *mut i32,
+        base_model_id: *mut i32,
+    ) -> i32;
 }
 
 struct OutgoingRpc {
@@ -1226,6 +1236,61 @@ pub unsafe extern "system" fn CustomVehicleWindows_DecodeStreamInVehicle(
                 payload,
                 payload_size,
                 output,
+            )
+        }
+    })
+    .unwrap_or(-1)
+}
+
+/// Prepare one exact server RPC 164 payload for the stock vehicle handler.
+///
+/// Returns -1 for invalid/unknown custom models or an inactive adapter, 0 for a
+/// stock vehicle (no output is written), 1 for a registered model with verified
+/// DFF/TXD assets, and 2 for a registered model whose assets are still pending.
+/// For custom models, only the four-byte model ID field is rewritten to its
+/// compatible base vehicle ID. The caller remains responsible for scheduling
+/// native model registration and applying it on the verified game thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn CustomVehicleWindows_RewriteStreamInVehicle(
+    payload: *const u8,
+    payload_size: usize,
+    output: *mut u8,
+    output_capacity: usize,
+    output_size: *mut usize,
+    custom_model_id: *mut i32,
+    base_model_id: *mut i32,
+) -> i32 {
+    if payload.is_null()
+        || output.is_null()
+        || output_size.is_null()
+        || custom_model_id.is_null()
+        || base_model_id.is_null()
+        || payload_size == 0
+        || payload_size > MAX_RPC_BYTES
+    {
+        return -1;
+    }
+
+    std::panic::catch_unwind(|| {
+        let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(context) = state.context.as_ref() else {
+            return -1;
+        };
+        let adapter = context.adapter();
+        if adapter.is_null() {
+            return -1;
+        }
+
+        unsafe {
+            custom_vehicle_adapter_rewrite_stream_in_vehicle(
+                adapter,
+                payload,
+                payload_size,
+                output,
+                output_capacity,
+                output_size,
+                custom_model_id,
+                base_model_id,
             )
         }
     })
