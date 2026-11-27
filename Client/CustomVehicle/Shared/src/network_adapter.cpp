@@ -1,5 +1,6 @@
 #include <custom_vehicle/network_adapter.hpp>
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
