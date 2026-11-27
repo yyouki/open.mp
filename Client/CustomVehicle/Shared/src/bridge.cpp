@@ -283,6 +283,77 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 	}
 }
 
+int32_t custom_vehicle_adapter_rewrite_stream_in_vehicle(
+	const custom_vehicle_adapter* adapter,
+	const uint8_t* payload,
+	size_t payload_size,
+	uint8_t* output,
+	size_t output_capacity,
+	size_t* output_size,
+	int32_t* custom_model_id,
+	int32_t* base_model_id)
+{
+	if (adapter == nullptr || payload == nullptr || output == nullptr
+		|| output_size == nullptr || custom_model_id == nullptr || base_model_id == nullptr)
+	{
+		return -1;
+	}
+
+	try
+	{
+		custom_vehicle::protocol::StreamInVehicleData vehicle;
+		custom_vehicle::protocol::DecodeError error = custom_vehicle::protocol::DecodeError::None;
+		if (!custom_vehicle::protocol::decodeStreamInVehicle(payload, payload_size, vehicle, error))
+		{
+			return -1;
+		}
+
+		if (vehicle.modelId >= 400 && vehicle.modelId <= 611)
+		{
+			return 0;
+		}
+		if (!custom_vehicle::protocol::isCustomVehicleModelId(vehicle.modelId))
+		{
+			return -1;
+		}
+
+		custom_vehicle::protocol::ModelRequest model;
+		bool modelReady = false;
+		if (!adapter->adapter.resolveVehicleModel(vehicle.modelId, model, modelReady)
+			|| !custom_vehicle::protocol::validateVehicleModelRequest(model))
+		{
+			return -1;
+		}
+
+		std::array<std::uint8_t, custom_vehicle::protocol::StreamInVehicleWireSize> rewritten {};
+		std::size_t rewrittenSize = 0;
+		if (!custom_vehicle::protocol::rewriteStreamInVehicleToBaseModel(
+			payload,
+			payload_size,
+			vehicle.modelId,
+			model.baseId,
+			rewritten.data(),
+			rewritten.size(),
+			rewrittenSize,
+			error)
+			|| output_capacity < rewrittenSize)
+		{
+			return -1;
+		}
+
+		// Publish output and metadata together only after all validation succeeds.
+		std::copy(rewritten.begin(), rewritten.begin() + rewrittenSize, output);
+		*output_size = rewrittenSize;
+		*custom_model_id = vehicle.modelId;
+		*base_model_id = model.baseId;
+		return modelReady ? 1 : 2;
+	}
+	catch (...)
+	{
+		return -1;
+	}
+}
+
 int32_t custom_vehicle_adapter_copy_model(
 	const custom_vehicle_adapter* adapter,
 	size_t index,
