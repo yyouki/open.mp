@@ -114,6 +114,35 @@ pub struct CustomVehicleModelRequestV1 {
     pub time_off: u8,
 }
 
+/// C-compatible decoded payload for server RPC 164.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct CustomVehicleStreamInVehicleV1 {
+    pub vehicle_id: u16,
+    pub custom_model_id: i32,
+    pub base_model_id: i32,
+    pub position: [f32; 3],
+    pub angle: f32,
+    pub colour1: u8,
+    pub colour2: u8,
+    pub health: f32,
+    pub interior: u8,
+    pub door_damage: u32,
+    pub panel_damage: u32,
+    pub light_damage: u8,
+    pub tyre_damage: u8,
+    pub siren: u8,
+    pub mods: [u8; 14],
+    pub paintjob: u8,
+    pub body_colour1: i32,
+    pub body_colour2: i32,
+}
+
+// Keep this ABI in lock-step with custom_vehicle_stream_in_vehicle_v1 in bridge.h.
+const _: [(); 76] = [(); std::mem::size_of::<CustomVehicleStreamInVehicleV1>()];
+const _: [(); 12] = [(); std::mem::offset_of!(CustomVehicleStreamInVehicleV1, position)];
+const _: [(); 68] = [(); std::mem::offset_of!(CustomVehicleStreamInVehicleV1, body_colour1)];
+
 unsafe extern "C" {
     fn custom_vehicle_adapter_create(
         callbacks: *const CustomVehicleCallbacksV1,
@@ -140,6 +169,16 @@ unsafe extern "C" {
         adapter: *const CustomVehicleAdapter,
         index: usize,
         output: *mut CustomVehicleModelRequestV1,
+    ) -> i32;
+    fn custom_vehicle_adapter_is_model_ready(
+        adapter: *const CustomVehicleAdapter,
+        custom_model_id: i32,
+    ) -> i32;
+    fn custom_vehicle_adapter_decode_stream_in_vehicle(
+        adapter: *const CustomVehicleAdapter,
+        payload: *const u8,
+        payload_size: usize,
+        output: *mut CustomVehicleStreamInVehicleV1,
     ) -> i32;
 }
 
@@ -1150,11 +1189,67 @@ pub extern "system" fn CustomVehicleWindows_CopyModel(
 }
 
 
+/// Decode one server RPC 164 payload for the native vehicle backend.
+///
+/// Returns -1 for malformed/unknown custom models, 0 for a stock vehicle,
+/// 1 for a registered custom model whose DFF/TXD are ready, or 2 while assets
+/// are still pending. The output is not modified on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn CustomVehicleWindows_DecodeStreamInVehicle(
+    payload: *const u8,
+    payload_size: usize,
+    output: *mut CustomVehicleStreamInVehicleV1,
+) -> i32 {
+    if payload.is_null() || output.is_null() || payload_size == 0 || payload_size > MAX_RPC_BYTES {
+        return -1;
+    }
+
+    std::panic::catch_unwind(|| {
+        let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(context) = state.context.as_ref() else {
+            return -1;
+        };
+        let adapter = context.adapter();
+        if adapter.is_null() {
+            return -1;
+        }
+
+        unsafe {
+            custom_vehicle_adapter_decode_stream_in_vehicle(
+                adapter,
+                payload,
+                payload_size,
+                output,
+            )
+        }
+    })
+    .unwrap_or(-1)
+}
+
+/// Check whether both assets for a registered custom vehicle have been
+/// verified locally and acknowledged by the server.
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_IsModelReady(custom_model_id: i32) -> i32 {
+    std::panic::catch_unwind(|| {
+        let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(context) = state.context.as_ref() else {
+            return 0;
+        };
+        let adapter = context.adapter();
+        if adapter.is_null() {
+            return 0;
+        }
+        unsafe { custom_vehicle_adapter_is_model_ready(adapter, custom_model_id) }
+    })
+    .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cache_path, crc32, is_connection_termination_packet, is_custom_vehicle_rpc,
-        read_verified_cache, store_verified_cache, DownloadJob, SampClientSdkClientVersion,
+        read_verified_cache, store_verified_cache, CustomVehicleStreamInVehicleV1,
+        DownloadJob, SampClientSdkClientVersion,
     };
     use std::fs;
 
@@ -1170,6 +1265,17 @@ mod tests {
                 "native or unrelated RPC {rpc_id} was classified as a vehicle extension"
             );
         }
+    }
+
+    #[test]
+    fn stream_in_vehicle_export_layout_matches_the_shared_c_abi() {
+        assert_eq!(std::mem::size_of::<CustomVehicleStreamInVehicleV1>(), 76);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, vehicle_id), 0);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, custom_model_id), 4);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, position), 12);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, health), 32);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, mods), 51);
+        assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, body_colour1), 68);
     }
 
     #[test]
