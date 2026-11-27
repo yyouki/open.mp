@@ -702,6 +702,13 @@ void testCAbiBridge()
 		txdUrl.size()) == 1);
 	assert(custom_vehicle_adapter_complete_asset(
 		adapter, static_cast<std::uint8_t>(AssetType::Txd), txdCrc, txd.data(), txd.size()) == 1);
+	assert(state.sent.back().id == static_cast<std::uint8_t>(RpcId::FinishDownload));
+	assert(state.sent.back().payload.size() == AssetCompletionWireSize);
+	assert(state.sent.back().payload[0] == static_cast<std::uint8_t>(AssetType::Txd));
+	assert(state.sent.back().payload[1] == static_cast<std::uint8_t>(txdCrc));
+	assert(state.sent.back().payload[2] == static_cast<std::uint8_t>(txdCrc >> 8));
+	assert(state.sent.back().payload[3] == static_cast<std::uint8_t>(txdCrc >> 16));
+	assert(state.sent.back().payload[4] == static_cast<std::uint8_t>(txdCrc >> 24));
 	assert(custom_vehicle_adapter_handle_server_rpc(
 		adapter,
 		static_cast<std::uint8_t>(RpcId::DownloadCompleted),
