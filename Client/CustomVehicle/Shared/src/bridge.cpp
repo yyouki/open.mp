@@ -184,28 +184,38 @@ bool nativeVehicleCreateModelInfo(
 	}
 }
 
-bool nativeVehicleLoadAssets(
+custom_vehicle::native::VehicleAssetLoadResult nativeVehicleRequestOrPollAssets(
 	void* user_data,
 	std::int32_t slot,
 	const custom_vehicle::protocol::ModelRequest& model) noexcept
 {
+	using custom_vehicle::native::VehicleAssetLoadResult;
 	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
 	if (context == nullptr || context->callbacks == nullptr
-		|| context->callbacks->load_vehicle_assets == nullptr)
+		|| context->callbacks->request_or_poll_vehicle_assets == nullptr)
 	{
-		return false;
+		return VehicleAssetLoadResult::Failed;
 	}
 	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
 	try
 	{
-		return context->callbacks->load_vehicle_assets(
+		switch (context->callbacks->request_or_poll_vehicle_assets(
 			context->callbacks->user_data,
 			slot,
-			&record) != 0;
+			&record))
+		{
+			case CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING:
+				return VehicleAssetLoadResult::Pending;
+			case CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY:
+				return VehicleAssetLoadResult::Ready;
+			case CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED:
+			default:
+				return VehicleAssetLoadResult::Failed;
+		}
 	}
 	catch (...)
 	{
-		return false;
+		return VehicleAssetLoadResult::Failed;
 	}
 }
 
@@ -270,7 +280,7 @@ bool makeNativeVehicleOperations(
 		|| callbacks->abi_version != CUSTOM_VEHICLE_NATIVE_MODEL_CALLBACKS_ABI_VERSION
 		|| callbacks->is_slot_vacant == nullptr
 		|| callbacks->create_model_info == nullptr
-		|| callbacks->load_vehicle_assets == nullptr
+		|| callbacks->request_or_poll_vehicle_assets == nullptr
 		|| callbacks->attach_vehicle_clump == nullptr
 		|| callbacks->destroy_model == nullptr)
 	{
@@ -279,7 +289,7 @@ bool makeNativeVehicleOperations(
 
 	operations.is_slot_vacant = nativeVehicleSlotVacant;
 	operations.create_model_info = nativeVehicleCreateModelInfo;
-	operations.load_vehicle_assets = nativeVehicleLoadAssets;
+	operations.request_or_poll_vehicle_assets = nativeVehicleRequestOrPollAssets;
 	operations.attach_vehicle_clump = nativeVehicleAttachClump;
 	operations.destroy_model = nativeVehicleDestroyModel;
 	return true;
@@ -297,6 +307,8 @@ std::int32_t mapNativeVehicleBackendResult(
 			return CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE;
 		case VehicleModelBackendResult::AssetsPending:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING;
+		case VehicleModelBackendResult::NativeAssetsPending:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING;
 		case VehicleModelBackendResult::InvalidRequest:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
 		case VehicleModelBackendResult::MissingOperations:
