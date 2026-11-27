@@ -301,17 +301,17 @@ std::int32_t cAbiNativeVehicleAttach(
 	using custom_vehicle::native::VehicleClumpAttachResult;
 	if (userData == nullptr || model == nullptr)
 	{
-		return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED;
+		return CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_FAILED;
 	}
 	switch (backendAttachVehicleClump(userData, slot, makeNativeVehicleModelRequest(*model)))
 	{
 		case VehicleClumpAttachResult::Attached:
-			return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_READY;
+			return CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_READY;
 		case VehicleClumpAttachResult::Pending:
-			return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_PENDING;
+			return CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_PENDING;
 		case VehicleClumpAttachResult::Failed:
 		default:
-			return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED;
+			return CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_FAILED;
 	}
 }
 
