@@ -12,6 +12,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -29,6 +30,49 @@ void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value)
 	bytes.push_back(static_cast<std::uint8_t>(value >> 8));
 	bytes.push_back(static_cast<std::uint8_t>(value >> 16));
 	bytes.push_back(static_cast<std::uint8_t>(value >> 24));
+}
+
+void appendU16(std::vector<std::uint8_t>& bytes, std::uint16_t value)
+{
+	bytes.push_back(static_cast<std::uint8_t>(value));
+	bytes.push_back(static_cast<std::uint8_t>(value >> 8));
+}
+
+void appendFloatLittleEndian(std::vector<std::uint8_t>& bytes, float value)
+{
+	std::uint32_t raw = 0;
+	static_assert(sizeof(raw) == sizeof(value), "32-bit float widths must match");
+	std::memcpy(&raw, &value, sizeof(raw));
+	appendU32(bytes, raw);
+}
+
+std::vector<std::uint8_t> makeStreamInVehicle(std::int32_t modelId = 30001)
+{
+	std::vector<std::uint8_t> bytes;
+	bytes.reserve(StreamInVehicleWireSize);
+	appendU16(bytes, 1234);             // Vehicle pool ID.
+	appendI32(bytes, modelId);           // Standard or custom vehicle model ID.
+	appendFloatLittleEndian(bytes, 1.25f);
+	appendFloatLittleEndian(bytes, -2.5f);
+	appendFloatLittleEndian(bytes, 3.75f);
+	appendFloatLittleEndian(bytes, 90.0f);
+	bytes.push_back(6);                  // Primary colour.
+	bytes.push_back(7);                  // Secondary colour.
+	appendFloatLittleEndian(bytes, 875.5f);
+	bytes.push_back(2);                  // Interior.
+	appendU32(bytes, 0x11223344u);       // Door damage.
+	appendU32(bytes, 0x55667788u);       // Panel damage.
+	bytes.push_back(0x12);               // Light damage.
+	bytes.push_back(0x34);               // Tyre damage.
+	bytes.push_back(1);                  // Siren.
+	for (std::size_t index = 0; index < StreamInVehicleModCount; ++index)
+	{
+		bytes.push_back(static_cast<std::uint8_t>(index + 1));
+	}
+	bytes.push_back(3);                  // Paintjob.
+	appendU32(bytes, 0xAABBCCDDu);       // Body colour 1.
+	appendU32(bytes, 0x10203040u);       // Body colour 2.
+	return bytes;
 }
 
 void appendI32(std::vector<std::uint8_t>& bytes, std::int32_t value)
@@ -121,6 +165,67 @@ void testManifestDecode()
 	assert(request.dffSize == 512);
 	assert(request.txdSize == 1024);
 	assert(validateVehicleModelRequest(request));
+}
+
+void testStreamInVehicleDecode()
+{
+	static_assert(StreamInVehicleWireSize == 40 + StreamInVehicleModCount + 1 + 4 + 4);
+	const auto bytes = makeStreamInVehicle();
+	StreamInVehicleData vehicle;
+	DecodeError error = DecodeError::WrongSize;
+
+	assert(bytes.size() == StreamInVehicleWireSize);
+	assert(decodeStreamInVehicle(bytes.data(), bytes.size(), vehicle, error));
+	assert(error == DecodeError::None);
+	assert(vehicle.vehicleId == 1234);
+	assert(vehicle.modelId == 30001);
+	assert(vehicle.position[0] == 1.25f);
+	assert(vehicle.position[1] == -2.5f);
+	assert(vehicle.position[2] == 3.75f);
+	assert(vehicle.angle == 90.0f);
+	assert(vehicle.colour1 == 6);
+	assert(vehicle.colour2 == 7);
+	assert(vehicle.health == 875.5f);
+	assert(vehicle.interior == 2);
+	assert(vehicle.doorDamage == 0x11223344u);
+	assert(vehicle.panelDamage == 0x55667788u);
+	assert(vehicle.lightDamage == 0x12);
+	assert(vehicle.tyreDamage == 0x34);
+	assert(vehicle.siren == 1);
+	for (std::size_t index = 0; index < StreamInVehicleModCount; ++index)
+	{
+		assert(vehicle.mods[index] == index + 1);
+	}
+	assert(vehicle.paintjob == 3);
+	assert(vehicle.bodyColour1 == static_cast<std::int32_t>(0xAABBCCDDu));
+	assert(vehicle.bodyColour2 == 0x10203040);
+
+	// Native IDs remain valid, while values outside both valid ranges fail closed.
+	auto standard = makeStreamInVehicle(411);
+	assert(decodeStreamInVehicle(standard.data(), standard.size(), vehicle, error));
+	assert(vehicle.modelId == 411);
+
+	vehicle.modelId = 31234; // Failed decode must not partially overwrite output.
+	auto invalid = makeStreamInVehicle(30000);
+	assert(!decodeStreamInVehicle(invalid.data(), invalid.size(), vehicle, error));
+	assert(error == DecodeError::InvalidVehicleModel);
+	assert(vehicle.modelId == 31234);
+
+	assert(!decodeStreamInVehicle(bytes.data(), bytes.size() - 1, vehicle, error));
+	assert(error == DecodeError::WrongSize);
+	assert(vehicle.modelId == 31234);
+	assert(!decodeStreamInVehicle(nullptr, bytes.size(), vehicle, error));
+	assert(error == DecodeError::NullBuffer);
+
+	// A NaN in the first position coordinate is not accepted.
+	auto nonFinite = bytes;
+	nonFinite[6] = 0x00;
+	nonFinite[7] = 0x00;
+	nonFinite[8] = 0xC0;
+	nonFinite[9] = 0x7F;
+	assert(!decodeStreamInVehicle(nonFinite.data(), nonFinite.size(), vehicle, error));
+	assert(error == DecodeError::InvalidVehicleData);
+	assert(vehicle.modelId == 31234);
 }
 
 void testMalformedManifest()
@@ -811,6 +916,7 @@ int main()
 {
 	testRpcIdIsolation();
 	testManifestDecode();
+	testStreamInVehicleDecode();
 	testMalformedManifest();
 	testModelCountAndPoolIndexValidation();
 	testDownloadUrlCodec();
