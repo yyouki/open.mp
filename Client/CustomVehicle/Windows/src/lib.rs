@@ -604,6 +604,7 @@ fn handle_world_vehicle_add(
     let payload = match event.read_bits(STREAM_IN_VEHICLE_BITS) {
         Ok(payload) if payload.len() == 63 => payload,
         _ => {
+            // A failed read may have advanced the callback-local cursor.
             let _ = event.reset_read();
             return SampClientSdkHookAction::Continue;
         }
@@ -1593,6 +1594,64 @@ mod tests {
         assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, health), 32);
         assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, mods), 51);
         assert_eq!(std::mem::offset_of!(CustomVehicleStreamInVehicleV1, body_colour1), 68);
+    }
+
+    #[test]
+    fn pending_vehicle_queue_c_abi_coalesces_cancels_and_preserves_latest_record() {
+        let queue = unsafe { custom_vehicle_pending_vehicle_queue_create() };
+        assert!(!queue.is_null());
+
+        let mut first = CustomVehicleStreamInVehicleV1 {
+            vehicle_id: 42,
+            custom_model_id: 30_123,
+            base_model_id: 400,
+            position: [12.0, 34.0, 56.0],
+            angle: 90.0,
+            health: 950.0,
+            ..CustomVehicleStreamInVehicleV1::default()
+        };
+        assert_eq!(
+            unsafe { custom_vehicle_pending_vehicle_queue_enqueue(queue, &first) },
+            1
+        );
+
+        // A repeated stream-in for the same pending vehicle replaces its snapshot.
+        first.angle = 180.0;
+        first.siren = 1;
+        first.paintjob = 2;
+        assert_eq!(
+            unsafe { custom_vehicle_pending_vehicle_queue_enqueue(queue, &first) },
+            2
+        );
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_size(queue) }, 1);
+
+        let mut copied = CustomVehicleStreamInVehicleV1::default();
+        assert_eq!(
+            unsafe { custom_vehicle_pending_vehicle_queue_pop(queue, &mut copied) },
+            1
+        );
+        assert_eq!(copied.vehicle_id, 42);
+        assert_eq!(copied.custom_model_id, 30_123);
+        assert_eq!(copied.base_model_id, 400);
+        assert_eq!(copied.angle, 180.0);
+        assert_eq!(copied.siren, 1);
+        assert_eq!(copied.paintjob, 2);
+        assert_eq!(copied.position, [12.0, 34.0, 56.0]);
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_pop(queue, &mut copied) }, 0);
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_size(queue) }, 0);
+
+        // Remove RPC cancellation prevents a not-yet-popped vehicle from leaking into the game thread.
+        assert_eq!(
+            unsafe { custom_vehicle_pending_vehicle_queue_enqueue(queue, &first) },
+            1
+        );
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_cancel(queue, 42) }, 1);
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_size(queue) }, 0);
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_cancel(queue, 42) }, 0);
+
+        // A destroyed queue can never retain a pending record.
+        unsafe { custom_vehicle_pending_vehicle_queue_clear(queue) };
+        assert_eq!(unsafe { custom_vehicle_pending_vehicle_queue_destroy(queue) }, 1);
     }
 
     #[test]
