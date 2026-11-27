@@ -958,16 +958,14 @@ private:
 			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
 			if (data != nullptr)
 			{
-				data->setRequestedFile(type, checksum, true);
+				data->setRequestedFile(type, checksum);
 			}
-			const bool allowDefaultUrl = self.hasDownloadEndpoint()
+			if (self.hasDownloadEndpoint()
 				&& self.eventDispatcher.stopAtFalse(
 					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
-					});
-			const bool redirectedUrl = data != nullptr && data->wasDownloadUrlRedirected();
-			if (allowDefaultUrl && !redirectedUrl)
+					}))
 			{
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
 				const StringView baseUrl = self.getWebUrl();
@@ -1055,14 +1053,16 @@ private:
 			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
 			if (data != nullptr)
 			{
-				data->setRequestedFile(type, checksum);
+				data->setRequestedFile(type, checksum, true);
 			}
-			if (self.hasDownloadEndpoint()
+			const bool allowDefaultUrl = self.hasDownloadEndpoint()
 				&& self.eventDispatcher.stopAtFalse(
 					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
-					}))
+					});
+			const bool redirectedUrl = data != nullptr && data->wasDownloadUrlRedirected();
+			if (allowDefaultUrl && !redirectedUrl)
 			{
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
 				const StringView baseUrl = self.getWebUrl();
