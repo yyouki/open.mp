@@ -82,8 +82,8 @@ static bool isSafeModelFilePath(StringView modelsPath, StringView fileName)
 	}
 
 	const ghc::filesystem::path relativeFilePath(fileNameString);
-	if (relativeFilePath.empty() || relativeFilePath.is_absolute() ||
-		relativeFilePath.has_root_name() || relativeFilePath.has_root_directory())
+	if (relativeFilePath.empty() || relativeFilePath.is_absolute()
+		|| relativeFilePath.has_root_name() || relativeFilePath.has_root_directory())
 	{
 		return false;
 	}
@@ -134,8 +134,8 @@ static bool hasExpectedFileExtension(StringView fileName, StringView extension)
 		return std::tolower(left) == std::tolower(right);
 	};
 
-	return fileName.size() > extension.size() &&
-		std::equal(extension.begin(), extension.end(), fileName.end() - extension.size(), equalsIgnoreCase);
+	return fileName.size() > extension.size()
+		&& std::equal(extension.begin(), extension.end(), fileName.end() - extension.size(), equalsIgnoreCase);
 }
 
 struct ModelFile
@@ -169,8 +169,8 @@ static bool haveSameFileContents(const String& leftPath, const String& rightPath
 
 		const std::streamsize leftBytes = leftFile.gcount();
 		const std::streamsize rightBytes = rightFile.gcount();
-		if (leftBytes != rightBytes ||
-			!std::equal(leftBuffer.begin(), leftBuffer.begin() + leftBytes, rightBuffer.begin()))
+		if (leftBytes != rightBytes
+			|| !std::equal(leftBuffer.begin(), leftBuffer.begin() + leftBytes, rightBuffer.begin()))
 		{
 			return false;
 		}
@@ -252,7 +252,6 @@ public:
 	const int32_t getId() { return newId_; }
 };
 
-
 class RegisteredModelAssets
 {
 public:
@@ -274,8 +273,8 @@ public:
 		auto isCompatible = [this](const ModelFile& file)
 		{
 			auto itr = assets_.find(file.name);
-			return itr == assets_.end() ||
-				(itr->second.checksum == file.checksum && itr->second.size == file.size);
+			return itr == assets_.end()
+				|| (itr->second.checksum == file.checksum && itr->second.size == file.size);
 		};
 
 		// A registered URL must identify the same bytes in both local and CDN modes.
@@ -651,14 +650,14 @@ private:
 	bool supportsCustomVehicles(IPlayer& player)
 	{
 		const auto* extension = queryExtension<IPlayerCustomVehicleModelsData>(player);
-		return enabled && vehicleModelsEnabled && hasDownloadEndpoint() &&
-			extension && extension->supportsCustomVehicleModels();
+		return enabled && vehicleModelsEnabled && hasDownloadEndpoint()
+			&& extension && extension->supportsCustomVehicleModels();
 	}
 
 	void sendCustomModels(IPlayer& player)
 	{
-		if (!hasDownloadEndpoint() ||
-			player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
+		if (!hasDownloadEndpoint()
+			|| player.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 		{
 			return;
 		}
@@ -787,15 +786,15 @@ private:
 				return true;
 			}
 
-			const bool isFirstCapability =
-				queryExtension<IPlayerCustomVehicleModelsData>(peer) == nullptr;
+			const bool isFirstCapability
+				= queryExtension<IPlayerCustomVehicleModelsData>(peer) == nullptr;
 			if (isFirstCapability)
 			{
 				peer.addExtension(new PlayerCustomVehicleModelsData(), true);
 			}
 
-			PlayerCustomVehicleModelsData* vehicleData =
-				queryExtension<PlayerCustomVehicleModelsData>(peer);
+			PlayerCustomVehicleModelsData* vehicleData
+				= queryExtension<PlayerCustomVehicleModelsData>(peer);
 			if (vehicleData)
 			{
 				vehicleData->setSupported(self.hasDownloadEndpoint());
@@ -803,8 +802,8 @@ private:
 
 			// The legacy artwork HTTP server normally whitelists only 0.3DL clients.
 			// Capability opt-in also authorizes this compatible 0.3.7 extension client.
-			if (isFirstCapability && self.webServer && self.webServer->is_running() &&
-				peer.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
+			if (isFirstCapability && self.webServer && self.webServer->is_running()
+				&& peer.getClientVersion() != ClientVersion::ClientVersion_SAMP_03DL)
 			{
 				// 0.3DL clients were already whitelisted in onPlayerConnect.
 				self.webServer->allowIPAddress(peer.getNetworkData().networkID.address.v4);
@@ -859,8 +858,8 @@ private:
 			{
 				data->setRequestedFile(type, checksum);
 			}
-			if (self.hasDownloadEndpoint() &&
-				self.eventDispatcher.stopAtFalse(
+			if (self.hasDownloadEndpoint()
+				&& self.eventDispatcher.stopAtFalse(
 					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
@@ -946,8 +945,8 @@ private:
 			{
 				data->setRequestedFile(type, checksum);
 			}
-			if (self.hasDownloadEndpoint() &&
-				self.eventDispatcher.stopAtFalse(
+			if (self.hasDownloadEndpoint()
+				&& self.eventDispatcher.stopAtFalse(
 					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
@@ -958,9 +957,9 @@ private:
 				if (!baseUrl.empty())
 				{
 					const String downloadUrl = httplib::encode_uri(String(baseUrl.data()) + file.name);
-					const bool validScheme =
-						downloadUrl.compare(0, 7, "http://") == 0 ||
-						downloadUrl.compare(0, 8, "https://") == 0;
+					const bool validScheme
+						= downloadUrl.compare(0, 7, "http://") == 0
+						|| downloadUrl.compare(0, 8, "https://") == 0;
 					if (!validScheme || downloadUrl.size() > std::numeric_limits<uint8_t>::max())
 					{
 						self.core->logLn(LogLevel::Error, "[artwork:error] Vehicle download URL must be HTTP(S) and no longer than 255 bytes.");
@@ -1013,7 +1012,6 @@ private:
 			return true;
 		}
 	} finishVehicleDownloadHandler;
-
 
 public:
 	StringView componentName() const override
@@ -1247,16 +1245,16 @@ public:
 		// Rebuild its allow-list and re-enable clients that negotiated vehicle support.
 		for (IPlayer* player : players->entries())
 		{
-			PlayerCustomVehicleModelsData* vehicleData =
-				queryExtension<PlayerCustomVehicleModelsData>(*player);
+			PlayerCustomVehicleModelsData* vehicleData
+				= queryExtension<PlayerCustomVehicleModelsData>(*player);
 			if (vehicleData)
 			{
 				// This extension exists only for players that explicitly opted in earlier.
 				vehicleData->setSupported(vehicleModelsEnabled);
 			}
 
-			if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL ||
-				(vehicleData && vehicleData->supportsCustomVehicleModels()))
+			if (player->getClientVersion() == ClientVersion::ClientVersion_SAMP_03DL
+				|| (vehicleData && vehicleData->supportsCustomVehicleModels()))
 			{
 				webServer->allowIPAddress(player->getNetworkData().networkID.address.v4);
 			}
@@ -1265,8 +1263,8 @@ public:
 			// opted-in client's vehicle manifest now that downloads can actually succeed.
 			if (vehicleData && vehicleData->supportsCustomVehicleModels())
 			{
-				PlayerCustomModelsData* playerData =
-					queryExtension<PlayerCustomModelsData>(*player);
+				PlayerCustomModelsData* playerData
+					= queryExtension<PlayerCustomModelsData>(*player);
 				if (playerData && playerData->hasClientInitialized())
 				{
 					sendCustomVehicleModels(*player);
@@ -1317,10 +1315,10 @@ public:
 			return false;
 		else if (type == ModelType::Object && !(id >= MIN_CUSTOM_OBJECT_ID && id <= MAX_CUSTOM_OBJECT_ID))
 			return false;
-		else if (type == CustomModels::Vehicle &&
-			(!CustomModels::isCustomVehicleModelId(id) ||
-				!CustomModels::isSupportedBaseVehicleModel(baseId) ||
-				!vehicleModelsEnabled))
+		else if (type == CustomModels::Vehicle
+			&& (!CustomModels::isCustomVehicleModelId(id)
+				|| !CustomModels::isSupportedBaseVehicleModel(baseId)
+				|| !vehicleModelsEnabled))
 		{
 			if (!vehicleModelsEnabled)
 			{
@@ -1337,8 +1335,8 @@ public:
 			return false;
 		}
 
-		if (!isSafeModelFilePath(modelsPath, dffName) || !hasExpectedFileExtension(dffName, ".dff") ||
-			!isSafeModelFilePath(modelsPath, txdName) || !hasExpectedFileExtension(txdName, ".txd"))
+		if (!isSafeModelFilePath(modelsPath, dffName) || !hasExpectedFileExtension(dffName, ".dff")
+			|| !isSafeModelFilePath(modelsPath, txdName) || !hasExpectedFileExtension(txdName, ".txd"))
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD files must use the matching extension and resolve inside the models directory.");
 			return false;
@@ -1360,8 +1358,8 @@ public:
 		}
 
 		// The wire format stores each asset size in an unsigned 32-bit field.
-		if (dff.size > std::numeric_limits<uint32_t>::max() ||
-			txd.size > std::numeric_limits<uint32_t>::max())
+		if (dff.size > std::numeric_limits<uint32_t>::max()
+			|| txd.size > std::numeric_limits<uint32_t>::max())
 		{
 			core->logLn(LogLevel::Error, "[artwork:error] Cannot add custom model. DFF/TXD size exceeds the supported 32-bit transfer limit.");
 			return false;
@@ -1437,9 +1435,9 @@ public:
 			const size_t maxUrlLength = std::numeric_limits<uint8_t>::max();
 			const auto isSupportedVehicleUrl = [maxUrlLength](const String& url)
 			{
-				return (url.compare(0, 7, "http://") == 0 ||
-					url.compare(0, 8, "https://") == 0) &&
-					!url.empty() && url.size() <= maxUrlLength;
+				return (url.compare(0, 7, "http://") == 0
+					|| url.compare(0, 8, "https://") == 0)
+					&& !url.empty() && url.size() <= maxUrlLength;
 			};
 			if (!isSupportedVehicleUrl(encodedDffUrl) || !isSupportedVehicleUrl(encodedTxdUrl))
 			{
