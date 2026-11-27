@@ -27,6 +27,7 @@ enum class VehicleModelBackendResult
 	MissingOperations,
 	NoFreeSlot,
 	ModelRetiring,
+	ModelReplacementRequired,
 	CreateModelInfoFailed,
 	LoadAssetsFailed,
 	AttachClumpFailed,
