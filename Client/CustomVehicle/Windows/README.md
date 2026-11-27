@@ -26,8 +26,12 @@ and unsupported versions fail closed. The pinned native GTA service is stricter:
 it accepts only the exact 32-bit GTA SA 1.0 US executable with SHA-256
 `a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`
 and image base `0x00400000`. The six network-hook profiles below do not expand
-that native executable profile. Other GTA executables, 64-bit variants, Android,
-and other operating systems do not have a native renderer implementation here. For R2 and R4-2, connection negotiation starts
+that native executable profile. When the exact GTA profile is available, the ASI
+also registers an observation-only game-thread callback through the pinned
+`modkit-sdk` service. If the native GTA profile/service is unavailable, the
+network/download adapter remains enabled while the game-thread callback stays
+disabled. Other GTA executables, 64-bit variants, Android, and other operating
+systems do not have a native renderer implementation here. For R2 and R4-2, connection negotiation starts
 when incoming RPC 139 (InitGame) is observed and stops on SA-MP RakNet disconnect or
 connection-failure packets. Since those profiles expose networking hooks but no
 verified native game-state reader, load the plugin before joining a server; if it is
@@ -62,6 +66,16 @@ The upstream MIT license is included in `LICENSES/samp-client-sdk-MIT.txt`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
+- Registers an optional game-thread callback through the pinned `modkit-sdk`
+  service when the exact GTA SA 1.0 US native profile is available. The callback
+  validates the host-issued scope, records a tick counter, and samples the pending
+  vehicle queue length without removing records or mutating GTA state.
+- Unregisters the game-thread callback with `unregister_and_wait` before releasing
+  its callback context, queue, or workers. A failed drain keeps those dependencies
+  alive for a later shutdown retry.
+- Exposes `CustomVehicleWindows_GameThreadCallbackRegistered`,
+  `CustomVehicleWindows_GameThreadTickCount`, and
+  `CustomVehicleWindows_PendingVehicleCountOnGameThread` for runtime diagnostics.
 - Exposes `CustomVehicleWindows_DecodeStreamInVehicle` for native RPC-164
   dispatchers. It returns `-1` for malformed/unknown vehicles, `0` for a
   stock vehicle, `1` for a registered custom model with ready assets, or `2`
@@ -262,8 +276,11 @@ These are lifecycle contracts only. The incoming RPC 164 network hook now
 rewrites custom vehicles to their compatible base IDs and queues copied records.
 The matching RPC 165 handler cancels records that have not yet been popped.
 `CustomVehicleWindows_PopPendingVehicle` exposes that queue to a future
-game-thread consumer, but no consumer is registered yet and the lifecycle
-controller is not connected to concrete GTA callbacks or `Gta::on_tick`.
+processing consumer. An observation-only game-thread callback is now registered
+through the pinned SDK when the exact native profile is available; it only samples
+the queue length and deliberately does not pop records, inspect vehicle entities,
+or invoke the lifecycle controller. The controller is therefore not yet connected
+to concrete GTA model, streaming, RenderWare, or vehicle-entity operations.
 
 Consequently, the stock client can construct the compatible base vehicle, but
 the current adapter does not yet create a custom `CVehicleModelInfo`, stream
