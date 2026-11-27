@@ -776,6 +776,18 @@ void testCAbiBridge()
 
 	assert(custom_vehicle_adapter_model_count(adapter) == 1);
 	assert(custom_vehicle_adapter_is_model_ready(adapter, 30001) == 0);
+	const auto streamIn = makeStreamInVehicle();
+	custom_vehicle_stream_in_vehicle_v1 decodedVehicle {};
+	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
+		adapter, streamIn.data(), streamIn.size(), &decodedVehicle) == 2);
+	assert(decodedVehicle.vehicle_id == 1234);
+	assert(decodedVehicle.custom_model_id == 30001);
+	assert(decodedVehicle.base_model_id == 400);
+	const auto standardStreamIn = makeStreamInVehicle(411);
+	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
+		adapter, standardStreamIn.data(), standardStreamIn.size(), &decodedVehicle) == 0);
+	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
+		adapter, nullptr, 0, &decodedVehicle) == -1);
 	custom_vehicle_model_request_v1 model {};
 	assert(custom_vehicle_adapter_copy_model(adapter, 0, &model) == 1);
 	assert(model.new_id == 30001);
@@ -831,6 +843,12 @@ void testCAbiBridge()
 		0) == 1);
 	assert(custom_vehicle_adapter_is_model_ready(adapter, 30001) == 1);
 	assert(custom_vehicle_adapter_is_model_ready(adapter, 39999) == 0);
+	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
+		adapter, streamIn.data(), streamIn.size(), &decodedVehicle) == 1);
+	assert(decodedVehicle.custom_model_id == 30001 && decodedVehicle.base_model_id == 400);
+	auto unknownCustomStreamIn = makeStreamInVehicle(30002);
+	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
+		adapter, unknownCustomStreamIn.data(), unknownCustomStreamIn.size(), &decodedVehicle) == -1);
 
 	// Native actor/artwork IDs are passed through unchanged.
 	for (const std::uint8_t nativeRpc : {
