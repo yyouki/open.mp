@@ -12,6 +12,16 @@ typedef char custom_vehicle_stream_in_vehicle_mods_must_be_at_51[
 	offsetof(custom_vehicle_stream_in_vehicle_v1, mods) == 51 ? 1 : -1];
 typedef char custom_vehicle_stream_in_vehicle_body_colours_must_be_at_68[
 	offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68 ? 1 : -1];
+typedef char custom_vehicle_model_request_size_must_be_44[
+	sizeof(custom_vehicle_model_request_v1) == 44 ? 1 : -1];
+typedef char custom_vehicle_model_request_type_must_be_at_8[
+	offsetof(custom_vehicle_model_request_v1, type) == 8 ? 1 : -1];
+typedef char custom_vehicle_model_request_base_id_must_be_at_16[
+	offsetof(custom_vehicle_model_request_v1, base_id) == 16 ? 1 : -1];
+typedef char custom_vehicle_model_request_dff_checksum_must_be_at_24[
+	offsetof(custom_vehicle_model_request_v1, dff_checksum) == 24 ? 1 : -1];
+typedef char custom_vehicle_model_request_time_on_must_be_at_40[
+	offsetof(custom_vehicle_model_request_v1, time_on) == 40 ? 1 : -1];
 
 static int32_t send_rpc(
 	void* user_data,
