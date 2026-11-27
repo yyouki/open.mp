@@ -62,6 +62,8 @@ void testNativeVehicleModelSlotRegistry()
 	NativeSlotVacancyState nativeState { { 612, 613 } };
 	VehicleModelSlotRegistry registry(612, 615);
 	assert(registry.hasValidRange());
+	assert(registry.firstSlot() == 612);
+	assert(registry.lastSlot() == 615);
 	assert(registry.size() == 0);
 
 	std::int32_t nativeSlot = -1;
