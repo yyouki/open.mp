@@ -332,11 +332,13 @@ are also explicit: `CModelInfo::ms_modelInfoPtrs` begins at `0xA9B0C8` and has
 20,000 pointer entries; `CStreaming::ms_aInfoForModel` begins at `0x8E4CC0`
 and contains 26,316 records; `CStreamingInfo` is `0x14` bytes; and
 `CVehicleModelInfo` is `0x308` bytes with its vehicle visual-structure pointer
-at offset `0x5C`. The base model-info reference count is at `+0x08`, the
-unknown/sentinel field at `+0x14`, the dynamic index at `+0x16`, and the
-RenderWare object pointer at `+0x1C`. These facts are for the exact supported
-GTA SA 1.0 US executable profile only; they are not universal SA-MP, 0.3.DL,
-open.mp-client, Android, or other-architecture offsets.
+at offset `0x5C`. In the 0x20-byte base interface, the reference count is
+at `+0x08`, the 2D-effect/unknown word is at `+0x0E`, the dynamic/object-info
+index is at `+0x10`, flags are at `+0x12`, the collision-model pointer is at
+`+0x14`, draw distance is at `+0x18`, and the RenderWare object pointer is at
+`+0x1C`. These facts are for the exact supported GTA SA 1.0 US executable
+profile only; they are not universal SA-MP, 0.3.DL, open.mp-client, Android, or
+other-architecture offsets.
 
 The dynamic model's `CStreamingInfo` record must not be copied wholesale from
 its base model. Reset the target record to its empty state first (all three
