@@ -344,7 +344,7 @@ private:
 		const size_t currentSize = GetFileCRC32Checksum(modelsPath_ + "/" + fileName, currentChecksum);
 		return currentSize == expectedAsset.size
 			&& currentChecksum == expectedAsset.checksum;
-}
+	}
 
 public:
 	WebServer(ICore* core, StringView modelsPath, StringView bind, uint16_t port, StringView publicAddr, uint16_t threadsCount, RegisteredModelAssets& registeredAssets)
