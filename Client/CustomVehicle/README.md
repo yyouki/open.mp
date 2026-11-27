@@ -76,6 +76,9 @@ The first implementation is in [Shared](Shared/). It currently provides:
   DFF/TXD checksum requests, and drives the download completion handshake.
 - Serialized access to the session state so the RPC callback and the asynchronous
   download worker cannot mutate the asset queue concurrently.
+- The server keeps one pending vehicle asset request per opted-in player.
+  A retry may request a new URL for the same type/checksum; a different asset
+  advances only after RPC 227 acknowledges the matching completion.
 - RPC isolation: only extension IDs 220-227 are consumed; native RPC 179 and
   181-189 are forwarded to the original SA-MP/0.3.DL client unchanged.
 - Explicit connection teardown and retry handling for queued or interrupted
