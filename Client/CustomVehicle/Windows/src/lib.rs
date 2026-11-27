@@ -958,7 +958,12 @@ fn write_embedded_sdk_host() -> Option<PathBuf> {
             if fs::read(&destination).ok()?.as_slice() == EMBEDDED_SDK_HOST {
                 return Some(destination);
             }
-            fs::remove_file(&destination).ok()?;
+            if let Err(error) = fs::remove_file(&destination) {
+                // Another process may have replaced the stale entry after our read.
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    return None;
+                }
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return None,
@@ -1009,8 +1014,14 @@ fn write_embedded_sdk_host() -> Option<PathBuf> {
 
     if write_result.is_err() {
         let _ = fs::remove_file(&temporary);
-        let _ = fs::remove_file(&destination);
-        return None;
+
+        // A different GTA process may have won the atomic rename. Reuse its file
+        // only after verifying the complete payload; never delete another process's
+        // successful cache entry when our own rename loses the race.
+        let existing_matches = fs::read(&destination)
+            .map(|bytes| bytes.as_slice() == EMBEDDED_SDK_HOST)
+            .unwrap_or(false);
+        return existing_matches.then_some(destination);
     }
 
     Some(destination)
