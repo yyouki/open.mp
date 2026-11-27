@@ -84,6 +84,11 @@ int32_t custom_vehicle_adapter_copy_model(
 	size_t index,
 	custom_vehicle_model_request_v1* output);
 
+// Returns 1 only after this registered model's DFF and TXD are verified and acknowledged.
+int32_t custom_vehicle_adapter_is_model_ready(
+	const custom_vehicle_adapter* adapter,
+	int32_t custom_model_id);
+
 #ifdef __cplusplus
 }
 #endif
