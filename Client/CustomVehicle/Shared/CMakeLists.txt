@@ -8,6 +8,7 @@ add_library(custom_vehicle_protocol STATIC
 	src/network_adapter.cpp
 	src/asset_cache.cpp
 	src/model_slot_registry.cpp
+	src/native_vehicle_model_backend.cpp
 	src/bridge.cpp
 )
 
