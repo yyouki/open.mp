@@ -20,8 +20,8 @@ void Vehicle::setSpawnData(const VehicleSpawnData& data)
 	}
 	int baseModelID = data.modelID;
 	int customModelID = 0;
-	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID) ||
-		(customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
+	if (!pool->resolveVehicleModel(data.modelID, baseModelID, customModelID)
+		|| (customModelID != 0 && !CustomModels::isSupportedBaseVehicleModel(baseModelID)))
 	{
 		return;
 	}
@@ -32,8 +32,8 @@ void Vehicle::setSpawnData(const VehicleSpawnData& data)
 	{
 		return modelID == 537 || modelID == 538 || modelID == 569 || modelID == 570;
 	};
-	if (preloadModelCounted_ && previousBaseModelID != baseModelID &&
-		(isTrainConsistModel(previousBaseModelID) || isTrainConsistModel(baseModelID)))
+	if (preloadModelCounted_ && previousBaseModelID != baseModelID
+		&& (isTrainConsistModel(previousBaseModelID) || isTrainConsistModel(baseModelID)))
 	{
 		return;
 	}
