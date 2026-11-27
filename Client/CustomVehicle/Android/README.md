@@ -52,7 +52,8 @@ The host forwards incoming RPC IDs and exact payload bytes to
 it to the original client, and -1 means invalid input. The extension uses RPC
 220-227; native SA-MP artwork RPCs 179 and 181-189 are passed through untouched. For completed downloads,
 the host passes the bytes to `completeAsset`; JNI stores the verified file in
-the native cache before the adapter sends vehicle finish RPC 226.
+the native cache before the adapter sends vehicle finish RPC 226 with the
+asset type byte and the four-byte little-endian CRC32 checksum.
 
 The downloader must call `retryActiveAsset` after its own timeout/backoff
 policy. Before `close()`, the host must stop and join every worker that could
