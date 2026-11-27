@@ -264,7 +264,8 @@ int32_t custom_vehicle_adapter_rewrite_stream_in_vehicle(
 custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_registry_create(
 	int32_t first_slot,
 	int32_t last_slot);
-void custom_vehicle_native_model_slot_registry_destroy(
+/* Returns 1 and destroys the registry only when it owns no reserved slots. */
+int32_t custom_vehicle_native_model_slot_registry_destroy(
 	custom_vehicle_native_model_slot_registry* registry);
 int32_t custom_vehicle_native_model_slot_registry_has_valid_range(
 	const custom_vehicle_native_model_slot_registry* registry);
@@ -311,7 +312,8 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model_backend_create(
 	int32_t first_slot,
 	int32_t last_slot);
-void custom_vehicle_native_vehicle_model_backend_destroy(
+/* Returns 1 and destroys the backend only after every model lifecycle entry is released. */
+int32_t custom_vehicle_native_vehicle_model_backend_destroy(
 	custom_vehicle_native_vehicle_model_backend* backend);
 int32_t custom_vehicle_native_vehicle_model_backend_has_valid_range(
 	const custom_vehicle_native_vehicle_model_backend* backend);
