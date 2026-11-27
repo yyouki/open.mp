@@ -22,6 +22,14 @@ typedef char custom_vehicle_model_request_dff_checksum_must_be_at_24[
 	offsetof(custom_vehicle_model_request_v1, dff_checksum) == 24 ? 1 : -1];
 typedef char custom_vehicle_model_request_time_on_must_be_at_40[
 	offsetof(custom_vehicle_model_request_v1, time_on) == 40 ? 1 : -1];
+typedef char custom_vehicle_vehicle_binding_size_must_be_24[
+	sizeof(custom_vehicle_vehicle_model_binding_v1) == 24 ? 1 : -1];
+typedef char custom_vehicle_vehicle_binding_custom_model_must_be_at_4[
+	offsetof(custom_vehicle_vehicle_model_binding_v1, custom_model_id) == 4 ? 1 : -1];
+typedef char custom_vehicle_vehicle_binding_native_slot_must_be_at_8[
+	offsetof(custom_vehicle_vehicle_model_binding_v1, native_model_slot) == 8 ? 1 : -1];
+typedef char custom_vehicle_vehicle_binding_generation_must_be_at_16[
+	offsetof(custom_vehicle_vehicle_model_binding_v1, generation) == 16 ? 1 : -1];
 typedef char custom_vehicle_native_asset_pending_must_be_1[
 	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING == 1 ? 1 : -1];
 typedef char custom_vehicle_native_asset_ready_must_be_2[
@@ -121,6 +129,9 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_native_vehicle_model_backend_retry_cleanup;
 	(void)custom_vehicle_native_vehicle_model_backend_find;
 	(void)custom_vehicle_native_vehicle_model_backend_is_active;
+	(void)custom_vehicle_native_vehicle_model_backend_bind_vehicle;
+	(void)custom_vehicle_native_vehicle_model_backend_find_vehicle_binding;
+	(void)custom_vehicle_native_vehicle_model_backend_release_vehicle_binding;
 	(void)custom_vehicle_pending_vehicle_queue_create;
 	(void)custom_vehicle_pending_vehicle_queue_destroy;
 	(void)custom_vehicle_pending_vehicle_queue_size;
