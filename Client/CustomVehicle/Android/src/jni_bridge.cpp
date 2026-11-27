@@ -4,6 +4,7 @@
 #include <custom_vehicle/bridge.h>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <limits>
 #include <string>
@@ -472,6 +473,101 @@ Java_org_openmp_customvehicle_NativeBridge_nativeHandleServerRpc(
 	{
 		clearJavaException(env);
 		return -1;
+	}
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_org_openmp_customvehicle_NativeBridge_nativeDecodeStreamInVehicle(
+	JNIEnv* env,
+	jclass,
+	jlong handle,
+	jbyteArray payload)
+{
+	AndroidBridgeContext* context = fromHandle(handle);
+	if (context == nullptr || env == nullptr || payload == nullptr)
+	{
+		return nullptr;
+	}
+
+	const jsize length = env->GetArrayLength(payload);
+	if (length <= 0 || static_cast<std::size_t>(length) > MaxAndroidRpcPayloadBytes)
+	{
+		return nullptr;
+	}
+
+	try
+	{
+		std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+		env->GetByteArrayRegion(payload, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
+		if (clearJavaException(env))
+		{
+			return nullptr;
+		}
+
+		custom_vehicle_stream_in_vehicle_v1 vehicle {};
+		const std::int32_t status = custom_vehicle_adapter_decode_stream_in_vehicle(
+			context->adapter, bytes.data(), bytes.size(), &vehicle);
+		if (status < 0)
+		{
+			return nullptr;
+		}
+
+		std::vector<jlong> fields;
+		fields.reserve(status == 0 ? 1u : 34u);
+		fields.push_back(static_cast<jlong>(status));
+		if (status != 0)
+		{
+			const auto floatBits = [](float value)
+			{
+				std::uint32_t bits = 0;
+				std::memcpy(&bits, &value, sizeof(bits));
+				return static_cast<jlong>(bits);
+			};
+
+			fields.push_back(static_cast<jlong>(vehicle.vehicle_id));
+			fields.push_back(static_cast<jlong>(vehicle.custom_model_id));
+			fields.push_back(static_cast<jlong>(vehicle.base_model_id));
+			for (float coordinate : vehicle.position)
+			{
+				fields.push_back(floatBits(coordinate));
+			}
+			fields.push_back(floatBits(vehicle.angle));
+			fields.push_back(static_cast<jlong>(vehicle.colour1));
+			fields.push_back(static_cast<jlong>(vehicle.colour2));
+			fields.push_back(floatBits(vehicle.health));
+			fields.push_back(static_cast<jlong>(vehicle.interior));
+			fields.push_back(static_cast<jlong>(vehicle.door_damage));
+			fields.push_back(static_cast<jlong>(vehicle.panel_damage));
+			fields.push_back(static_cast<jlong>(vehicle.light_damage));
+			fields.push_back(static_cast<jlong>(vehicle.tyre_damage));
+			fields.push_back(static_cast<jlong>(vehicle.siren));
+			for (std::uint8_t mod : vehicle.mods)
+			{
+				fields.push_back(static_cast<jlong>(mod));
+			}
+			fields.push_back(static_cast<jlong>(vehicle.paintjob));
+			fields.push_back(static_cast<jlong>(vehicle.body_colour1));
+			fields.push_back(static_cast<jlong>(vehicle.body_colour2));
+		}
+
+		jlongArray result = env->NewLongArray(static_cast<jsize>(fields.size()));
+		if (result == nullptr)
+		{
+			clearJavaException(env);
+			return nullptr;
+		}
+		env->SetLongArrayRegion(result, 0, static_cast<jsize>(fields.size()), fields.data());
+		if (clearJavaException(env))
+		{
+			env->DeleteLocalRef(result);
+			return nullptr;
+		}
+		return result;
+	}
+	catch (...)
+	{
+		clearJavaException(env);
+		return nullptr;
 	}
 }
 
