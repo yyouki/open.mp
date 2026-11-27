@@ -75,6 +75,7 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_adapter_copy_model;
 	(void)custom_vehicle_adapter_is_model_ready;
 	(void)custom_vehicle_adapter_decode_stream_in_vehicle;
+	(void)custom_vehicle_adapter_rewrite_stream_in_vehicle;
 	(void)CustomVehicleWindows_Shutdown;
 	(void)CustomVehicleWindows_ModelCount;
 	(void)CustomVehicleWindows_CopyModel;
