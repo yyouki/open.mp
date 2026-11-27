@@ -23,6 +23,16 @@ bool VehicleModelSlotRegistry::hasValidRange() const noexcept
 	return valid_range_;
 }
 
+std::int32_t VehicleModelSlotRegistry::firstSlot() const noexcept
+{
+	return first_slot_;
+}
+
+std::int32_t VehicleModelSlotRegistry::lastSlot() const noexcept
+{
+	return last_slot_;
+}
+
 ModelSlotReserveResult VehicleModelSlotRegistry::reserve(
 	std::int32_t custom_model_id,
 	NativeModelSlotVacancyQuery is_slot_vacant,
