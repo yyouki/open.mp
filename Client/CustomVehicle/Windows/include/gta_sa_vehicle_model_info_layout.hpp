@@ -88,7 +88,6 @@ struct VehicleModelInfoLayout
 		char* animation_block_file_name;
 		std::uint32_t animation_block_index;
 	};
-	std::uint8_t trailing_padding[2];
 };
 
 static_assert(sizeof(void*) == 4, "GTA SA 1.0 US is a 32-bit process");
@@ -105,5 +104,5 @@ static_assert(offsetof(VehicleModelInfoLayout, dirt_materials) == 0x230);
 static_assert(offsetof(VehicleModelInfoLayout, primary_colours) == 0x2B0);
 static_assert(offsetof(VehicleModelInfoLayout, upgrades) == 0x2D6);
 static_assert(offsetof(VehicleModelInfoLayout, remap_txd_slots) == 0x2FA);
-static_assert(offsetof(VehicleModelInfoLayout, animation_block) == 0x302);
+static_assert(offsetof(VehicleModelInfoLayout, animation_block) == 0x304);
 } // namespace custom_vehicle::gta_sa
