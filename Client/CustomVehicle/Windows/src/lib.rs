@@ -931,7 +931,9 @@ fn download_worker(
     context: Arc<BridgeContext>,
     receiver: Receiver<WorkerMessage<DownloadJob>>,
 ) {
+    // Match the local artwork server's User-Agent allow-list.
     let agent = ureq::AgentBuilder::new()
+        .user_agent("SAMP/0.3")
         .timeout(Duration::from_secs(30))
         .build();
 
