@@ -52,7 +52,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll dist/custom_vehicle_windows.asi
+          Copy-Item Client/CustomVehicle/Windows/target/i686-pc-windows-msvc/release/custom_vehicle_windows.dll dist/custom_vehicle_windows.asi
 
       - name: Upload Windows ASI
         uses: actions/upload-artifact@v4
