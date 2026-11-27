@@ -41,6 +41,16 @@ enum
 	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY = 2
 };
 
+/* Last fully completed resource stage passed to destroy_model. */
+enum
+{
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_RESERVED = 0,
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_MODEL_INFO_CREATED = 1,
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_ASSETS_REQUESTED = 2,
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_ASSETS_LOADED = 3,
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_CLUMP_ATTACHED = 4
+};
+
 typedef int32_t (*custom_vehicle_native_model_create_fn)(
 	void* user_data,
 	int32_t native_model_slot,
