@@ -1,5 +1,17 @@
 #include <custom_vehicle/bridge.h>
 
+/* C99-compatible compile-time ABI checks for the Windows/native spawn bridge. */
+typedef char custom_vehicle_stream_in_vehicle_size_must_be_76[
+	sizeof(custom_vehicle_stream_in_vehicle_v1) == 76 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_position_must_be_at_12[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, position) == 12 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_health_must_be_at_32[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, health) == 32 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_mods_must_be_at_51[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, mods) == 51 ? 1 : -1];
+typedef char custom_vehicle_stream_in_vehicle_body_colours_must_be_at_68[
+	offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68 ? 1 : -1];
+
 static int32_t send_rpc(
 	void* user_data,
 	uint8_t rpc_id,
