@@ -12,6 +12,7 @@ on:
       - "stable_master"
       - "dev"
       - "feature/custom-vehicle-models"
+      - "feature/custom-vehicle-native-model-registry"
     paths:
       - "**.hpp"
       - "**.cpp"
