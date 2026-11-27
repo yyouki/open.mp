@@ -23,6 +23,28 @@
 
 using namespace custom_vehicle::protocol;
 
+struct CAbiNativeSlotState
+{
+	std::vector<std::int32_t> occupiedSlots;
+};
+
+extern "C" std::int32_t cAbiNativeModelSlotIsVacant(void* userData, std::int32_t modelSlot)
+{
+	if (userData == nullptr)
+	{
+		return 0;
+	}
+	const auto& state = *static_cast<const CAbiNativeSlotState*>(userData);
+	for (const std::int32_t occupied : state.occupiedSlots)
+	{
+		if (occupied == modelSlot)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
 static_assert(sizeof(custom_vehicle_stream_in_vehicle_v1) == 76);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, vehicle_id) == 0);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, custom_model_id) == 4);
@@ -53,6 +75,59 @@ bool isNativeModelSlotVacant(void* userData, std::int32_t slot) noexcept
 		}
 	}
 	return true;
+}
+
+void testNativeVehicleModelSlotRegistryCAbi()
+{
+	CAbiNativeSlotState nativeState { { 612 } };
+	auto* registry = custom_vehicle_native_model_slot_registry_create(612, 613);
+	assert(registry != nullptr);
+	assert(custom_vehicle_native_model_slot_registry_has_valid_range(registry) == 1);
+	assert(custom_vehicle_native_model_slot_registry_size(registry) == 0);
+
+	std::int32_t nativeSlot = -1;
+	assert(custom_vehicle_native_model_slot_registry_reserve(
+		registry, 30001, cAbiNativeModelSlotIsVacant, &nativeState, &nativeSlot)
+		== CUSTOM_VEHICLE_MODEL_SLOT_RESERVED);
+	assert(nativeSlot == 613);
+	assert(custom_vehicle_native_model_slot_registry_size(registry) == 1);
+
+	std::int32_t repeatedSlot = -1;
+	assert(custom_vehicle_native_model_slot_registry_reserve(
+		registry, 30001, cAbiNativeModelSlotIsVacant, &nativeState, &repeatedSlot)
+		== CUSTOM_VEHICLE_MODEL_SLOT_ALREADY_RESERVED);
+	assert(repeatedSlot == nativeSlot);
+	assert(custom_vehicle_native_model_slot_registry_retain(registry, 30001, &repeatedSlot) == 1);
+	assert(repeatedSlot == nativeSlot);
+	assert(custom_vehicle_native_model_slot_registry_retire(registry, 30001) == 1);
+	assert(custom_vehicle_native_model_slot_registry_retain(registry, 30001, &repeatedSlot) == 0);
+	assert(custom_vehicle_native_model_slot_registry_can_release(registry, 30001) == 0);
+	assert(custom_vehicle_native_model_slot_registry_release_use(registry, 30001, nativeSlot) == 1);
+	assert(custom_vehicle_native_model_slot_registry_can_release(registry, 30001) == 1);
+
+	nativeState.occupiedSlots.push_back(nativeSlot);
+	assert(custom_vehicle_native_model_slot_registry_release(
+		registry, 30001, nativeSlot, cAbiNativeModelSlotIsVacant, &nativeState)
+		== CUSTOM_VEHICLE_MODEL_SLOT_STILL_OCCUPIED);
+	nativeState.occupiedSlots.pop_back();
+	assert(custom_vehicle_native_model_slot_registry_release(
+		registry, 30001, nativeSlot, cAbiNativeModelSlotIsVacant, &nativeState)
+		== CUSTOM_VEHICLE_MODEL_SLOT_RELEASED);
+	assert(custom_vehicle_native_model_slot_registry_find(registry, 30001, &repeatedSlot) == 0);
+	assert(custom_vehicle_native_model_slot_registry_size(registry) == 0);
+
+	assert(custom_vehicle_native_model_slot_registry_reserve(
+		registry, 30002, nullptr, &nativeState, &nativeSlot)
+		== CUSTOM_VEHICLE_MODEL_SLOT_MISSING_VACANCY_QUERY);
+	custom_vehicle_native_model_slot_registry_destroy(registry);
+
+	auto* invalidRange = custom_vehicle_native_model_slot_registry_create(611, 19999);
+	assert(invalidRange != nullptr);
+	assert(custom_vehicle_native_model_slot_registry_has_valid_range(invalidRange) == 0);
+	assert(custom_vehicle_native_model_slot_registry_reserve(
+		invalidRange, 30003, cAbiNativeModelSlotIsVacant, &nativeState, &nativeSlot)
+		== CUSTOM_VEHICLE_MODEL_SLOT_INVALID_RANGE);
+	custom_vehicle_native_model_slot_registry_destroy(invalidRange);
 }
 
 void testNativeVehicleModelSlotRegistry()
@@ -1055,6 +1130,7 @@ int main()
 {
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
+	testNativeVehicleModelSlotRegistryCAbi();
 	testManifestDecode();
 	testStreamInVehicleDecode();
 	testMalformedManifest();
