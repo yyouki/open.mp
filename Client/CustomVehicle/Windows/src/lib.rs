@@ -1565,9 +1565,13 @@ pub extern "system" fn CustomVehicleWindows_CancelPendingVehicle(vehicle_id: u16
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_path, crc32, is_connection_termination_packet, is_custom_vehicle_rpc,
-        read_verified_cache, store_verified_cache, CustomVehicleStreamInVehicleV1,
-        DownloadJob, SampClientSdkClientVersion,
+        cache_path, crc32, custom_vehicle_pending_vehicle_queue_cancel,
+        custom_vehicle_pending_vehicle_queue_clear, custom_vehicle_pending_vehicle_queue_create,
+        custom_vehicle_pending_vehicle_queue_destroy, custom_vehicle_pending_vehicle_queue_enqueue,
+        custom_vehicle_pending_vehicle_queue_pop, custom_vehicle_pending_vehicle_queue_size,
+        is_connection_termination_packet, is_custom_vehicle_rpc, read_verified_cache,
+        store_verified_cache, CustomVehicleStreamInVehicleV1, DownloadJob,
+        SampClientSdkClientVersion,
     };
     use std::fs;
 
