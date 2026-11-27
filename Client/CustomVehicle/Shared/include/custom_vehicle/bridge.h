@@ -50,6 +50,34 @@ typedef struct custom_vehicle_model_request_v1
 	uint8_t time_off;
 } custom_vehicle_model_request_v1;
 
+#define CUSTOM_VEHICLE_STREAM_IN_VEHICLE_MOD_COUNT 14u
+
+typedef struct custom_vehicle_stream_in_vehicle_v1
+{
+	uint16_t vehicle_id;
+	int32_t custom_model_id;
+	int32_t base_model_id;
+	float position[3];
+	float angle;
+	uint8_t colour1;
+	uint8_t colour2;
+	float health;
+	uint8_t interior;
+	uint32_t door_damage;
+	uint32_t panel_damage;
+	uint8_t light_damage;
+	uint8_t tyre_damage;
+	uint8_t siren;
+	uint8_t mods[CUSTOM_VEHICLE_STREAM_IN_VEHICLE_MOD_COUNT];
+	uint8_t paintjob;
+	int32_t body_colour1;
+	int32_t body_colour2;
+} custom_vehicle_stream_in_vehicle_v1;
+
+/* RPC 164 result: -1 invalid/unknown custom model, 0 standard vehicle,
+ * 1 registered custom model ready for native loading, 2 registered but assets pending.
+ */
+
 // Callback functions run while adapter state is locked. They must not re-enter this API.
 // begin_download must copy the borrowed URL and schedule network/file I/O asynchronously.
 custom_vehicle_adapter* custom_vehicle_adapter_create(const custom_vehicle_callbacks_v1* callbacks);
@@ -88,6 +116,12 @@ int32_t custom_vehicle_adapter_copy_model(
 int32_t custom_vehicle_adapter_is_model_ready(
 	const custom_vehicle_adapter* adapter,
 	int32_t custom_model_id);
+
+int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
+	const custom_vehicle_adapter* adapter,
+	const uint8_t* payload,
+	size_t payload_size,
+	custom_vehicle_stream_in_vehicle_v1* output);
 
 #ifdef __cplusplus
 }
