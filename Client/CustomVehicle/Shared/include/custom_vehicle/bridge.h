@@ -46,7 +46,7 @@ typedef int32_t (*custom_vehicle_native_model_attach_fn)(
 typedef int32_t (*custom_vehicle_native_model_destroy_fn)(
 	void* user_data,
 	int32_t native_model_slot,
-	const custom_vehicle_model_request_v1* model,
+	const struct custom_vehicle_model_request_v1* model,
 	uint8_t completed_stage);
 
 #define CUSTOM_VEHICLE_NATIVE_MODEL_CALLBACKS_ABI_VERSION 1u
