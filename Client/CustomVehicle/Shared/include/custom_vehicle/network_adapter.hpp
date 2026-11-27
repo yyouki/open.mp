@@ -47,7 +47,7 @@ public:
 		const std::uint8_t* payload, std::size_t size) noexcept;
 
 	// Called by the platform downloader after a file is fully received.
-	// A valid asset triggers the empty RPC 184 finish notification.
+	// A valid asset triggers RPC 226 with its asset type and CRC32 checksum.
 	bool completeAsset(AssetType type, std::uint32_t checksum,
 		const std::uint8_t* data, std::size_t size) noexcept;
 
