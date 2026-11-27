@@ -90,6 +90,7 @@ struct NativeVehicleBackendFixture
 	bool failLoad = false;
 	bool failAttach = false;
 	bool failDestroyOnce = false;
+	std::size_t pendingAssetPolls = 0;
 	std::int32_t lastBaseModelId = -1;
 	std::int32_t lastCustomModelId = -1;
 };
@@ -125,21 +126,27 @@ bool backendCreateModelInfo(
 	return true;
 }
 
-bool backendLoadVehicleAssets(
+custom_vehicle::native::VehicleAssetLoadResult backendRequestOrPollVehicleAssets(
 	void* userData,
 	std::int32_t slot,
 	const ModelRequest& model) noexcept
 {
+	using custom_vehicle::native::VehicleAssetLoadResult;
 	auto& fixture = *static_cast<NativeVehicleBackendFixture*>(userData);
 	fixture.callbackOrder.push_back('L');
 	if (fixture.failLoad || !fixture.modelInfoCreated
 		|| fixture.lastCustomModelId != model.newId
 		|| backendSlotIsVacant(userData, slot))
 	{
-		return false;
+		return VehicleAssetLoadResult::Failed;
+	}
+	if (fixture.pendingAssetPolls != 0)
+	{
+		--fixture.pendingAssetPolls;
+		return VehicleAssetLoadResult::Pending;
 	}
 	fixture.assetsLoaded = true;
-	return true;
+	return VehicleAssetLoadResult::Ready;
 }
 
 bool backendAttachVehicleClump(
@@ -194,7 +201,7 @@ custom_vehicle::native::VehicleModelNativeOperations makeNativeVehicleOperations
 	return {
 		backendSlotIsVacant,
 		backendCreateModelInfo,
-		backendLoadVehicleAssets,
+		backendRequestOrPollVehicleAssets,
 		backendAttachVehicleClump,
 		backendDestroyModel
 	};
@@ -256,8 +263,21 @@ std::int32_t cAbiNativeVehicleLoad(
 	std::int32_t slot,
 	const custom_vehicle_model_request_v1* model)
 {
-	return userData != nullptr && model != nullptr
-		&& backendLoadVehicleAssets(userData, slot, makeNativeVehicleModelRequest(*model)) ? 1 : 0;
+	if (userData == nullptr || model == nullptr)
+	{
+		return CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED;
+	}
+	switch (backendRequestOrPollVehicleAssets(
+		userData, slot, makeNativeVehicleModelRequest(*model)))
+	{
+		case custom_vehicle::native::VehicleAssetLoadResult::Pending:
+			return CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING;
+		case custom_vehicle::native::VehicleAssetLoadResult::Ready:
+			return CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY;
+		case custom_vehicle::native::VehicleAssetLoadResult::Failed:
+		default:
+			return CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED;
+	}
 }
 
 std::int32_t cAbiNativeVehicleAttach(
@@ -293,7 +313,7 @@ custom_vehicle_native_vehicle_model_callbacks_v1 makeNativeVehicleCAbiCallbacks(
 	callbacks.user_data = &fixture;
 	callbacks.is_slot_vacant = cAbiNativeVehicleSlotVacant;
 	callbacks.create_model_info = cAbiNativeVehicleCreate;
-	callbacks.load_vehicle_assets = cAbiNativeVehicleLoad;
+	callbacks.request_or_poll_vehicle_assets = cAbiNativeVehicleLoad;
 	callbacks.attach_vehicle_clump = cAbiNativeVehicleAttach;
 	callbacks.destroy_model = cAbiNativeVehicleDestroy;
 	return callbacks;
