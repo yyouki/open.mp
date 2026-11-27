@@ -27,6 +27,7 @@ inline constexpr std::uint8_t ModelUrlTransportMarker = 6;
 inline constexpr std::size_t DownloadUrlHeaderSize = 7;
 inline constexpr std::size_t MaxDownloadUrlBytes = 255;
 inline constexpr std::size_t AssetRequestWireSize = 4;
+inline constexpr std::size_t AssetCompletionWireSize = 5;
 
 struct ModelRequest
 {
@@ -63,6 +64,8 @@ bool decodeModelRequest(const std::uint8_t* data, std::size_t size, ModelRequest
 bool decodeDownloadUrl(const std::uint8_t* data, std::size_t size, DownloadUrl& result, DecodeError& error) noexcept;
 bool encodeAssetRequest(AssetType type, std::uint32_t checksum, std::uint8_t* output,
 	std::size_t capacity, std::size_t& bytesWritten, RpcId& rpcId) noexcept;
+bool encodeAssetCompletion(AssetType type, std::uint32_t checksum, std::uint8_t* output,
+	std::size_t capacity, std::size_t& bytesWritten) noexcept;
 bool isValidHttpUrl(std::string_view url) noexcept;
 bool isCustomVehicleModelId(std::int32_t modelId) noexcept;
 bool isSupportedVehicleBaseId(std::int32_t modelId) noexcept;
