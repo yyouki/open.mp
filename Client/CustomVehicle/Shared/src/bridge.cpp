@@ -16,6 +16,11 @@ namespace
 {
 using namespace custom_vehicle::protocol;
 
+static_assert(sizeof(custom_vehicle_vehicle_model_binding_v1) == 24);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, custom_model_id) == 4);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, native_model_slot) == 8);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, generation) == 16);
+
 class CallbackTransport final : public RpcTransport
 {
 public:
@@ -350,6 +355,52 @@ bool makeNativeVehicleOperations(
 	operations.attach_vehicle_clump = nativeVehicleAttachClump;
 	operations.destroy_model = nativeVehicleDestroyModel;
 	return true;
+}
+
+std::int32_t mapNativeVehicleBindingResult(
+	custom_vehicle::native::VehicleModelBindingResult result) noexcept
+{
+	using custom_vehicle::native::VehicleModelBindingResult;
+	switch (result)
+	{
+		case VehicleModelBindingResult::Bound:
+			return CUSTOM_VEHICLE_MODEL_BINDING_BOUND;
+		case VehicleModelBindingResult::AlreadyBound:
+			return CUSTOM_VEHICLE_MODEL_BINDING_ALREADY_BOUND;
+		case VehicleModelBindingResult::InvalidVehicleId:
+			return CUSTOM_VEHICLE_MODEL_BINDING_INVALID_VEHICLE_ID;
+		case VehicleModelBindingResult::InvalidCustomModelId:
+			return CUSTOM_VEHICLE_MODEL_BINDING_INVALID_CUSTOM_ID;
+		case VehicleModelBindingResult::ModelNotActive:
+			return CUSTOM_VEHICLE_MODEL_BINDING_MODEL_NOT_ACTIVE;
+		case VehicleModelBindingResult::VehicleAlreadyBound:
+			return CUSTOM_VEHICLE_MODEL_BINDING_VEHICLE_ALREADY_BOUND;
+		case VehicleModelBindingResult::GenerationExhausted:
+			return CUSTOM_VEHICLE_MODEL_BINDING_GENERATION_EXHAUSTED;
+	}
+	return CUSTOM_VEHICLE_MODEL_BINDING_MODEL_NOT_ACTIVE;
+}
+
+custom_vehicle_vehicle_model_binding_v1 makeVehicleBinding(
+	const custom_vehicle::native::VehicleModelBinding& binding) noexcept
+{
+	custom_vehicle_vehicle_model_binding_v1 output {};
+	output.vehicle_id = binding.vehicle_id;
+	output.custom_model_id = binding.custom_model_id;
+	output.native_model_slot = binding.native_model_slot;
+	output.generation = binding.generation;
+	return output;
+}
+
+custom_vehicle::native::VehicleModelBinding copyVehicleBinding(
+	const custom_vehicle_vehicle_model_binding_v1& binding) noexcept
+{
+	custom_vehicle::native::VehicleModelBinding output;
+	output.vehicle_id = binding.vehicle_id;
+	output.custom_model_id = binding.custom_model_id;
+	output.native_model_slot = binding.native_model_slot;
+	output.generation = binding.generation;
+	return output;
 }
 
 std::int32_t mapNativeVehicleBackendResult(
@@ -1122,6 +1173,78 @@ int32_t custom_vehicle_native_vehicle_model_backend_is_active(
 	try
 	{
 		return backend->controller.isActive(custom_model_id) ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	uint16_t vehicle_id,
+	int32_t custom_model_id,
+	custom_vehicle_vehicle_model_binding_v1* output)
+{
+	if (backend == nullptr || output == nullptr)
+	{
+		return CUSTOM_VEHICLE_MODEL_BINDING_MODEL_NOT_ACTIVE;
+	}
+	try
+	{
+		custom_vehicle::native::VehicleModelBinding binding;
+		const auto result = backend->controller.bindVehicle(vehicle_id, custom_model_id, binding);
+		const std::int32_t mapped = mapNativeVehicleBindingResult(result);
+		if (mapped == CUSTOM_VEHICLE_MODEL_BINDING_BOUND
+			|| mapped == CUSTOM_VEHICLE_MODEL_BINDING_ALREADY_BOUND)
+		{
+			*output = makeVehicleBinding(binding);
+		}
+		return mapped;
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_MODEL_BINDING_MODEL_NOT_ACTIVE;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_find_vehicle_binding(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	uint16_t vehicle_id,
+	custom_vehicle_vehicle_model_binding_v1* output)
+{
+	if (backend == nullptr || output == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		custom_vehicle::native::VehicleModelBinding binding;
+		if (!backend->controller.findVehicleBinding(vehicle_id, binding))
+		{
+			return 0;
+		}
+		*output = makeVehicleBinding(binding);
+		return 1;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	const custom_vehicle_vehicle_model_binding_v1* binding)
+{
+	if (backend == nullptr || binding == nullptr
+		|| binding->reserved != 0 || binding->reserved2 != 0)
+	{
+		return 0;
+	}
+	try
+	{
+		return backend->controller.releaseVehicleBinding(copyVehicleBinding(*binding)) ? 1 : 0;
 	}
 	catch (...)
 	{
