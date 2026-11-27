@@ -46,10 +46,12 @@ the native 0.3.DL skin/object artwork records, and vehicles are streamed using
 their base model IDs.
 
 A client must explicitly opt in by sending RPC 221
-(`ClientSupportsCustomVehicleModels`). The server replies with RPC 222
-(`ServerSupportsCustomVehicleModels`) and then sends the custom vehicle
-manifest. A client that does not implement the new category must not send
-this capability RPC.
+(`ClientSupportsCustomVehicleModels`) with the exact eight-byte capability token
+`4F 4D 50 2D 43 56 4D 01` (`OMP-CVM`, protocol version 1). The server echoes
+the same token in RPC 222 (`ServerSupportsCustomVehicleModels`) before sending
+the custom vehicle manifest. A client must validate the token before it treats
+the connection as extension-capable or consumes vehicle extension RPCs. A client
+that does not implement the new category must not send this capability RPC.
 
 The custom vehicle extension deliberately uses a separate RPC block so it
 does not collide with stock SA-MP actor RPCs or the native 0.3.DL artwork
