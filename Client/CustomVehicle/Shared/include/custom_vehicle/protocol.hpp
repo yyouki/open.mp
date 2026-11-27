@@ -27,6 +27,7 @@ inline constexpr std::uint8_t ModelUrlTransportMarker = 6;
 inline constexpr std::size_t DownloadUrlHeaderSize = 7;
 inline constexpr std::size_t MaxDownloadUrlBytes = 255;
 inline constexpr std::size_t AssetRequestWireSize = 4;
+// RPC 226 completion payload: asset type byte followed by the CRC32 checksum in little-endian order.
 inline constexpr std::size_t AssetCompletionWireSize = 5;
 
 struct ModelRequest
