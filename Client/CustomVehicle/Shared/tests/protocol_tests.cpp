@@ -349,6 +349,17 @@ void testNativeVehicleModelLifecycleCAbi()
 		backend, &model, 1, nullptr, &slot)
 		== CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS);
 
+	fixture.pendingAssetPolls = 1;
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &model, 1, &callbacks, &slot)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING);
+	assert(slot == -77);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 1);
+	std::int32_t pendingSlot = -1;
+	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &pendingSlot) == 1);
+	assert(pendingSlot == 613);
+	assert(custom_vehicle_native_vehicle_model_backend_is_active(backend, 30001) == 0);
+
 	assert(custom_vehicle_native_vehicle_model_backend_activate(
 		backend, &model, 1, &callbacks, &slot)
 		== CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED);
@@ -358,9 +369,9 @@ void testNativeVehicleModelLifecycleCAbi()
 	std::int32_t foundSlot = -1;
 	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &foundSlot) == 1);
 	assert(foundSlot == slot);
-	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'A' }));
+	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'L', 'A' }));
 
-	custom_vehicle_model_request_v1 changedModel = model;
+	custom_vehicle_model_request_v1 changedModel;
 	changedModel.dff_checksum++;
 	std::int32_t unchangedSlot = -88;
 	assert(custom_vehicle_native_vehicle_model_backend_activate(
@@ -420,7 +431,16 @@ void testNativeVehicleModelLifecycle()
 	assert(backend.activate(model, true, VehicleModelNativeOperations {}, &fixture, unusedSlot)
 		== VehicleModelBackendResult::MissingOperations);
 
+	fixture.pendingAssetPolls = 1;
 	std::int32_t nativeSlot = -1;
+	assert(backend.activate(model, true, operations, &fixture, nativeSlot)
+		== VehicleModelBackendResult::NativeAssetsPending);
+	assert(nativeSlot == -1);
+	assert(backend.size() == 1);
+	assert(!backend.isActive(30001));
+	assert(fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L' }));
+
 	assert(backend.activate(model, true, operations, &fixture, nativeSlot)
 		== VehicleModelBackendResult::Activated);
 	assert(nativeSlot == 613);
@@ -428,7 +448,7 @@ void testNativeVehicleModelLifecycle()
 	assert(backend.size() == 1);
 	assert(fixture.modelInfoCreated && fixture.assetsLoaded && fixture.clumpAttached);
 	assert(fixture.lastBaseModelId == 400 && fixture.lastCustomModelId == 30001);
-	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'A' }));
+	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'L', 'A' }));
 
 	std::int32_t duplicateSlot = -1;
 	const std::size_t callbackCount = fixture.callbackOrder.size();
