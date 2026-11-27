@@ -342,7 +342,8 @@ private:
 
 		uint32_t currentChecksum = 0;
 		const size_t currentSize = GetFileCRC32Checksum(modelsPath_ + "/" + fileName, currentChecksum);
-		return currentSize == expectedAsset.size && currentChecksum == expectedAsset.checksum;
+		return currentSize == expectedAsset.size
+			&& currentChecksum == expectedAsset.checksum;
 }
 
 public:
@@ -1506,8 +1507,10 @@ public:
 			const size_t maxUrlLength = std::numeric_limits<uint8_t>::max();
 			const auto isSupportedVehicleUrl = [maxUrlLength](const String& url)
 			{
-				return (url.compare(0, 7, "http://") == 0
-					|| url.compare(0, 8, "https://") == 0)
+				return (url.compare(0, 7, "http://")
+					== 0
+					|| url.compare(0, 8, "https://")
+					== 0)
 					&& !url.empty() && url.size() <= maxUrlLength;
 			};
 			if (!isSupportedVehicleUrl(encodedDffUrl) || !isSupportedVehicleUrl(encodedTxdUrl))
