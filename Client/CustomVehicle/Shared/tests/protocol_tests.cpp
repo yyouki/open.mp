@@ -56,6 +56,10 @@ static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, position) == 12);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, health) == 32);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, mods) == 51);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, body_colour1) == 68);
+static_assert(sizeof(custom_vehicle_vehicle_model_binding_v1) == 24);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, custom_model_id) == 4);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, native_model_slot) == 8);
+static_assert(offsetof(custom_vehicle_vehicle_model_binding_v1, generation) == 16);
 
 namespace
 {
@@ -319,6 +323,161 @@ custom_vehicle_native_vehicle_model_callbacks_v1 makeNativeVehicleCAbiCallbacks(
 	callbacks.attach_vehicle_clump = cAbiNativeVehicleAttach;
 	callbacks.destroy_model = cAbiNativeVehicleDestroy;
 	return callbacks;
+}
+
+void testNativeVehicleModelVehicleBindings()
+{
+	using namespace custom_vehicle::native;
+
+	NativeVehicleBackendFixture fixture;
+	VehicleModelLifecycleController backend(612, 615);
+	const auto operations = makeNativeVehicleOperations();
+	const ModelRequest model = makeNativeVehicleModelRequest(30001, 400);
+	std::int32_t slot = -1;
+	assert(backend.activate(model, true, operations, &fixture, slot)
+		== VehicleModelBackendResult::Activated);
+	assert(slot == 613);
+
+	VehicleModelBinding first;
+	assert(backend.bindVehicle(77, 30001, first) == VehicleModelBindingResult::Bound);
+	assert(first.vehicle_id == 77);
+	assert(first.custom_model_id == 30001);
+	assert(first.native_model_slot == slot);
+	assert(first.generation != 0);
+
+	VehicleModelBinding repeated;
+	assert(backend.bindVehicle(77, 30001, repeated)
+		== VehicleModelBindingResult::AlreadyBound);
+	assert(repeated.generation == first.generation);
+	assert(repeated.native_model_slot == first.native_model_slot);
+
+	// A different model cannot silently take over a pool ID that is still bound.
+	VehicleModelBinding conflict;
+	assert(backend.bindVehicle(77, 30002, conflict)
+		== VehicleModelBindingResult::VehicleAlreadyBound);
+	assert(backend.bindVehicle(0, 30001, conflict)
+		== VehicleModelBindingResult::InvalidVehicleId);
+	assert(backend.bindVehicle(2000, 30001, conflict)
+		== VehicleModelBindingResult::InvalidVehicleId);
+	assert(backend.bindVehicle(78, 30002, conflict)
+		== VehicleModelBindingResult::ModelNotActive);
+
+	VehicleModelBinding found;
+	assert(backend.findVehicleBinding(77, found));
+	assert(found.generation == first.generation);
+
+	// An old generation cannot release the current lease.
+	VehicleModelBinding stale = first;
+	--stale.generation;
+	assert(!backend.releaseVehicleBinding(stale));
+	assert(backend.findVehicleBinding(77, found));
+	assert(found.generation == first.generation);
+
+	// Once the native vehicle has actually been removed, release then reuse its
+	// SA-MP pool ID. The replacement receives a strictly newer generation token.
+	assert(backend.releaseVehicleBinding(first));
+	assert(!backend.releaseVehicleBinding(first));
+	assert(!backend.findVehicleBinding(77, found));
+
+	VehicleModelBinding replacement;
+	assert(backend.bindVehicle(77, 30001, replacement) == VehicleModelBindingResult::Bound);
+	assert(replacement.generation > first.generation);
+	assert(!backend.releaseVehicleBinding(first));
+	assert(backend.bindVehicle(78, 30001, conflict) == VehicleModelBindingResult::Bound);
+
+	// Retirement waits for every vehicle-specific lease, not for a guessed count.
+	assert(backend.retire(30001, operations, &fixture) == VehicleModelBackendResult::ModelInUse);
+	assert(!backend.isActive(30001));
+	assert(backend.bindVehicle(77, 30001, found) == VehicleModelBindingResult::AlreadyBound);
+	assert(backend.releaseVehicleBinding(replacement));
+	assert(backend.retryRetiredCleanup(30001, operations, &fixture)
+		== VehicleModelBackendResult::ModelInUse);
+	assert(backend.releaseVehicleBinding(conflict));
+	assert(backend.retryRetiredCleanup(30001, operations, &fixture)
+		== VehicleModelBackendResult::Released);
+	assert(backend.size() == 0);
+	assert(!backend.findVehicleBinding(77, found));
+	assert(!backend.findVehicleBinding(78, found));
+	assert(backendSlotIsVacant(&fixture, slot));
+}
+
+void testNativeVehicleModelVehicleBindingsCAbi()
+{
+	NativeVehicleBackendFixture fixture;
+	const auto callbacks = makeNativeVehicleCAbiCallbacks(fixture);
+	auto* backend = custom_vehicle_native_vehicle_model_backend_create(612, 615);
+	assert(backend != nullptr);
+
+	custom_vehicle_model_request_v1 model {};
+	model.pool_id = 0;
+	model.model_count = 1;
+	model.type = static_cast<std::uint8_t>(ModelType::Vehicle);
+	model.virtual_world = -1;
+	model.base_id = 400;
+	model.new_id = 30001;
+	model.dff_checksum = 0x10203040u;
+	model.txd_checksum = 0x50607080u;
+	model.dff_size = 4096;
+	model.txd_size = 2048;
+
+	std::int32_t slot = -1;
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &model, 1, &callbacks, &slot) == CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED);
+	assert(slot == 613);
+
+	custom_vehicle_vehicle_model_binding_v1 first {};
+	assert(custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+		backend, 77, 30001, &first) == CUSTOM_VEHICLE_MODEL_BINDING_BOUND);
+	assert(first.vehicle_id == 77);
+	assert(first.custom_model_id == 30001);
+	assert(first.native_model_slot == slot);
+	assert(first.generation != 0);
+	assert(first.reserved == 0 && first.reserved2 == 0);
+
+	custom_vehicle_vehicle_model_binding_v1 repeated {};
+	assert(custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+		backend, 77, 30001, &repeated) == CUSTOM_VEHICLE_MODEL_BINDING_ALREADY_BOUND);
+	assert(repeated.generation == first.generation);
+	assert(custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+		backend, 77, 30002, &repeated) == CUSTOM_VEHICLE_MODEL_BINDING_VEHICLE_ALREADY_BOUND);
+	assert(custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+		backend, 0, 30001, &repeated) == CUSTOM_VEHICLE_MODEL_BINDING_INVALID_VEHICLE_ID);
+
+	custom_vehicle_vehicle_model_binding_v1 found {};
+	assert(custom_vehicle_native_vehicle_model_backend_find_vehicle_binding(
+		backend, 77, &found) == 1);
+	assert(found.generation == first.generation);
+
+	custom_vehicle_vehicle_model_binding_v1 stale = first;
+	--stale.generation;
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+		backend, &stale) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+		backend, &first) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+		backend, &first) == 0);
+
+	custom_vehicle_vehicle_model_binding_v1 replacement {};
+	assert(custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+		backend, 77, 30001, &replacement) == CUSTOM_VEHICLE_MODEL_BINDING_BOUND);
+	assert(replacement.generation > first.generation);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+		backend, &first) == 0);
+
+	assert(custom_vehicle_native_vehicle_model_backend_retire(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
+	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+		backend, &replacement) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_find_vehicle_binding(
+		backend, 77, &found) == 0);
+	assert(backendSlotIsVacant(&fixture, slot));
+
+	assert(custom_vehicle_native_vehicle_model_backend_destroy(backend) == 1);
 }
 
 void testNativeVehicleModelLifecycleCAbi()
@@ -1946,7 +2105,9 @@ int main()
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
 	testNativeVehicleModelLifecycle();
+	testNativeVehicleModelVehicleBindings();
 	testNativeVehicleModelLifecycleCAbi();
+	testNativeVehicleModelVehicleBindingsCAbi();
 	testNativeVehicleModelSlotRegistryCAbi();
 	testVehicleStreamQueue();
 	testVehicleStreamQueueCAbi();
