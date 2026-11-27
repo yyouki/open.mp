@@ -141,16 +141,24 @@ VehicleModelBackendResult VehicleModelLifecycleController::activate(
 
 	if (entry.stage == VehicleModelResourceStage::AssetsLoaded)
 	{
-		if (!operations.attach_vehicle_clump(user_data, slot, entry.model))
+		switch (operations.attach_vehicle_clump(user_data, slot, entry.model))
 		{
-			return rollbackFailedActivation(
-				entry,
-				model.newId,
-				VehicleModelBackendResult::AttachClumpFailed,
-				operations,
-				user_data);
+			case VehicleClumpAttachResult::Pending:
+				// Keep model-info and loaded assets owned; retry when the native
+				// vehicle-visual structure pool has a free slot.
+				return VehicleModelBackendResult::NativeVehicleStructurePending;
+			case VehicleClumpAttachResult::Attached:
+				entry.stage = VehicleModelResourceStage::ClumpAttached;
+				break;
+			case VehicleClumpAttachResult::Failed:
+			default:
+				return rollbackFailedActivation(
+					entry,
+					model.newId,
+					VehicleModelBackendResult::AttachClumpFailed,
+					operations,
+					user_data);
 		}
-		entry.stage = VehicleModelResourceStage::ClumpAttached;
 	}
 
 	native_model_slot = slot;

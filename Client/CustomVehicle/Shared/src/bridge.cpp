@@ -281,28 +281,38 @@ custom_vehicle::native::VehicleAssetLoadResult nativeVehicleRequestOrPollAssets(
 	}
 }
 
-bool nativeVehicleAttachClump(
+custom_vehicle::native::VehicleClumpAttachResult nativeVehicleAttachClump(
 	void* user_data,
 	std::int32_t slot,
 	const custom_vehicle::protocol::ModelRequest& model) noexcept
 {
+	using custom_vehicle::native::VehicleClumpAttachResult;
 	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
 	if (context == nullptr || context->callbacks == nullptr
 		|| context->callbacks->attach_vehicle_clump == nullptr)
 	{
-		return false;
+		return VehicleClumpAttachResult::Failed;
 	}
 	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
 	try
 	{
-		return context->callbacks->attach_vehicle_clump(
+		switch (context->callbacks->attach_vehicle_clump(
 			context->callbacks->user_data,
 			slot,
-			&record) != 0;
+			&record))
+		{
+			case CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_READY:
+				return VehicleClumpAttachResult::Attached;
+			case CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_PENDING:
+				return VehicleClumpAttachResult::Pending;
+			case CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED:
+			default:
+				return VehicleClumpAttachResult::Failed;
+		}
 	}
 	catch (...)
 	{
-		return false;
+		return VehicleClumpAttachResult::Failed;
 	}
 }
 
@@ -417,6 +427,8 @@ std::int32_t mapNativeVehicleBackendResult(
 			return CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING;
 		case VehicleModelBackendResult::NativeAssetsPending:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING;
+		case VehicleModelBackendResult::NativeVehicleStructurePending:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_VEHICLE_STRUCTURE_PENDING;
 		case VehicleModelBackendResult::InvalidRequest:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
 		case VehicleModelBackendResult::MissingOperations:

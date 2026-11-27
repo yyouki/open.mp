@@ -26,12 +26,20 @@ enum class VehicleAssetLoadResult : std::uint8_t
 	Ready
 };
 
+enum class VehicleClumpAttachResult : std::uint8_t
+{
+	Failed,
+	Pending,
+	Attached
+};
+
 enum class VehicleModelBackendResult
 {
 	Activated,
 	AlreadyActive,
 	AssetsPending,
 	NativeAssetsPending,
+	NativeVehicleStructurePending,
 	InvalidRequest,
 	MissingOperations,
 	NoFreeSlot,
@@ -80,10 +88,14 @@ struct VehicleModelBinding
  * thread after the original CGame::Process has completed. These callbacks must
  * not re-enter VehicleModelLifecycleController.
  *
- * create_model_info and attach_vehicle_clump are synchronous. The asset callback
- * is called once to request streaming and again on later game ticks to poll it;
- * Pending keeps the model-info slot reserved without blocking the game thread.
- * Failed callbacks must not leave resources from their failed operation behind.
+ * create_model_info is synchronous. The asset callback is called once to request
+ * streaming and again on later game ticks to poll it; Pending keeps the model-info
+ * slot reserved without blocking the game thread. The clump callback may return
+ * Pending when a bounded native resource (notably GTA's 50-entry
+ * CVehicleStructure pool) is temporarily exhausted. Pending preserves the
+ * AssetsLoaded stage and retries attachment on a later game tick without
+ * rollback. Failed callbacks must not leave resources from their failed
+ * operation behind.
  * destroy_model must be idempotent and clear every resource acquired up to
  * completed_stage, including pending streaming requests, model-info table entry,
  * RenderWare clump, vehicle structure, streaming metadata, and TXD references.
@@ -104,7 +116,7 @@ struct VehicleModelNativeOperations
 		void* user_data,
 		std::int32_t native_model_slot,
 		const protocol::ModelRequest& model) noexcept = nullptr;
-	bool (*attach_vehicle_clump)(
+	VehicleClumpAttachResult (*attach_vehicle_clump)(
 		void* user_data,
 		std::int32_t native_model_slot,
 		const protocol::ModelRequest& model) noexcept = nullptr;

@@ -42,6 +42,18 @@ enum
 	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY = 2
 };
 
+/*
+ * attach_vehicle_clump result: 0 = failed, 1 = attached, 2 = pending
+ * (for example, when the GTA CVehicleStructure pool has no free slot).
+ * Existing 0/1 callbacks retain their previous meaning.
+ */
+enum
+{
+	CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED = 0,
+	CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_READY = 1,
+	CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_PENDING = 2
+};
+
 /* Last fully completed resource stage passed to destroy_model. */
 enum
 {
@@ -61,6 +73,7 @@ typedef int32_t (*custom_vehicle_native_model_load_fn)(
 	void* user_data,
 	int32_t native_model_slot,
 	const struct custom_vehicle_model_request_v1* model);
+/* Return ATTACH_READY, ATTACH_PENDING, or ATTACH_FAILED. */
 typedef int32_t (*custom_vehicle_native_model_attach_fn)(
 	void* user_data,
 	int32_t native_model_slot,
@@ -103,6 +116,7 @@ enum
 	CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING = 3,
 	CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED = 4,
 	CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING = 5,
+	CUSTOM_VEHICLE_NATIVE_MODEL_VEHICLE_STRUCTURE_PENDING = 6,
 	CUSTOM_VEHICLE_NATIVE_MODEL_NOT_FOUND = 0,
 	CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST = -1,
 	CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS = -2,
