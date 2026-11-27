@@ -11,6 +11,8 @@ use samp_client_sdk::{
     Samp, SampClientSdkClientVersion, SampClientSdkDirection, SampClientSdkHookAction,
     Subscription,
 };
+use modkit_abi::{GameContextTokenV1, SubscriptionId};
+use modkit_sdk::{Core, GameContext, Host};
 use std::{
     ffi::c_void,
     fs::{self, File, OpenOptions},
@@ -20,8 +22,8 @@ use std::{
     ptr,
     slice,
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, AtomicPtr, Ordering},
+        Arc, Condvar, Mutex, Weak,
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
@@ -296,6 +298,9 @@ struct BridgeContext {
     downloads: Sender<WorkerMessage<DownloadJob>>,
     connection_events: Sender<ConnectionEvent>,
     cache_root: PathBuf,
+    native_tick_registered: AtomicBool,
+    game_thread_tick_count: AtomicU32,
+    pending_vehicle_count_on_game_thread: AtomicUsize,
     stopping: AtomicBool,
 }
 
@@ -316,10 +321,16 @@ impl BridgeContext {
     }
 }
 
+struct NativeTickRegistration {
+    core: Core,
+    subscription: SubscriptionId,
+}
+
 struct PluginState {
     context: Option<Arc<BridgeContext>>,
     subscriptions: Vec<Subscription>,
     workers: Vec<JoinHandle<()>>,
+    native_tick: Option<NativeTickRegistration>,
     initializing: bool,
     shutting_down: bool,
 }
@@ -330,11 +341,105 @@ impl PluginState {
             context: None,
             subscriptions: Vec::new(),
             workers: Vec::new(),
+            native_tick: None,
             initializing: false,
             shutting_down: false,
         }
     }
 }
+
+fn register_native_game_tick(context: &Arc<BridgeContext>) -> Option<NativeTickRegistration> {
+    // The embedded SDK host is already loaded by initialize(); this newer facade
+    // exposes the host-issued, callback-scoped GTA game-thread execution token.
+    let host = Host::connect(Duration::from_secs(5)).ok()?;
+    let gta = host.gta_sa_service().ok()?;
+    let core = host.core().ok()?;
+
+    // The host owns this weak callback context after successful registration and
+    // calls the release callback only after the in-flight tick callbacks drain.
+    let user_data = Box::into_raw(Box::new(Arc::downgrade(context))).cast::<c_void>();
+    match unsafe {
+        gta.register_tick(
+            native_game_tick_callback,
+            user_data,
+            native_game_tick_release_callback,
+        )
+    } {
+        Ok(subscription) => {
+            context.native_tick_registered.store(true, Ordering::Release);
+            Some(NativeTickRegistration { core, subscription })
+        }
+        Err(_) => {
+            // Registration failed, so ownership never transferred to the host.
+            unsafe { drop(Box::from_raw(user_data.cast::<Weak<BridgeContext>>())); }
+            None
+        }
+    }
+}
+
+unsafe extern "system" fn native_game_tick_callback(
+    user_data: *mut c_void,
+    token: GameContextTokenV1,
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if user_data.is_null() || !token.is_valid() {
+            return;
+        }
+
+        // Keep the native execution proof local to this callback. No token or
+        // game-thread-only value is retained by the worker threads.
+        let _game_context = unsafe { GameContext::from_raw(token) };
+        let weak_context = unsafe { &*user_data.cast::<Weak<BridgeContext>>() };
+        let Some(context) = weak_context.upgrade() else {
+            return;
+        };
+        if context.stopping.load(Ordering::Acquire) {
+            return;
+        }
+
+        context.game_thread_tick_count.fetch_add(1, Ordering::Relaxed);
+        let queue = context.pending_vehicle_queue();
+        if !queue.is_null() {
+            // Observe queue pressure only. Do not pop records until the native
+            // allocator, vehicle-existence checks, and rollback path are ready.
+            let pending = unsafe { custom_vehicle_pending_vehicle_queue_size(queue) };
+            context
+                .pending_vehicle_count_on_game_thread
+                .store(pending, Ordering::Release);
+        }
+    }));
+}
+
+unsafe extern "system" fn native_game_tick_release_callback(user_data: *mut c_void) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if user_data.is_null() {
+            return;
+        }
+
+        let weak_context = unsafe { Box::from_raw(user_data.cast::<Weak<BridgeContext>>()) };
+        if let Some(context) = weak_context.upgrade() {
+            context.native_tick_registered.store(false, Ordering::Release);
+        }
+        // Dropping the Box releases the callback-owned weak reference.
+    }));
+}
+
+fn drain_native_game_tick(
+    registration: Option<NativeTickRegistration>,
+) -> Result<(), NativeTickRegistration> {
+    let Some(registration) = registration else {
+        return Ok(());
+    };
+
+    match registration
+        .core
+        .unregister_and_wait(registration.subscription, Duration::from_secs(5))
+    {
+        Ok(()) => Ok(()),
+        Err(_) => Err(registration),
+    }
+}
+
 
 struct InitializationGuard;
 
@@ -422,6 +527,9 @@ fn initialize() {
         downloads: download_tx,
         connection_events: connection_events_tx,
         cache_root,
+        native_tick_registered: AtomicBool::new(false),
+        game_thread_tick_count: AtomicU32::new(0),
+        pending_vehicle_count_on_game_thread: AtomicUsize::new(0),
         stopping: AtomicBool::new(false),
     });
 
@@ -490,7 +598,7 @@ fn initialize() {
     ) {
         Ok(subscription) => subscription,
         Err(_) => {
-            cleanup_context(&context, Vec::new(), workers);
+            cleanup_context(&context, Vec::new(), workers, None);
             return;
         }
     };
@@ -502,11 +610,14 @@ fn initialize() {
     ) {
         Ok(subscription) => subscription,
         Err(_) => {
-            cleanup_context(&context, vec![rpc_subscription], workers);
+            cleanup_context(&context, vec![rpc_subscription], workers, None);
             return;
         }
     };
     let subscriptions = vec![rpc_subscription, packet_subscription];
+    // Native tick registration is optional: unsupported GTA executables keep the
+    // network/download path working, but never enable unverified native access.
+    let native_tick = register_native_game_tick(&context);
 
     // The sender waits for InitGame (or a native game-state fallback on full profiles)
     // and both incoming hooks are installed before capability negotiation can begin.
@@ -515,12 +626,13 @@ fn initialize() {
     let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
     if state.shutting_down {
         drop(state);
-        cleanup_context(&context, subscriptions, workers);
+        cleanup_context(&context, subscriptions, workers, native_tick);
         return;
     }
     state.context = Some(context);
     state.subscriptions = subscriptions;
     state.workers = workers;
+    state.native_tick = native_tick;
 }
 
 fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
@@ -1330,13 +1442,27 @@ fn cleanup_context(
     context: &Arc<BridgeContext>,
     subscriptions: Vec<Subscription>,
     workers: Vec<JoinHandle<()>>,
+    native_tick: Option<NativeTickRegistration>,
 ) {
+    context.stopping.store(true, Ordering::Release);
+    if let Err(native_tick) = drain_native_game_tick(native_tick) {
+        // Retain the context and callback registration if an in-flight game tick
+        // could not be drained. Freeing user_data here would create a use-after-free.
+        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        state.context = Some(Arc::clone(context));
+        state.subscriptions = subscriptions;
+        state.workers = workers;
+        state.native_tick = Some(native_tick);
+        return;
+    }
+
     if let Err(subscriptions) = drain_subscriptions(subscriptions) {
         // Retain every callback dependency until a later shutdown can drain active hooks.
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
         state.context = Some(Arc::clone(context));
         state.subscriptions = subscriptions;
         state.workers = workers;
+        state.native_tick = None;
         return;
     }
 
@@ -1345,7 +1471,7 @@ fn cleanup_context(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
-    let (context, subscriptions, workers) = {
+    let (context, subscriptions, workers, native_tick) = {
         let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
         state.shutting_down = true;
         while state.initializing {
@@ -1357,12 +1483,24 @@ pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
             state.context.take(),
             std::mem::take(&mut state.subscriptions),
             std::mem::take(&mut state.workers),
+            state.native_tick.take(),
         )
     };
 
     let Some(context) = context else {
         return TRUE;
     };
+    context.stopping.store(true, Ordering::Release);
+
+    if let Err(native_tick) = drain_native_game_tick(native_tick) {
+        // Keep the callback context alive when a game-thread callback is still in flight.
+        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        state.context = Some(context);
+        state.subscriptions = subscriptions;
+        state.workers = workers;
+        state.native_tick = Some(native_tick);
+        return 0;
+    }
 
     if let Err(subscriptions) = drain_subscriptions(subscriptions) {
         // Keep the adapter, callback context, and workers alive if any hook may still be active.
@@ -1370,6 +1508,7 @@ pub extern "system" fn CustomVehicleWindows_Shutdown() -> BOOL {
         state.context = Some(context);
         state.subscriptions = subscriptions;
         state.workers = workers;
+        state.native_tick = None;
         return 0;
     }
 
