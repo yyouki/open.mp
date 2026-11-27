@@ -58,6 +58,7 @@ public:
 	bool acceptDownloadAcknowledgement(const std::uint8_t* data, std::size_t size,
 		SessionError& error) noexcept;
 	bool retryActiveAsset() noexcept;
+	bool isVehicleModelReady(std::int32_t modelId) const noexcept;
 	bool awaitingDownloadUrl() const noexcept;
 	bool awaitingDownloadAcknowledgement() const noexcept;
 	void reset() noexcept;
