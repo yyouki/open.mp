@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <new>
+#include <iterator>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -1126,6 +1127,7 @@ int32_t custom_vehicle_native_vehicle_model_backend_is_active(
 	{
 		return 0;
 	}
+}
 
 custom_vehicle_pending_vehicle_queue* custom_vehicle_pending_vehicle_queue_create(void)
 {
@@ -1248,6 +1250,5 @@ void custom_vehicle_pending_vehicle_queue_clear(
 	{
 		queue->queue.clear();
 	}
-}
 }
 } // extern "C"
