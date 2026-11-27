@@ -1101,6 +1101,26 @@ void testCAbiBridge()
 		assert(rewrittenStreamIn[index] == streamIn[index]);
 	}
 
+	// A too-small C ABI destination must not receive a partial RPC payload or metadata.
+	std::array<std::uint8_t, StreamInVehicleWireSize - 1> tooSmallOutput {};
+	tooSmallOutput.fill(0x3C);
+	const auto tooSmallSentinel = tooSmallOutput;
+	std::size_t tooSmallSize = 777;
+	std::int32_t tooSmallCustomId = 123;
+	std::int32_t tooSmallBaseId = 456;
+	assert(custom_vehicle_adapter_rewrite_stream_in_vehicle(
+		adapter,
+		streamIn.data(),
+		streamIn.size(),
+		tooSmallOutput.data(),
+		tooSmallOutput.size(),
+		&tooSmallSize,
+		&tooSmallCustomId,
+		&tooSmallBaseId) == -1);
+	assert(tooSmallOutput == tooSmallSentinel);
+	assert(tooSmallSize == 777);
+	assert(tooSmallCustomId == 123 && tooSmallBaseId == 456);
+
 	const auto standardStreamIn = makeStreamInVehicle(411);
 	const auto rewriteSentinel = rewrittenStreamIn;
 	rewrittenSize = 999;
