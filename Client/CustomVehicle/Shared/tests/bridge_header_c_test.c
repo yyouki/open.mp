@@ -96,6 +96,9 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)CustomVehicleWindows_DecodeStreamInVehicle;
 	(void)CustomVehicleWindows_RewriteStreamInVehicle;
 	(void)CustomVehicleWindows_IsModelReady;
+	(void)CustomVehicleWindows_PendingVehicleCount;
+	(void)CustomVehicleWindows_PopPendingVehicle;
+	(void)CustomVehicleWindows_CancelPendingVehicle;
 	(void)custom_vehicle_native_model_slot_registry_create;
 	(void)custom_vehicle_native_model_slot_registry_destroy;
 	(void)custom_vehicle_native_model_slot_registry_has_valid_range;
