@@ -199,6 +199,25 @@ bool encodeAssetRequest(AssetType type, std::uint32_t checksum, std::uint8_t* ou
 	return true;
 }
 
+bool encodeAssetCompletion(AssetType type, std::uint32_t checksum, std::uint8_t* output,
+	std::size_t capacity, std::size_t& bytesWritten) noexcept
+{
+	bytesWritten = 0;
+	if (output == nullptr || capacity < AssetCompletionWireSize)
+	{
+		return false;
+	}
+	if (type != AssetType::Dff && type != AssetType::Txd)
+	{
+		return false;
+	}
+
+	output[0] = static_cast<std::uint8_t>(type);
+	writeU32LittleEndian(output + 1, checksum);
+	bytesWritten = AssetCompletionWireSize;
+	return true;
+}
+
 bool isCustomVehicleModelId(std::int32_t modelId) noexcept
 {
 	return modelId >= MinCustomVehicleModelId && modelId <= MaxCustomVehicleModelId;
