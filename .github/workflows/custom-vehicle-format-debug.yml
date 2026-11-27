@@ -1,0 +1,27 @@
+name: Temporary custom vehicle format diagnostic
+
+on:
+  push:
+    paths:
+      - ".github/workflows/custom-vehicle-format-debug.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/custom-vehicle-format-debug.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  show-formatted-snippet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print exact clang-format output around the failing expressions
+        shell: bash
+        run: |
+          docker run --rm -i -v "$(pwd):$(pwd)" -w "$(pwd)" ghcr.io/jidicula/clang-format:13 --style=file --fallback-style=WebKit Server/Components/CustomModels/models.cpp > "$RUNNER_TEMP/models-formatted.cpp"
+          diff -u Server/Components/CustomModels/models.cpp "$RUNNER_TEMP/models-formatted.cpp" || true
+          echo "----- formatted checksum block -----"
+          sed -n '340,350p' "$RUNNER_TEMP/models-formatted.cpp"
+          echo "----- formatted URL block -----"
+          sed -n '1505,1517p' "$RUNNER_TEMP/models-formatted.cpp"
