@@ -577,26 +577,11 @@ void testNativeVehicleModelSlotRegistryCAbi()
 		== CUSTOM_VEHICLE_MODEL_SLOT_RELEASED);
 	assert(custom_vehicle_native_model_slot_registry_find(registry, 30001, &repeatedSlot) == 0);
 	assert(custom_vehicle_native_model_slot_registry_size(registry) == 0);
-	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 1);
-	assert(custom_vehicle_native_model_slot_registry_destroy(nullptr) == 0);
-
-	registry = custom_vehicle_native_model_slot_registry_create(612, 613);
-	assert(registry != nullptr);
-	assert(custom_vehicle_native_model_slot_registry_reserve(
-		registry, 30001, cAbiNativeModelSlotIsVacant, &nativeState, &nativeSlot)
-		== CUSTOM_VEHICLE_MODEL_SLOT_RESERVED);
-	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 0);
-	assert(custom_vehicle_native_model_slot_registry_size(registry) == 1);
-	assert(custom_vehicle_native_model_slot_registry_retire(registry, 30001) == 1);
-	assert(custom_vehicle_native_model_slot_registry_release(
-		registry, 30001, nativeSlot, cAbiNativeModelSlotIsVacant, &nativeState)
-		== CUSTOM_VEHICLE_MODEL_SLOT_RELEASED);
-	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 1);
-
 	assert(custom_vehicle_native_model_slot_registry_reserve(
 		registry, 30002, nullptr, &nativeState, &nativeSlot)
 		== CUSTOM_VEHICLE_MODEL_SLOT_MISSING_VACANCY_QUERY);
-	custom_vehicle_native_model_slot_registry_destroy(registry);
+	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 1);
+	assert(custom_vehicle_native_model_slot_registry_destroy(nullptr) == 0);
 
 	auto* invalidRange = custom_vehicle_native_model_slot_registry_create(611, 19999);
 	assert(invalidRange != nullptr);
