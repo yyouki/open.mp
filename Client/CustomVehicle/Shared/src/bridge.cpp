@@ -444,7 +444,7 @@ std::int32_t mapNativeVehicleBackendResult(
 		case VehicleModelBackendResult::LoadAssetsFailed:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_LOAD_FAILED;
 		case VehicleModelBackendResult::AttachClumpFailed:
-			return CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_FAILED;
+			return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED;
 		case VehicleModelBackendResult::ModelInUse:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE;
 		case VehicleModelBackendResult::CleanupPending:
