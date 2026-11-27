@@ -106,9 +106,14 @@ struct VehicleDownloadCompleted : NetworkPacketBase<227, NetworkPacketType::RPC,
 
 struct FinishVehicleDownload : NetworkPacketBase<226, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
 {
+	uint8_t assetType;
+	uint32_t checksum;
+
 	bool read(NetworkBitStream& bs)
 	{
-		return true;
+		return bs.readUINT8(assetType)
+			&& bs.readUINT32(checksum)
+			&& (assetType == 1 || assetType == 2);
 	}
 };
 
