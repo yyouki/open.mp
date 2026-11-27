@@ -17,15 +17,22 @@ bool ClientSession::acceptCapabilityAcknowledgement(
 	SessionError& error) noexcept
 {
 	error = SessionError::None;
+	const bool validToken = data != nullptr
+		&& size == CapabilityHandshakeToken.size()
+		&& std::equal(CapabilityHandshakeToken.begin(), CapabilityHandshakeToken.end(), data);
+	if (!validToken)
+	{
+		error = SessionError::InvalidPayload;
+		return false;
+	}
+	if (capability_ == CapabilityState::Ready)
+	{
+		// The server may repeat its acknowledgement after a duplicate opt-in RPC.
+		return true;
+	}
 	if (capability_ != CapabilityState::AwaitingAcknowledgement)
 	{
 		error = SessionError::InvalidState;
-		return false;
-	}
-	if (data == nullptr || size != CapabilityHandshakeToken.size()
-		|| !std::equal(CapabilityHandshakeToken.begin(), CapabilityHandshakeToken.end(), data))
-	{
-		error = SessionError::InvalidPayload;
 		return false;
 	}
 	capability_ = CapabilityState::Ready;

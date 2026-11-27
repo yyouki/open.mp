@@ -85,11 +85,16 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		case RpcId::ModelRequest:
 		{
 			// Do not claim RPC 220 until the versioned capability handshake succeeds.
-			if (session_.capabilityState() != CapabilityState::Ready
-				|| payload == nullptr || size <= 8
-				|| payload[8] != static_cast<std::uint8_t>(ModelType::Vehicle))
+			if (session_.capabilityState() != CapabilityState::Ready)
 			{
 				return RpcDisposition::ForwardToGame;
+			}
+			if (payload == nullptr || size != ModelRequestWireSize
+				|| payload[8] != static_cast<std::uint8_t>(ModelType::Vehicle))
+			{
+				// After negotiation, RPC 220 is reserved for vehicle manifests.
+				// Consume malformed records instead of exposing them to legacy parsers.
+				return RpcDisposition::Consume;
 			}
 
 			try

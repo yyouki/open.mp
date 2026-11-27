@@ -1481,6 +1481,8 @@ void testSessionDownloadLifecycle()
 	SessionError sessionError = SessionError::None;
 	assert(session.acceptCapabilityAcknowledgement(CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size(), sessionError));
 	assert(session.capabilityState() == CapabilityState::Ready);
+	// The same valid ACK is idempotent if the server repeats it.
+	assert(session.acceptCapabilityAcknowledgement(CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size(), sessionError));
 
 	auto manifest = makeVehicleRequest(dffCrc, txdCrc, static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
 	DecodeError decodeError = DecodeError::None;
@@ -1661,10 +1663,15 @@ void testNetworkAdapterFlow()
 	assert(transport.sentCalls.size() == 1);
 	assert(transport.sentCalls.back().id == RpcId::ClientSupportsCustomVehicleModels);
 	assert((transport.sentCalls.back().payload == std::vector<std::uint8_t>(CapabilityHandshakeToken.begin(), CapabilityHandshakeToken.end())));
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest), nullptr, 0)
+		== RpcDisposition::ForwardToGame); // Before negotiation, RPC 220 may belong to another plugin.
 	const std::array<std::uint8_t, 8> foreignCapability = { 1, 2, 3, 4, 5, 6, 7, 8 };
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
 		foreignCapability.data(), foreignCapability.size()) == RpcDisposition::ForwardToGame);
 
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
+		CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size()) == RpcDisposition::Consume);
+	// A repeated valid acknowledgement remains extension traffic and is consumed.
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
 		CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size()) == RpcDisposition::Consume);
 
@@ -1680,7 +1687,11 @@ void testNetworkAdapterFlow()
 	auto invalidExtensionManifest = manifest;
 	invalidExtensionManifest[8] = static_cast<std::uint8_t>(ModelType::Skin);
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
-		invalidExtensionManifest.data(), invalidExtensionManifest.size()) == RpcDisposition::ForwardToGame);
+		invalidExtensionManifest.data(), invalidExtensionManifest.size()) == RpcDisposition::Consume);
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest), nullptr, 0)
+		== RpcDisposition::Consume);
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
+		manifest.data(), manifest.size() - 1) == RpcDisposition::Consume);
 
 	// Native SA-MP and 0.3.DL RPCs are never intercepted by this extension.
 	constexpr std::array<std::uint8_t, 1> nativePayload = { 0x80 };
