@@ -961,12 +961,7 @@ private:
 
 		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
 		{
-			uint32_t checksum;
-			if (!bs.readUINT32(checksum))
-			{
-				return false;
-			}
-
+			// Leave this RPC untouched for clients and plugins outside the negotiated extension.
 			if (!self.supportsCustomVehicles(peer))
 			{
 				return true;
@@ -977,6 +972,12 @@ private:
 			if (vehicleData == nullptr)
 			{
 				return true;
+			}
+
+			uint32_t checksum;
+			if (!bs.readUINT32(checksum))
+			{
+				return false;
 			}
 
 			const auto itr = self.checksums.find(checksum);
@@ -1054,6 +1055,20 @@ private:
 
 		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
 		{
+			if (!self.enabled || !self.vehicleModelsEnabled)
+			{
+				return true;
+			}
+
+			PlayerCustomVehicleModelsData* vehicleData
+				= queryExtension<PlayerCustomVehicleModelsData>(peer);
+			// A valid download can finish after the local HTTP endpoint stops,
+			// so check the negotiated capability rather than endpoint availability.
+			if (vehicleData == nullptr || !vehicleData->supportsCustomVehicleModels())
+			{
+				return true;
+			}
+
 			uint8_t assetType = 0;
 			uint32_t checksum = 0;
 			if (!bs.readUINT8(assetType) || !bs.readUINT32(checksum)
@@ -1063,16 +1078,8 @@ private:
 				return false;
 			}
 
-			if (!self.enabled || !self.vehicleModelsEnabled)
-			{
-				return true;
-			}
-
 			const auto type = static_cast<ModelDownloadType>(assetType);
-			PlayerCustomVehicleModelsData* vehicleData
-				= queryExtension<PlayerCustomVehicleModelsData>(peer);
-			if (vehicleData == nullptr || !vehicleData->supportsCustomVehicleModels()
-				|| !vehicleData->completePendingDownload(type, checksum))
+			if (!vehicleData->completePendingDownload(type, checksum))
 			{
 				// Ignore duplicate, mismatched, or unsolicited completions. A valid in-flight
 				// transfer may finish after the local HTTP endpoint has stopped.
