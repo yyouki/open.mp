@@ -46,6 +46,32 @@ enum class VehicleModelBackendResult
 	NotFound
 };
 
+inline constexpr std::size_t VehicleModelBindingVehicleIdLimit = 2000;
+
+enum class VehicleModelBindingResult
+{
+	Bound,
+	AlreadyBound,
+	InvalidVehicleId,
+	InvalidCustomModelId,
+	ModelNotActive,
+	VehicleAlreadyBound,
+	GenerationExhausted
+};
+
+/*
+ * A generation-tagged mapping from an SA-MP vehicle-pool ID to one active
+ * custom model. The generation prevents a delayed removal for a reused pool
+ * ID from releasing a newer vehicle's lease.
+ */
+struct VehicleModelBinding
+{
+	std::uint16_t vehicle_id = 0;
+	std::int32_t custom_model_id = -1;
+	std::int32_t native_model_slot = -1;
+	std::uint64_t generation = 0;
+};
+
 /*
  * Platform callbacks used by the model lifecycle controller.
  *
@@ -113,6 +139,17 @@ public:
 		std::int32_t custom_model_id,
 		std::int32_t native_model_slot);
 
+	VehicleModelBindingResult bindVehicle(
+		std::uint16_t vehicle_id,
+		std::int32_t custom_model_id,
+		VehicleModelBinding& binding);
+
+	bool releaseVehicleBinding(const VehicleModelBinding& binding);
+
+	[[nodiscard]] bool findVehicleBinding(
+		std::uint16_t vehicle_id,
+		VehicleModelBinding& binding) const;
+
 	VehicleModelBackendResult retire(
 		std::int32_t custom_model_id,
 		const VehicleModelNativeOperations& operations,
@@ -165,5 +202,7 @@ private:
 	mutable std::mutex mutex_;
 	VehicleModelSlotRegistry slots_;
 	std::array<Entry, CustomModelCount> entries_ {};
+	std::array<VehicleModelBinding, VehicleModelBindingVehicleIdLimit> vehicle_bindings_ {};
+	std::uint64_t next_binding_generation_ = 1;
 };
 } // namespace custom_vehicle::native
