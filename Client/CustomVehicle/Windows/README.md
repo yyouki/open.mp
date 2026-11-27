@@ -211,6 +211,56 @@ the concrete GTA callbacks, connected them to `Gta::on_tick`, or connected the
 controller to the incoming RPC 164 path. The hook still forwards RPC 164
 unchanged, and custom vehicles are not yet spawned or rendered.
 
+### Native vehicle lifecycle C ABI
+
+The shared core exposes an opaque `custom_vehicle_native_vehicle_model_backend`
+through `Shared/include/custom_vehicle/bridge.h`. It coordinates model-info
+creation, native asset streaming, vehicle clump attachment, vehicle-use leases,
+retirement, and retryable teardown without exposing C++ classes or GTA pointers
+across the C ABI.
+
+The `request_or_poll_vehicle_assets` callback returns one of three named values:
+
+- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING` (1): a GTA streaming request is
+  pending. Return to the game loop; call
+  `custom_vehicle_native_vehicle_model_backend_activate` again on a later
+  game tick to poll.
+- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY` (2): streaming is complete; the
+  controller proceeds to the vehicle-specific clump-attachment callback.
+- `CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_FAILED` (0): roll back all completed
+  stages. The callback itself must not leave partial resources behind.
+
+The controller distinguishes two pending states:
+`CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING` (3) means the server manifest's
+DFF/TXD files have not yet passed local integrity checks and server
+acknowledgement. `CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING` (5)
+means those files are ready but GTA's own streaming is still in progress.
+Only `CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED` (1) or
+`CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE` (2) indicates that the custom
+model may be assigned to a vehicle. A pending model remains registered but is
+not active and must not be used for spawn/replacement.
+
+Callbacks execute synchronously while lifecycle state is locked. They must not
+re-enter the backend. Asset polling must not block the game thread. Retain one
+vehicle-use lease for every live vehicle that refers to the custom model and
+release it on vehicle removal. Retirement stops new leases; if old vehicles
+remain, the API returns `CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE` (-9) until all
+leases are released.
+
+The destroy callback receives the last fully completed resource stage:
+`RESERVED=0`, `MODEL_INFO_CREATED=1`, `ASSETS_REQUESTED=2`,
+`ASSETS_LOADED=3`, or `CLUMP_ATTACHED=4`. It must be idempotent and clear
+all resources through that stage, including pending streaming requests,
+model-info table entries, RenderWare clumps, `CVehicleStructure` allocations,
+TXD/animation references, and related native pointers. It may report success
+only after the native model-info slot is empty. Failed cleanup keeps the slot
+retired and reserved for an explicit retry; the slot must never be reused early.
+
+These are lifecycle contracts only. The Windows adapter has not yet supplied
+the concrete GTA operations, connected them to `Gta::on_tick`, or connected
+the controller to the incoming RPC 164 path. The hook still forwards RPC 164
+unchanged, and this milestone does not spawn or render a custom vehicle.
+
 ### Reference lifecycle from MTA (design evidence only)
 
 The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
