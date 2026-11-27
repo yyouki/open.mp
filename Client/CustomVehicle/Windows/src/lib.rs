@@ -39,6 +39,15 @@ const RPC_REQUEST_DFF: u8 = 223;
 const RPC_REQUEST_TXD: u8 = 224;
 const RPC_FINISH_DOWNLOAD: u8 = 226;
 const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 221;
+const RPC_INIT_GAME: u8 = 139;
+
+// SA-MP's RakNet fork packet identifiers (from its bundled PacketEnumerations.h).
+const PACKET_CONNECTION_ATTEMPT_FAILED: u8 = 29;
+const PACKET_NO_FREE_INCOMING_CONNECTIONS: u8 = 31;
+const PACKET_DISCONNECTION_NOTIFICATION: u8 = 32;
+const PACKET_CONNECTION_LOST: u8 = 33;
+const PACKET_CONNECTION_BANNED: u8 = 36;
+const PACKET_INVALID_PASSWORD: u8 = 37;
 
 const BRIDGE_ABI_VERSION: u32 = 1;
 const MAX_RPC_BYTES: usize = 1024 * 1024;
@@ -144,11 +153,52 @@ enum WorkerMessage<T> {
     Shutdown,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConnectionEvent {
+    GameInitialized,
+    Disconnected,
+}
+
+fn supports_network_version(version: SampClientSdkClientVersion) -> bool {
+    matches!(
+        version,
+        SampClientSdkClientVersion::R1
+            | SampClientSdkClientVersion::R2
+            | SampClientSdkClientVersion::R3_1
+            | SampClientSdkClientVersion::R4_2
+            | SampClientSdkClientVersion::R5_1
+            | SampClientSdkClientVersion::Dl
+    )
+}
+
+fn has_native_game_state(version: SampClientSdkClientVersion) -> bool {
+    matches!(
+        version,
+        SampClientSdkClientVersion::R1
+            | SampClientSdkClientVersion::R3_1
+            | SampClientSdkClientVersion::R5_1
+            | SampClientSdkClientVersion::Dl
+    )
+}
+
+fn is_connection_termination_packet(packet_id: u8) -> bool {
+    matches!(
+        packet_id,
+        PACKET_CONNECTION_ATTEMPT_FAILED
+            | PACKET_NO_FREE_INCOMING_CONNECTIONS
+            | PACKET_DISCONNECTION_NOTIFICATION
+            | PACKET_CONNECTION_LOST
+            | PACKET_CONNECTION_BANNED
+            | PACKET_INVALID_PASSWORD
+    )
+}
+
 struct BridgeContext {
     adapter: AtomicPtr<CustomVehicleAdapter>,
     hooks_ready: AtomicBool,
     outgoing: Sender<WorkerMessage<OutgoingRpc>>,
     downloads: Sender<WorkerMessage<DownloadJob>>,
+    connection_events: Sender<ConnectionEvent>,
     cache_root: PathBuf,
     stopping: AtomicBool,
 }
@@ -234,26 +284,24 @@ fn initialize() {
         Err(_) => return,
     };
 
-    // The pinned ASI host provides direct network bridges for these four client profiles.
+    // All six recognized SA-MP profiles expose RakClient packet/RPC hooks.
+    // R2 and R4-2 use InitGame RPC observation because they lack direct game-state layouts.
     // Custom vehicles use RPC 220-227, leaving native DL artwork traffic untouched.
-    match samp.version() {
-        Ok(
-            SampClientSdkClientVersion::R1
-            | SampClientSdkClientVersion::R3_1
-            | SampClientSdkClientVersion::R5_1
-            | SampClientSdkClientVersion::Dl,
-        ) => {}
+    let version = match samp.version() {
+        Ok(version) if supports_network_version(version) => version,
         _ => return,
-    }
+    };
 
     let cache_root = cache_root();
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
     let (download_tx, download_rx) = mpsc::channel();
+    let (connection_events_tx, connection_events_rx) = mpsc::channel();
     let context = Arc::new(BridgeContext {
         adapter: AtomicPtr::new(ptr::null_mut()),
         hooks_ready: AtomicBool::new(false),
         outgoing: outgoing_tx,
         downloads: download_tx,
+        connection_events: connection_events_tx,
         cache_root,
         stopping: AtomicBool::new(false),
     });
@@ -264,7 +312,15 @@ fn initialize() {
     let (outgoing_ready_tx, outgoing_ready_rx) = mpsc::sync_channel(1);
     match thread::Builder::new()
         .name("openmp-custom-vehicle-rpc-send".into())
-        .spawn(move || outgoing_worker(outgoing_context, outgoing_rx, outgoing_ready_tx))
+        .spawn(move || {
+            outgoing_worker(
+                outgoing_context,
+                outgoing_rx,
+                connection_events_rx,
+                version,
+                outgoing_ready_tx,
+            )
+        })
     {
         Ok(worker) => workers.push(worker),
         Err(_) => return,
@@ -305,20 +361,33 @@ fn initialize() {
     }
     context.adapter.store(adapter, Ordering::Release);
 
-    let callback_context = Arc::clone(&context);
-    let subscriptions = match samp.net().on_rpc(
+    let rpc_context = Arc::clone(&context);
+    let rpc_subscription = match samp.net().on_rpc(
         SampClientSdkDirection::Incoming,
-        move |event| handle_server_rpc(&callback_context, event),
+        move |event| handle_server_rpc(&rpc_context, event),
     ) {
-        Ok(subscription) => vec![subscription],
+        Ok(subscription) => subscription,
         Err(_) => {
             cleanup_context(&context, Vec::new(), workers);
             return;
         }
     };
 
-    // The sender worker begins RPC 221 only after the selected client profile reports
-    // an initialized connection state and this incoming hook is ready to receive RPC 222.
+    let packet_context = Arc::clone(&context);
+    let packet_subscription = match samp.net().on_packet(
+        SampClientSdkDirection::Incoming,
+        move |event| handle_server_packet(&packet_context, event),
+    ) {
+        Ok(subscription) => subscription,
+        Err(_) => {
+            cleanup_context(&context, vec![rpc_subscription], workers);
+            return;
+        }
+    };
+    let subscriptions = vec![rpc_subscription, packet_subscription];
+
+    // The sender waits for InitGame (or a native game-state fallback on full profiles)
+    // and both incoming hooks are installed before capability negotiation can begin.
     context.hooks_ready.store(true, Ordering::Release);
 
     let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
@@ -341,6 +410,12 @@ fn handle_server_rpc(
     event: &mut samp_client_sdk::events::Event<'_>,
 ) -> SampClientSdkHookAction {
     let rpc_id = event.id();
+
+    // RPC 139 (InitGame) is sent after the server has completed the SA-MP join handshake.
+    // It is a lifecycle signal only; the original client still receives and parses it.
+    if rpc_id == RPC_INIT_GAME {
+        let _ = context.connection_events.send(ConnectionEvent::GameInitialized);
+    }
 
     // Preserve native SA-MP and 0.3.DL RPCs exactly as received. Do not copy or
     // consume their bitstreams; the original game parser owns those packets.
@@ -384,6 +459,18 @@ fn handle_server_rpc(
     };
 
     SampClientSdkHookAction::Block
+}
+
+fn handle_server_packet(
+    context: &BridgeContext,
+    event: &mut samp_client_sdk::events::Event<'_>,
+) -> SampClientSdkHookAction {
+    if is_connection_termination_packet(event.id()) {
+        let _ = context.connection_events.send(ConnectionEvent::Disconnected);
+    }
+
+    // Connection-control packets remain owned by the original RakClient parser.
+    SampClientSdkHookAction::Continue
 }
 
 unsafe extern "C" fn send_rpc_callback(
@@ -477,6 +564,8 @@ unsafe extern "C" fn begin_download_callback(
 fn outgoing_worker(
     context: Arc<BridgeContext>,
     receiver: Receiver<WorkerMessage<OutgoingRpc>>,
+    connection_events: Receiver<ConnectionEvent>,
+    version: SampClientSdkClientVersion,
     ready: mpsc::SyncSender<bool>,
 ) {
     let samp = match Samp::connect(Duration::from_secs(30)) {
@@ -487,24 +576,17 @@ fn outgoing_worker(
         }
     };
 
-    let _version = match samp.version() {
-        Ok(
-            version @ (
-                SampClientSdkClientVersion::R1
-                | SampClientSdkClientVersion::R3_1
-                | SampClientSdkClientVersion::R5_1
-                | SampClientSdkClientVersion::Dl
-            ),
-        ) => version,
-        _ => {
-            let _ = ready.send(false);
-            return;
-        }
-    };
+    if samp.version().ok() != Some(version) || !supports_network_version(version) {
+        let _ = ready.send(false);
+        return;
+    }
     let _ = ready.send(true);
 
     let net = samp.net();
+    let native_game_state = has_native_game_state(version);
     let mut session_active = false;
+    let mut init_game_seen = false;
+    let mut disconnect_latched = false;
 
     loop {
         match receiver.recv_timeout(Duration::from_millis(100)) {
@@ -540,13 +622,35 @@ fn outgoing_worker(
             Err(RecvTimeoutError::Timeout) => {}
         }
 
+        while let Ok(event) = connection_events.try_recv() {
+            match event {
+                ConnectionEvent::GameInitialized => {
+                    init_game_seen = true;
+                    disconnect_latched = false;
+                }
+                ConnectionEvent::Disconnected => {
+                    init_game_seen = false;
+                    disconnect_latched = true;
+                }
+            }
+        }
+
         if context.stopping.load(Ordering::Acquire) || !context.hooks_ready.load(Ordering::Acquire) {
             continue;
         }
 
-        // Every enabled SDK profile reports game state 14 only after the local player is connected.
-        // State 15 is the pre-spawn/AwaitingJoin phase on some revisions and is intentionally excluded.
-        let connected = samp.game_state().ok() == Some(14);
+        // Full native profiles additionally wait for state 14 (not pre-spawn state 15).
+        // R2/R4-2 expose network hooks only, so their lifecycle is driven by InitGame/RakNet events.
+        // The state fallback also supports loading this ASI after joining on full profiles.
+        let connected = if disconnect_latched {
+            false
+        } else if native_game_state {
+            samp.game_state()
+                .map(|state| state == 14)
+                .unwrap_or(init_game_seen)
+        } else {
+            init_game_seen
+        };
 
         let adapter = context.adapter();
         if adapter.is_null() {
@@ -918,8 +1022,8 @@ pub extern "system" fn CustomVehicleWindows_CopyModel(
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_path, crc32, is_custom_vehicle_rpc, read_verified_cache, store_verified_cache,
-        DownloadJob,
+        cache_path, crc32, is_connection_termination_packet, is_custom_vehicle_rpc,
+        read_verified_cache, store_verified_cache, DownloadJob, SampClientSdkClientVersion,
     };
     use std::fs;
 
@@ -934,6 +1038,48 @@ mod tests {
                 !is_custom_vehicle_rpc(rpc_id),
                 "native or unrelated RPC {rpc_id} was classified as a vehicle extension"
             );
+        }
+    }
+
+    #[test]
+    fn network_hook_support_covers_all_recognized_sa_mp_profiles() {
+        for version in [
+            SampClientSdkClientVersion::R1,
+            SampClientSdkClientVersion::R2,
+            SampClientSdkClientVersion::R3_1,
+            SampClientSdkClientVersion::R4_2,
+            SampClientSdkClientVersion::R5_1,
+            SampClientSdkClientVersion::Dl,
+        ] {
+            assert!(super::supports_network_version(version));
+        }
+    }
+
+    #[test]
+    fn only_profiles_with_verified_native_state_layouts_use_state_14_gate() {
+        for version in [
+            SampClientSdkClientVersion::R1,
+            SampClientSdkClientVersion::R3_1,
+            SampClientSdkClientVersion::R5_1,
+            SampClientSdkClientVersion::Dl,
+        ] {
+            assert!(super::has_native_game_state(version));
+        }
+        for version in [
+            SampClientSdkClientVersion::R2,
+            SampClientSdkClientVersion::R4_2,
+        ] {
+            assert!(!super::has_native_game_state(version));
+        }
+    }
+
+    #[test]
+    fn sa_mp_connection_failure_and_disconnect_packets_are_recognized() {
+        for packet_id in [29, 31, 32, 33, 36, 37] {
+            assert!(is_connection_termination_packet(packet_id));
+        }
+        for packet_id in [16, 17, 34, 42, 43, 44, 207, 220] {
+            assert!(!is_connection_termination_packet(packet_id));
         }
     }
 
