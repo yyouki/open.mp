@@ -243,10 +243,14 @@ VehicleModelBindingResult VehicleModelLifecycleController::bindVehicle(
 	}
 
 	std::int32_t retained_slot = -1;
-	if (!slots_.retain(custom_model_id, retained_slot)
-		|| retained_slot != entry.native_model_slot)
+	if (!slots_.retain(custom_model_id, retained_slot))
 	{
-		// A failure to acquire the expected lease is not recoverable by guessing.
+		return VehicleModelBindingResult::ModelNotActive;
+	}
+	if (retained_slot != entry.native_model_slot)
+	{
+		// Roll back an unexpected slot mismatch instead of leaking a lease.
+		(void)slots_.releaseUse(custom_model_id, retained_slot);
 		return VehicleModelBindingResult::ModelNotActive;
 	}
 
