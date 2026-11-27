@@ -173,17 +173,28 @@ The slot registry and lifecycle controller are groundwork for the native
 backend, not GTA registration itself. The controller only sequences callbacks;
 it does not contain a concrete `CVehicleModelInfo` allocator, RenderWare DFF/TXD
 loader, `SetClump` call, executable detour, or vehicle-pool mutation. The
-Windows ASI exposes RPC 164 decode and base-model rewrite APIs for a future
-dispatcher, but its incoming RPC hook still forwards native RPC 164 unchanged.
-No custom vehicle is spawned or rendered by this milestone.
+Windows x86 ASI now intercepts the incoming stream-in/remove pair: RPC 164
+stock vehicles (400-611) continue unchanged; a registered custom model is
+validated, rewritten to its compatible base ID, and copied into a bounded
+queue. Unknown custom IDs and queue failures are blocked so an invalid external
+ID never reaches stock `CreateVehicle`. RPC 165 cancels an entry that has not
+yet been popped. `CustomVehicleWindows_PopPendingVehicle` exposes copied
+records for a future game-thread consumer.
+
+This is only the network-to-game-thread handoff. The current code lets the stock
+client create the compatible **base vehicle**, but there is no queue consumer,
+native model-info allocator, DFF/TXD RenderWare loader, clump attachment, or
+base-to-custom vehicle swap yet. Therefore the actual custom vehicle is not
+rendered by this milestone.
 
 The next native integration must be implemented as one guarded path:
 
 1. Identify the exact GTA and SA-MP executable profile and validate all hook
    signatures before installing any native detour.
-2. Intercept RPC 164 before the stock handler rejects IDs outside 400-611.
-   Preserve ordinary vehicles byte-for-byte and handle unknown custom IDs
-   without forwarding malformed data to the game.
+2. Connect the existing RPC 164/165 handoff queue to a verified GTA
+   game-thread consumer. Preserve ordinary vehicles byte-for-byte, ensure
+   removals cancel pending work, and verify the corresponding vehicle still
+   exists before applying any native mutation.
 3. Avoid passing an external ID directly to the stock `CGame::CreateVehicle`
    wrapper: its `model - 400` keep-loaded array access is not range-checked.
    Construct the vehicle through a verified base-model path, then associate
