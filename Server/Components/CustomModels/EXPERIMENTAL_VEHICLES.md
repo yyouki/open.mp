@@ -70,6 +70,13 @@ bytes. The server rejects a vehicle model during registration if either its
 encoded DFF or TXD URL exceeds that limit, and rechecks the limit before sending
 a URL response.
 
+The server tracks one pending vehicle asset transfer per opted-in player.
+Retries for the same asset may receive a fresh URL, but a different asset waits
+until the current transfer is completed. RPC 226 is acknowledged only when a
+vehicle transfer is pending; unsolicited or duplicate completion messages are
+ignored. Once a URL has been issued, its completion can still be acknowledged
+even if the local HTTP endpoint stops before the client finishes downloading.
+
 The native SA-MP/0.3.DL artwork RPCs remain unchanged: 179 carries native
 skin/object model records, 181/182 request their DFF/TXD files, 183 carries
 their URLs, and 184/185 complete the native artwork transfer. The custom
