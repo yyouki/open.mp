@@ -79,8 +79,9 @@ The first implementation is in [Shared](Shared/). It currently provides:
 - The server keeps one pending vehicle asset request per opted-in player.
   A retry may request a new URL for the same type/checksum; a different asset
   advances only after RPC 227 acknowledges the matching completion. RPC 226
-  includes the asset type and CRC32 checksum so the server can reject a
-  mismatched or unsolicited completion.
+  carries five bytes: asset type (`u8`) plus CRC32 checksum (`u32`,
+  little-endian), allowing the server to reject mismatched or unsolicited
+  completions.
 - RPC isolation: only extension IDs 220-227 are consumed; native RPC 179 and
   181-189 are forwarded to the original SA-MP/0.3.DL client unchanged.
 - Explicit connection teardown and retry handling for queued or interrupted
