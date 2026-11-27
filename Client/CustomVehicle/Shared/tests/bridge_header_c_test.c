@@ -22,6 +22,20 @@ typedef char custom_vehicle_model_request_dff_checksum_must_be_at_24[
 	offsetof(custom_vehicle_model_request_v1, dff_checksum) == 24 ? 1 : -1];
 typedef char custom_vehicle_model_request_time_on_must_be_at_40[
 	offsetof(custom_vehicle_model_request_v1, time_on) == 40 ? 1 : -1];
+typedef char custom_vehicle_native_asset_pending_must_be_1[
+	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING == 1 ? 1 : -1];
+typedef char custom_vehicle_native_asset_ready_must_be_2[
+	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_READY == 2 ? 1 : -1];
+typedef char custom_vehicle_native_stage_reserved_must_be_0[
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_RESERVED == 0 ? 1 : -1];
+typedef char custom_vehicle_native_stage_model_info_must_be_1[
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_MODEL_INFO_CREATED == 1 ? 1 : -1];
+typedef char custom_vehicle_native_stage_assets_requested_must_be_2[
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_ASSETS_REQUESTED == 2 ? 1 : -1];
+typedef char custom_vehicle_native_stage_assets_loaded_must_be_3[
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_ASSETS_LOADED == 3 ? 1 : -1];
+typedef char custom_vehicle_native_stage_clump_attached_must_be_4[
+	CUSTOM_VEHICLE_NATIVE_MODEL_STAGE_CLUMP_ATTACHED == 4 ? 1 : -1];
 
 static int32_t send_rpc(
 	void* user_data,
