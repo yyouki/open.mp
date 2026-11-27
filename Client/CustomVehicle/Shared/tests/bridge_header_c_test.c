@@ -80,6 +80,17 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)CustomVehicleWindows_CopyModel;
 	(void)CustomVehicleWindows_DecodeStreamInVehicle;
 	(void)CustomVehicleWindows_IsModelReady;
+	(void)custom_vehicle_native_model_slot_registry_create;
+	(void)custom_vehicle_native_model_slot_registry_destroy;
+	(void)custom_vehicle_native_model_slot_registry_has_valid_range;
+	(void)custom_vehicle_native_model_slot_registry_size;
+	(void)custom_vehicle_native_model_slot_registry_reserve;
+	(void)custom_vehicle_native_model_slot_registry_find;
+	(void)custom_vehicle_native_model_slot_registry_retain;
+	(void)custom_vehicle_native_model_slot_registry_release_use;
+	(void)custom_vehicle_native_model_slot_registry_retire;
+	(void)custom_vehicle_native_model_slot_registry_can_release;
+	(void)custom_vehicle_native_model_slot_registry_release;
 	{
 		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
 		(void)stream;
