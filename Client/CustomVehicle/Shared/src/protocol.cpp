@@ -169,6 +169,60 @@ bool decodeStreamInVehicle(
 	return true;
 }
 
+bool rewriteStreamInVehicleToBaseModel(
+	const std::uint8_t* data,
+	std::size_t size,
+	std::int32_t expectedCustomModelId,
+	std::int32_t baseModelId,
+	std::uint8_t* output,
+	std::size_t outputCapacity,
+	std::size_t& bytesWritten,
+	DecodeError& error) noexcept
+{
+	bytesWritten = 0;
+	error = DecodeError::None;
+
+	if (data == nullptr)
+	{
+		error = DecodeError::NullBuffer;
+		return false;
+	}
+	if (output == nullptr || outputCapacity < StreamInVehicleWireSize)
+	{
+		error = DecodeError::InvalidOutputBuffer;
+		return false;
+	}
+	if (!isCustomVehicleModelId(expectedCustomModelId)
+		|| !isSupportedVehicleBaseId(baseModelId))
+	{
+		error = DecodeError::InvalidVehicleModel;
+		return false;
+	}
+
+	StreamInVehicleData decoded;
+	if (!decodeStreamInVehicle(data, size, decoded, error))
+	{
+		return false;
+	}
+	if (decoded.modelId != expectedCustomModelId)
+	{
+		error = DecodeError::InvalidVehicleModel;
+		return false;
+	}
+
+	// Build locally so failures never partially alter the caller's output and
+	// in-place rewriting is safe when input and output point at the same buffer.
+	std::array<std::uint8_t, StreamInVehicleWireSize> rewritten {};
+	std::memcpy(rewritten.data(), data, rewritten.size());
+	writeU32LittleEndian(
+		rewritten.data() + StreamInVehicleModelFieldOffset,
+		static_cast<std::uint32_t>(baseModelId));
+
+	std::memcpy(output, rewritten.data(), rewritten.size());
+	bytesWritten = rewritten.size();
+	return true;
+}
+
 bool isValidHttpUrl(std::string_view url) noexcept
 {
 	constexpr std::string_view http = "http://";
