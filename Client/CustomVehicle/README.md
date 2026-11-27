@@ -105,6 +105,14 @@ The first implementation is in [Shared](Shared/). It currently provides:
   slot reuse until a model is retired, all vehicles release their leases, and
   the native table entry is confirmed empty. C ABI wrappers keep C++ mutex,
   vector, and class internals outside the Rust/ASI ABI.
+- A transactional native model lifecycle controller in
+  `native_vehicle_model_backend.hpp`. It sequences model-info creation,
+  DFF/TXD loading, clump attachment, vehicle-use leases, and reverse cleanup.
+  Failed activation rolls back completed stages; failed teardown leaves the
+  slot retired and reserved for an explicit cleanup retry. The controller
+  invokes platform callbacks synchronously on its caller's thread and contains
+  no GTA addresses or game pointers. A Windows backend must call it only from
+  the verified game thread and supply the actual GTA operations.
 - Android JNI exposes the same RPC 164 decoder to Java hosts; the returned
   status distinguishes native vehicles, ready custom vehicles, and custom models
   whose assets are still pending. Float fields are passed as IEEE-754 bit patterns.
@@ -152,11 +160,13 @@ multiplayer game client or its native model backend.
 
 ## Native backend checkpoint
 
-The model-slot registry is groundwork for the native backend, not vehicle
-registration itself. It does not create a `CVehicleModelInfo`, load a DFF/TXD
-into RenderWare, call `SetClump`, patch GTA/SA-MP code, alter RPC 164, or spawn
-a vehicle. The Windows adapter currently exposes an RPC 164 decoder, but its
-incoming RPC hook still forwards native RPC 164 unchanged.
+The slot registry and lifecycle controller are groundwork for the native
+backend, not GTA registration itself. The controller only sequences callbacks;
+it does not contain a concrete `CVehicleModelInfo` allocator, RenderWare DFF/TXD
+loader, `SetClump` call, executable detour, or vehicle-pool mutation. The
+Windows ASI exposes RPC 164 decode and base-model rewrite APIs for a future
+dispatcher, but its incoming RPC hook still forwards native RPC 164 unchanged.
+No custom vehicle is spawned or rendered by this milestone.
 
 The next native integration must be implemented as one guarded path:
 
