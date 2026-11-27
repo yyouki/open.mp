@@ -538,6 +538,8 @@ private:
 	IPlayer& player;
 	uint32_t skin_ = 0;
 	std::pair<ModelDownloadType, uint32_t> requestedFile_;
+	bool requestedVehicleFile_ = false;
+	mutable bool downloadUrlRedirected_ = false;
 	bool clientInitialized_ = false;
 
 public:
@@ -567,9 +569,16 @@ public:
 		skin_ = skinModel;
 	}
 
-	void setRequestedFile(ModelDownloadType type, uint32_t checksum)
+	void setRequestedFile(ModelDownloadType type, uint32_t checksum, bool vehicle = false)
 	{
 		requestedFile_ = { type, checksum };
+		requestedVehicleFile_ = vehicle;
+		downloadUrlRedirected_ = false;
+	}
+
+	bool wasDownloadUrlRedirected() const
+	{
+		return downloadUrlRedirected_;
 	}
 
 	virtual bool sendDownloadUrl(StringView url) const override
@@ -578,8 +587,42 @@ public:
 		{
 			return false;
 		}
-		NetCode::RPC::ModelUrl downloadLink(url, static_cast<uint8_t>(requestedFile_.first), requestedFile_.second);
-		PacketHelper::send(downloadLink, player);
+
+		if (requestedVehicleFile_)
+		{
+			const String redirectUrl(url.data(), url.size());
+			const bool validScheme = redirectUrl.compare(0, 7, "http://") == 0
+				|| redirectUrl.compare(0, 8, "https://") == 0;
+			if (!validScheme || redirectUrl.size() > std::numeric_limits<uint8_t>::max()
+				|| !std::regex_match(redirectUrl, rUri) || downloadUrlRedirected_)
+			{
+				return false;
+			}
+
+			auto* vehicleData = queryExtension<IPlayerCustomVehicleModelsData>(player);
+			if (vehicleData == nullptr || !vehicleData->supportsCustomVehicleModels()
+				|| !vehicleData->beginPendingDownload(requestedFile_.first, requestedFile_.second))
+			{
+				return false;
+			}
+
+			// Vehicle URLs belong to the negotiated extension channel (RPC 225), not native DL RPC 183.
+			NetCode::RPC::VehicleModelUrl downloadLink(
+				redirectUrl,
+				static_cast<uint8_t>(requestedFile_.first),
+				requestedFile_.second);
+			PacketHelper::send(downloadLink, player);
+		}
+		else
+		{
+			NetCode::RPC::ModelUrl downloadLink(
+				url,
+				static_cast<uint8_t>(requestedFile_.first),
+				requestedFile_.second);
+			PacketHelper::send(downloadLink, player);
+		}
+
+		downloadUrlRedirected_ = true;
 		return true;
 	}
 
@@ -587,6 +630,8 @@ public:
 	{
 		skin_ = 0;
 		requestedFile_ = { ModelDownloadType::NONE, 0 };
+		requestedVehicleFile_ = false;
+		downloadUrlRedirected_ = false;
 		clientInitialized_ = false;
 	}
 
@@ -643,7 +688,7 @@ private:
 			}
 		}
 
-		bool beginPendingDownload(ModelDownloadType type, uint32_t checksum)
+		bool beginPendingDownload(ModelDownloadType type, uint32_t checksum) override
 		{
 			// Retries may request a fresh URL for the same asset, but a different
 			// asset must wait until the current transfer has been acknowledged.
@@ -909,14 +954,16 @@ private:
 			PlayerCustomModelsData* data = queryExtension<PlayerCustomModelsData>(peer);
 			if (data != nullptr)
 			{
-				data->setRequestedFile(type, checksum);
+				data->setRequestedFile(type, checksum, true);
 			}
-			if (self.hasDownloadEndpoint()
+			const bool allowDefaultUrl = self.hasDownloadEndpoint()
 				&& self.eventDispatcher.stopAtFalse(
 					[&peer, type, checksum](PlayerModelsEventHandler* handler)
 					{
 						return handler->onPlayerRequestDownload(peer, type, checksum);
-					}))
+					});
+			const bool redirectedUrl = data != nullptr && data->wasDownloadUrlRedirected();
+			if (allowDefaultUrl && !redirectedUrl)
 			{
 				const auto& file = type == ModelDownloadType::DFF ? model->getDFF() : model->getTXD();
 				const StringView baseUrl = self.getWebUrl();
