@@ -10,6 +10,35 @@ extern "C" {
 #define CUSTOM_VEHICLE_BRIDGE_ABI_VERSION 1u
 
 typedef struct custom_vehicle_adapter custom_vehicle_adapter;
+typedef struct custom_vehicle_native_model_slot_registry custom_vehicle_native_model_slot_registry;
+
+/* Non-zero means that the GTA model-info table entry is currently empty. */
+typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
+	void* user_data,
+	int32_t model_slot);
+
+enum
+{
+	CUSTOM_VEHICLE_MODEL_SLOT_RESERVED = 1,
+	CUSTOM_VEHICLE_MODEL_SLOT_ALREADY_RESERVED = 2,
+	CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT = -1,
+	CUSTOM_VEHICLE_MODEL_SLOT_INVALID_CUSTOM_ID = -2,
+	CUSTOM_VEHICLE_MODEL_SLOT_INVALID_RANGE = -3,
+	CUSTOM_VEHICLE_MODEL_SLOT_NO_FREE_SLOT = -4,
+	CUSTOM_VEHICLE_MODEL_SLOT_RETIRING = -5,
+	CUSTOM_VEHICLE_MODEL_SLOT_MISSING_VACANCY_QUERY = -6
+};
+
+enum
+{
+	CUSTOM_VEHICLE_MODEL_SLOT_RELEASED = 1,
+	CUSTOM_VEHICLE_MODEL_SLOT_NOT_FOUND = 0,
+	CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISMATCH = -1,
+	CUSTOM_VEHICLE_MODEL_SLOT_NOT_RETIRING = -2,
+	CUSTOM_VEHICLE_MODEL_SLOT_IN_USE = -3,
+	CUSTOM_VEHICLE_MODEL_SLOT_STILL_OCCUPIED = -4,
+	CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY = -5
+};
 
 typedef int32_t (*custom_vehicle_send_rpc_fn)(
 	void* user_data,
@@ -122,6 +151,53 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 	const uint8_t* payload,
 	size_t payload_size,
 	custom_vehicle_stream_in_vehicle_v1* output);
+
+/*
+ * Native vehicle model-slot registry.
+ *
+ * The default slot range is 612-19999, avoiding stock vehicle IDs and staying
+ * inside GTA SA's original 20,000-entry model-info table. The caller owns the
+ * native model-info pointers and must clear all resources before release.
+ */
+custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_registry_create(
+	int32_t first_slot,
+	int32_t last_slot);
+void custom_vehicle_native_model_slot_registry_destroy(
+	custom_vehicle_native_model_slot_registry* registry);
+int32_t custom_vehicle_native_model_slot_registry_has_valid_range(
+	const custom_vehicle_native_model_slot_registry* registry);
+size_t custom_vehicle_native_model_slot_registry_size(
+	const custom_vehicle_native_model_slot_registry* registry);
+int32_t custom_vehicle_native_model_slot_registry_reserve(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
+	void* user_data,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_model_slot_registry_find(
+	const custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_model_slot_registry_retain(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_model_slot_registry_release_use(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t native_model_slot);
+int32_t custom_vehicle_native_model_slot_registry_retire(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id);
+int32_t custom_vehicle_native_model_slot_registry_can_release(
+	const custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id);
+int32_t custom_vehicle_native_model_slot_registry_release(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t expected_native_model_slot,
+	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
+	void* user_data);
 
 #ifdef __cplusplus
 }
