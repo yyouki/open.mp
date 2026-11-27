@@ -118,8 +118,9 @@ bool decodeStreamInVehicle(
 	}
 
 	StreamInVehicleData decoded;
-	decoded.vehicleId = static_cast<std::uint16_t>(data[0])
-		| static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[1]) << 8);
+	decoded.vehicleId = static_cast<std::uint16_t>(
+		static_cast<std::uint32_t>(data[0])
+		| (static_cast<std::uint32_t>(data[1]) << 8));
 	decoded.modelId = readI32LittleEndian(data + 2);
 	if (!((decoded.modelId >= 400 && decoded.modelId <= 611)
 		|| isCustomVehicleModelId(decoded.modelId)))
