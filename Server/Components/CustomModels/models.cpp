@@ -30,6 +30,7 @@ static auto rAddVehicleModel = std::regex(R"(AddVehicleModel\s*\(\s*(\d+)\s*,\s*
 static auto rUri = std::regex(R"([A-Za-z0-9-._~:/?#\[\]@!$&'()*+,;=]+)"); // very loose interpretation of rfc3986
 
 // Keep server-side vehicle limits aligned with the Windows and portable clients.
+// This is a per-file cap; DFF and TXD are downloaded and validated independently.
 static constexpr size_t MAX_CUSTOM_VEHICLE_ASSET_BYTES = 512u * 1024u * 1024u;
 
 using namespace Impl;
