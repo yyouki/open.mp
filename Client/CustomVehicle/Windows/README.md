@@ -292,11 +292,19 @@ working custom-vehicle renderer.
 
 The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
 
-- `CModelInfoSA::MakeVehicleAutomobile` allocates a vehicle model-info record,
-  copies the `0x308` vehicle interface from a compatible base vehicle, resets
-  the reference count and RW/visual pointers, sets native sentinel fields, and
-  copies the base model's streaming archive metadata to the new ID. The custom
-  model-info record therefore exists before the DFF is read.
+- `CModelInfoSA::MakeVehicleAutomobile` allocates a vehicle model-info record
+  with `new CVehicleModelInfoSAInterface`, copies the `0x308` vehicle interface
+  from a compatible base vehicle, resets the reference count and RW/visual
+  pointers, sets native sentinel fields, and copies the base model's streaming
+  archive metadata to the new ID. It writes the pointer into the model-info table
+  directly rather than calling `CModelInfo::AddVehicleModel`. This is important:
+  the stock `CStore<CVehicleModelInfo>` has a fixed 212-record capacity, while
+  MTA's dynamic interface uses separately owned heap storage. The strategy avoids
+  appending dynamic records to that unchecked fixed store, but it still requires
+  exact interface size/layout, a free model-info table slot, initialized
+  streaming-info metadata, and explicit ownership/deallocation. It is evidence
+  for a possible allocator design, not permission to copy raw bytes or addresses
+  into an unverified executable.
 - `CClientDFF::GetLoadedClump` requests the model and then passes the vehicle
   model-info ID into `CRenderWareSA::ReadDFF`, enabling embedded vehicle
   collision loading. Before `RpClumpStreamRead`, `ReadDFF` clears any prior
@@ -321,9 +329,14 @@ The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
 - `CRenderWareSA::ReplaceModel` releases the previous vehicle visual structure
   before calling the vehicle `SetClump` routine again. It also balances TXD
   and animation-block references after replacing the clump.
-- `CModelInfoSA::DeallocateModel` removes the model from streaming, resets
-  detached car-part references, deletes the vehicle interface, clears the
-  model-info table entry, and resets the streaming-info record.
+- `CModelInfoSA::DeallocateModel` first calls its model removal path, then
+  resets detached car-part references that retain the source model ID, deletes
+  the typed vehicle interface, clears the model-info pointer-table entry, and
+  resets the streaming-info record. The removal path balances the model-info
+  reference and only asks GTA streaming to remove the model when no references
+  remain. The backend must also clear its own model metadata, model bindings,
+  pending requests, TXD/animation references and `CVehicleStructure` resources
+  before an internal slot can be reused.
 
 Pinned references:
 [model-info allocation and deallocation](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
