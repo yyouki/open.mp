@@ -15,6 +15,7 @@ use std::{
     ffi::c_void,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
+    os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
     slice,
@@ -29,10 +30,16 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{HINSTANCE, TRUE},
     System::{
-        LibraryLoader::DisableThreadLibraryCalls,
+        LibraryLoader::{DisableThreadLibraryCalls, GetModuleHandleA, LoadLibraryW},
         SystemServices::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH},
     },
 };
+
+// The SDK host is embedded into this ASI and extracted to the user's app-data cache.
+// Its module name must remain samp_client_sdk.asi because the pinned SDK resolver uses it.
+static EMBEDDED_SDK_HOST: &[u8] = include_bytes!(env!("CUSTOM_VEHICLE_HOST_DLL_PATH"));
+static SDK_HOST_LOAD_LOCK: Mutex<()> = Mutex::new(());
+static SDK_HOST_MODULE: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
 use windows_sys::core::BOOL;
 
 const RPC_REQUEST_DFF: u8 = 223;
@@ -278,6 +285,12 @@ unsafe extern "system" fn DllMain(
 
 fn initialize() {
     let _guard = InitializationGuard;
+
+    // Load the embedded SDK host from a worker thread, never while Windows holds
+    // the loader lock inside this plugin's DllMain.
+    if !ensure_sdk_host_loaded() {
+        return;
+    }
 
     let samp = match Samp::connect(Duration::from_secs(30)) {
         Ok(samp) => samp,
@@ -894,6 +907,113 @@ fn cache_root() -> PathBuf {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(std::env::temp_dir);
     base.join("open.mp").join("custom-vehicle")
+}
+
+fn ensure_sdk_host_loaded() -> bool {
+    let _guard = SDK_HOST_LOAD_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+
+    // Reuse a host installed by another compatible plugin rather than loading a second copy.
+    let existing = unsafe { GetModuleHandleA(c"samp_client_sdk.asi".as_ptr().cast()) };
+    if !existing.is_null() {
+        SDK_HOST_MODULE.store(existing.cast(), Ordering::Release);
+        return true;
+    }
+
+    let Some(host_path) = write_embedded_sdk_host() else {
+        return false;
+    };
+    let mut wide_path: Vec<u16> = host_path.as_os_str().encode_wide().collect();
+    wide_path.push(0);
+
+    // LoadLibrary invokes the SDK host's DllMain after this initialization worker
+    // has left our own DllMain/loader-lock path.
+    let module = unsafe { LoadLibraryW(wide_path.as_ptr()) };
+    if module.is_null() {
+        return false;
+    }
+
+    // Intentionally keep one loader reference for the rest of the process. Other ASI
+    // plugins may use the shared SDK host after this adapter shuts down.
+    SDK_HOST_MODULE.store(module.cast(), Ordering::Release);
+    true
+}
+
+fn write_embedded_sdk_host() -> Option<PathBuf> {
+    if EMBEDDED_SDK_HOST.is_empty() {
+        return None;
+    }
+
+    let directory = cache_root().join("sdk-host");
+    fs::create_dir_all(&directory).ok()?;
+    let canonical_root = directory.canonicalize().ok()?;
+    let destination = canonical_root.join("samp_client_sdk.asi");
+
+    match fs::symlink_metadata(&destination) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return None;
+            }
+            if fs::read(&destination).ok()?.as_slice() == EMBEDDED_SDK_HOST {
+                return Some(destination);
+            }
+            fs::remove_file(&destination).ok()?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
+    }
+
+    let temporary = canonical_root.join(format!(
+        "samp_client_sdk.{}.tmp",
+        std::process::id()
+    ));
+    match fs::symlink_metadata(&temporary) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return None;
+            }
+            fs::remove_file(&temporary).ok()?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
+    }
+
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(EMBEDDED_SDK_HOST)?;
+        file.sync_all()?;
+        drop(file);
+
+        let canonical_temporary = temporary.canonicalize()?;
+        if !canonical_temporary.starts_with(&canonical_root) || !canonical_temporary.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "embedded SDK host temporary path escaped its cache directory",
+            ));
+        }
+        fs::rename(&temporary, &destination)?;
+
+        let persisted = fs::read(&destination)?;
+        if persisted.as_slice() != EMBEDDED_SDK_HOST {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "persisted SDK host differs from the embedded payload",
+            ));
+        }
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        let _ = fs::remove_file(&destination);
+        return None;
+    }
+
+    Some(destination)
 }
 
 fn stop_workers(
