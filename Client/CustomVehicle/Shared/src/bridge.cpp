@@ -1,6 +1,7 @@
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/network_adapter.hpp>
 
+#include <algorithm>
 #include <new>
 #include <string_view>
 #include <utility>
@@ -194,6 +195,72 @@ int32_t custom_vehicle_adapter_is_model_ready(
 	catch (...)
 	{
 		return 0;
+	}
+}
+
+int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
+	const custom_vehicle_adapter* adapter,
+	const uint8_t* payload,
+	size_t payload_size,
+	custom_vehicle_stream_in_vehicle_v1* output)
+{
+	if (adapter == nullptr || payload == nullptr || output == nullptr)
+	{
+		return -1;
+	}
+
+	try
+	{
+		custom_vehicle::protocol::StreamInVehicleData decoded;
+		custom_vehicle::protocol::DecodeError error = custom_vehicle::protocol::DecodeError::None;
+		if (!custom_vehicle::protocol::decodeStreamInVehicle(payload, payload_size, decoded, error))
+		{
+			return -1;
+		}
+
+		if (!custom_vehicle::protocol::isCustomVehicleModelId(decoded.modelId))
+		{
+			return decoded.modelId >= 400 && decoded.modelId <= 611 ? 0 : -1;
+		}
+
+		const std::vector<custom_vehicle::protocol::ModelRequest> models =
+			adapter->adapter.vehicleModels();
+		const auto model = std::find_if(models.begin(), models.end(),
+			[&decoded](const custom_vehicle::protocol::ModelRequest& entry)
+			{
+				return entry.newId == decoded.modelId;
+			});
+		if (model == models.end())
+		{
+			return -1;
+		}
+
+		custom_vehicle_stream_in_vehicle_v1 result {};
+		result.vehicle_id = decoded.vehicleId;
+		result.custom_model_id = decoded.modelId;
+		result.base_model_id = model->baseId;
+		std::copy(decoded.position.begin(), decoded.position.end(), result.position);
+		result.angle = decoded.angle;
+		result.colour1 = decoded.colour1;
+		result.colour2 = decoded.colour2;
+		result.health = decoded.health;
+		result.interior = decoded.interior;
+		result.door_damage = decoded.doorDamage;
+		result.panel_damage = decoded.panelDamage;
+		result.light_damage = decoded.lightDamage;
+		result.tyre_damage = decoded.tyreDamage;
+		result.siren = decoded.siren;
+		std::copy(decoded.mods.begin(), decoded.mods.end(), result.mods);
+		result.paintjob = decoded.paintjob;
+		result.body_colour1 = decoded.bodyColour1;
+		result.body_colour2 = decoded.bodyColour2;
+		*output = result;
+
+		return adapter->adapter.isVehicleModelReady(decoded.modelId) ? 1 : 2;
+	}
+	catch (...)
+	{
+		return -1;
 	}
 }
 
