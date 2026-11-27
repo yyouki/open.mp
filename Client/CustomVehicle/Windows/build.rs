@@ -11,7 +11,7 @@ fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
 }
 
 fn is_i686_windows_dll(bytes: &[u8]) -> bool {
-    if bytes.get(0..2) != Some(b"MZ") {
+    if bytes.get(0..2) != Some(&b"MZ"[..]) {
         return false;
     }
 
@@ -19,7 +19,7 @@ fn is_i686_windows_dll(bytes: &[u8]) -> bool {
     else {
         return false;
     };
-    if bytes.get(pe_offset..pe_offset.saturating_add(4)) != Some(b"PE\0\0") {
+    if bytes.get(pe_offset..pe_offset.saturating_add(4)) != Some(&b"PE\0\0"[..]) {
         return false;
     }
 
