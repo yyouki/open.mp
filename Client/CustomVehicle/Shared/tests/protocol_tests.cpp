@@ -218,6 +218,171 @@ ModelRequest makeNativeVehicleModelRequest(
 	return model;
 }
 
+ModelRequest makeNativeVehicleModelRequest(
+	const custom_vehicle_model_request_v1& source)
+{
+	ModelRequest model;
+	model.poolId = source.pool_id;
+	model.modelCount = source.model_count;
+	model.type = static_cast<ModelType>(source.type);
+	model.virtualWorld = source.virtual_world;
+	model.baseId = source.base_id;
+	model.newId = source.new_id;
+	model.dffChecksum = source.dff_checksum;
+	model.txdChecksum = source.txd_checksum;
+	model.dffSize = source.dff_size;
+	model.txdSize = source.txd_size;
+	model.timeOn = source.time_on;
+	model.timeOff = source.time_off;
+	return model;
+}
+
+std::int32_t cAbiNativeVehicleSlotVacant(void* userData, std::int32_t slot)
+{
+	return backendSlotIsVacant(userData, slot) ? 1 : 0;
+}
+
+std::int32_t cAbiNativeVehicleCreate(
+	void* userData,
+	std::int32_t slot,
+	const custom_vehicle_model_request_v1* model)
+{
+	return userData != nullptr && model != nullptr
+		&& backendCreateModelInfo(userData, slot, makeNativeVehicleModelRequest(*model)) ? 1 : 0;
+}
+
+std::int32_t cAbiNativeVehicleLoad(
+	void* userData,
+	std::int32_t slot,
+	const custom_vehicle_model_request_v1* model)
+{
+	return userData != nullptr && model != nullptr
+		&& backendLoadVehicleAssets(userData, slot, makeNativeVehicleModelRequest(*model)) ? 1 : 0;
+}
+
+std::int32_t cAbiNativeVehicleAttach(
+	void* userData,
+	std::int32_t slot,
+	const custom_vehicle_model_request_v1* model)
+{
+	return userData != nullptr && model != nullptr
+		&& backendAttachVehicleClump(userData, slot, makeNativeVehicleModelRequest(*model)) ? 1 : 0;
+}
+
+std::int32_t cAbiNativeVehicleDestroy(
+	void* userData,
+	std::int32_t slot,
+	const custom_vehicle_model_request_v1* model,
+	std::uint8_t completedStage)
+{
+	return userData != nullptr && model != nullptr
+		&& backendDestroyModel(
+			userData,
+			slot,
+			makeNativeVehicleModelRequest(*model),
+			static_cast<custom_vehicle::native::VehicleModelResourceStage>(completedStage))
+		? 1 : 0;
+}
+
+custom_vehicle_native_vehicle_model_callbacks_v1 makeNativeVehicleCAbiCallbacks(
+	NativeVehicleBackendFixture& fixture)
+{
+	custom_vehicle_native_vehicle_model_callbacks_v1 callbacks {};
+	callbacks.struct_size = sizeof(callbacks);
+	callbacks.abi_version = CUSTOM_VEHICLE_NATIVE_MODEL_CALLBACKS_ABI_VERSION;
+	callbacks.user_data = &fixture;
+	callbacks.is_slot_vacant = cAbiNativeVehicleSlotVacant;
+	callbacks.create_model_info = cAbiNativeVehicleCreate;
+	callbacks.load_vehicle_assets = cAbiNativeVehicleLoad;
+	callbacks.attach_vehicle_clump = cAbiNativeVehicleAttach;
+	callbacks.destroy_model = cAbiNativeVehicleDestroy;
+	return callbacks;
+}
+
+void testNativeVehicleModelLifecycleCAbi()
+{
+	NativeVehicleBackendFixture fixture;
+	const auto callbacks = makeNativeVehicleCAbiCallbacks(fixture);
+	auto* backend = custom_vehicle_native_vehicle_model_backend_create(612, 615);
+	assert(backend != nullptr);
+	assert(custom_vehicle_native_vehicle_model_backend_has_valid_range(backend) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 0);
+
+	custom_vehicle_model_request_v1 model {};
+	model.pool_id = 0;
+	model.model_count = 1;
+	model.type = static_cast<std::uint8_t>(ModelType::Vehicle);
+	model.virtual_world = -1;
+	model.base_id = 400;
+	model.new_id = 30001;
+	model.dff_checksum = 0x10203040u;
+	model.txd_checksum = 0x50607080u;
+	model.dff_size = 4096;
+	model.txd_size = 2048;
+
+	std::int32_t slot = -77;
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &model, 0, &callbacks, &slot)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING);
+	assert(slot == -77); // Non-success statuses never publish a slot.
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &model, 1, nullptr, &slot)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS);
+
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &model, 1, &callbacks, &slot)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED);
+	assert(slot == 613);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_is_active(backend, 30001) == 1);
+	std::int32_t foundSlot = -1;
+	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &foundSlot) == 1);
+	assert(foundSlot == slot);
+	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'A' }));
+
+	custom_vehicle_model_request_v1 changedModel = model;
+	changedModel.dff_checksum++;
+	std::int32_t unchangedSlot = -88;
+	assert(custom_vehicle_native_vehicle_model_backend_activate(
+		backend, &changedModel, 1, &callbacks, &unchangedSlot)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_REPLACEMENT_REQUIRED);
+	assert(unchangedSlot == -88);
+	assert(custom_vehicle_native_vehicle_model_backend_is_active(backend, 30001) == 1);
+
+	std::int32_t retainedSlot = -1;
+	assert(custom_vehicle_native_vehicle_model_backend_retain_for_vehicle(
+		backend, 30001, &retainedSlot) == 1);
+	assert(retainedSlot == slot);
+	assert(custom_vehicle_native_vehicle_model_backend_retain_for_vehicle(
+		backend, 30001, &retainedSlot) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_retire(backend, 30001, &callbacks)
+		== CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
+	assert(custom_vehicle_native_vehicle_model_backend_is_active(backend, 30001) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_retain_for_vehicle(
+		backend, 30001, &retainedSlot) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_use(
+		backend, 30001, slot) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE);
+	assert(custom_vehicle_native_vehicle_model_backend_release_vehicle_use(
+		backend, 30001, slot) == 1);
+
+	fixture.failDestroyOnce = true;
+	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_CLEANUP_PENDING);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &foundSlot) == 1);
+	assert(foundSlot == slot);
+	assert(custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+		backend, 30001, &callbacks) == CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &foundSlot) == 0);
+	assert(backendSlotIsVacant(&fixture, slot));
+	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+
+	custom_vehicle_native_vehicle_model_backend_destroy(backend);
+}
+
 void testNativeVehicleModelLifecycle()
 {
 	using namespace custom_vehicle::native;
@@ -1547,6 +1712,7 @@ int main()
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
 	testNativeVehicleModelLifecycle();
+	testNativeVehicleModelLifecycleCAbi();
 	testNativeVehicleModelSlotRegistryCAbi();
 	testManifestDecode();
 	testStreamInVehicleDecode();
