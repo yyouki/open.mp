@@ -1,4 +1,5 @@
 #include <custom_vehicle/bridge.h>
+#include <custom_vehicle_windows.h>
 
 /* C99-compatible compile-time ABI checks for the Windows/native spawn bridge. */
 typedef char custom_vehicle_stream_in_vehicle_size_must_be_76[
@@ -64,6 +65,11 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_adapter_copy_model;
 	(void)custom_vehicle_adapter_is_model_ready;
 	(void)custom_vehicle_adapter_decode_stream_in_vehicle;
+	(void)CustomVehicleWindows_Shutdown;
+	(void)CustomVehicleWindows_ModelCount;
+	(void)CustomVehicleWindows_CopyModel;
+	(void)CustomVehicleWindows_DecodeStreamInVehicle;
+	(void)CustomVehicleWindows_IsModelReady;
 	{
 		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
 		(void)stream;
