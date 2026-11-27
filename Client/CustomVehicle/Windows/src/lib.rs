@@ -114,6 +114,12 @@ pub struct CustomVehicleModelRequestV1 {
     pub time_off: u8,
 }
 
+const _: [(); 44] = [(); std::mem::size_of::<CustomVehicleModelRequestV1>()];
+const _: [(); 8] = [(); std::mem::offset_of!(CustomVehicleModelRequestV1, model_type)];
+const _: [(); 12] = [(); std::mem::offset_of!(CustomVehicleModelRequestV1, virtual_world)];
+const _: [(); 24] = [(); std::mem::offset_of!(CustomVehicleModelRequestV1, dff_checksum)];
+const _: [(); 40] = [(); std::mem::offset_of!(CustomVehicleModelRequestV1, time_on)];
+
 /// C-compatible decoded payload for server RPC 164.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
