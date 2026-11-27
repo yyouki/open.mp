@@ -218,23 +218,22 @@ VehicleModelBindingResult VehicleModelLifecycleController::bindVehicle(
 	}
 
 	std::lock_guard<std::mutex> lock(mutex_);
-	const Entry& entry = entries_[customIndex(custom_model_id)];
-	if (!entry.present || entry.retiring
-		|| entry.stage != VehicleModelResourceStage::ClumpAttached)
-	{
-		return VehicleModelBindingResult::ModelNotActive;
-	}
-
 	VehicleModelBinding& existing = vehicle_bindings_[vehicle_id];
 	if (existing.generation != 0)
 	{
-		if (existing.custom_model_id == custom_model_id
-			&& existing.native_model_slot == entry.native_model_slot)
+		if (existing.custom_model_id == custom_model_id)
 		{
 			binding = existing;
 			return VehicleModelBindingResult::AlreadyBound;
 		}
 		return VehicleModelBindingResult::VehicleAlreadyBound;
+	}
+
+	const Entry& entry = entries_[customIndex(custom_model_id)];
+	if (!entry.present || entry.retiring
+		|| entry.stage != VehicleModelResourceStage::ClumpAttached)
+	{
+		return VehicleModelBindingResult::ModelNotActive;
 	}
 
 	if (next_binding_generation_ == 0)
