@@ -70,6 +70,13 @@ The upstream MIT license is included in `LICENSES/samp-client-sdk-MIT.txt`.
   service when the exact GTA SA 1.0 US native profile is available. The callback
   validates the host-issued scope, records a tick counter, and samples the pending
   vehicle queue length without removing records or mutating GTA state.
+- Peeks (copies, never pops) the oldest pending RPC 164 record, maps its SA-MP
+  vehicle ID through `SampPoolService::vehicle_handle`, and verifies the returned
+  GTA handle with `GtaSaService::entity_exists` in the callback-scoped context.
+  This is a presence diagnostic only; it does not perform a custom-model swap.
+- Exposes `CustomVehicleWindows_PendingVehicleBaseExistsOnGameThread`,
+  `CustomVehicleWindows_PendingVehicleIdOnGameThread`, and
+  `CustomVehicleWindows_PendingVehicleGtaHandleOnGameThread` for that probe.
 - Unregisters the game-thread callback with `unregister_and_wait` before releasing
   its callback context, queue, or workers. A failed drain keeps those dependencies
   alive for a later shutdown retry.
@@ -276,11 +283,12 @@ These are lifecycle contracts only. The incoming RPC 164 network hook now
 rewrites custom vehicles to their compatible base IDs and queues copied records.
 The matching RPC 165 handler cancels records that have not yet been popped.
 `CustomVehicleWindows_PopPendingVehicle` exposes that queue to a future
-processing consumer. An observation-only game-thread callback is now registered
-through the pinned SDK when the exact native profile is available; it only samples
-the queue length and deliberately does not pop records, inspect vehicle entities,
-or invoke the lifecycle controller. The controller is therefore not yet connected
-to concrete GTA model, streaming, RenderWare, or vehicle-entity operations.
+processing consumer. The pinned SDK game-thread callback now uses a
+non-destructive peek, maps the queue-head SA-MP ID to a GTA vehicle handle, and
+checks entity existence in its scoped context. It leaves the record queued and
+does not mutate the vehicle or invoke the lifecycle controller. The controller
+is therefore not yet connected to concrete GTA model-info, streaming, RenderWare,
+or vehicle-swap operations.
 
 Consequently, the stock client can construct the compatible base vehicle, but
 the current adapter does not yet create a custom `CVehicleModelInfo`, stream

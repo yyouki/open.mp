@@ -50,6 +50,7 @@ public:
 	VehicleStreamQueue& operator=(const VehicleStreamQueue&) = delete;
 
 	VehicleStreamQueueResult enqueue(const VehicleStreamRequest& request);
+	bool peek(VehicleStreamRequest& request) const;
 	bool pop(VehicleStreamRequest& request);
 	bool cancel(std::uint16_t vehicle_id);
 	void clear();

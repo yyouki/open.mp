@@ -425,6 +425,10 @@ int32_t custom_vehicle_pending_vehicle_queue_destroy(
 	custom_vehicle_pending_vehicle_queue* queue);
 size_t custom_vehicle_pending_vehicle_queue_size(
 	const custom_vehicle_pending_vehicle_queue* queue);
+/* Copy the oldest pending record without removing it from the queue. */
+int32_t custom_vehicle_pending_vehicle_queue_peek(
+	const custom_vehicle_pending_vehicle_queue* queue,
+	custom_vehicle_stream_in_vehicle_v1* output);
 int32_t custom_vehicle_pending_vehicle_queue_enqueue(
 	custom_vehicle_pending_vehicle_queue* queue,
 	const custom_vehicle_stream_in_vehicle_v1* request);

@@ -32,6 +32,22 @@ VehicleStreamQueueResult VehicleStreamQueue::enqueue(const VehicleStreamRequest&
 	return VehicleStreamQueueResult::Queued;
 }
 
+bool VehicleStreamQueue::peek(VehicleStreamRequest& request) const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	for (const std::uint16_t vehicle_id : order_)
+	{
+		const Entry& entry = entries_[vehicle_id];
+		if (!entry.pending)
+		{
+			continue;
+		}
+		request = entry.request;
+		return true;
+	}
+	return false;
+}
+
 bool VehicleStreamQueue::pop(VehicleStreamRequest& request)
 {
 	std::lock_guard<std::mutex> lock(mutex_);

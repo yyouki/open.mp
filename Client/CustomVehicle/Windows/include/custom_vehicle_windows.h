@@ -36,6 +36,10 @@ int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_GameThreadCallbackRegis
 uint32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_GameThreadTickCount(void);
 /* Queue length sampled by the most recent game-thread callback; does not pop records. */
 size_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleCountOnGameThread(void);
+/* Read-only SDK probe of the oldest pending stream-in record. */
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleBaseExistsOnGameThread(void);
+uint32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleIdOnGameThread(void);
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_PendingVehicleGtaHandleOnGameThread(void);
 
 /* Returns the number of custom model records currently held by the adapter. */
 size_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_ModelCount(void);

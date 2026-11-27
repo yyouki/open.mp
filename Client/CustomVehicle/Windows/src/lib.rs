@@ -12,8 +12,8 @@ use samp_client_sdk::{
     Samp, SampClientSdkClientVersion, SampClientSdkDirection, SampClientSdkHookAction,
     Subscription,
 };
-use modkit_abi::{GameContextTokenV1, SubscriptionId};
-use modkit_sdk::{Core, GameContext, Host, ServiceError};
+use modkit_abi::{GameContextTokenV1, SubscriptionId, GTA_POOL_VEHICLE_V1};
+use modkit_sdk::{Core, GameContext, GtaSaService, Host, SampPoolService, ServiceError};
 use std::{
     ffi::c_void,
     fs::{self, File, OpenOptions},
@@ -24,7 +24,7 @@ use std::{
     slice,
     sync::{
         Arc, Condvar, Mutex, Weak,
-        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
@@ -217,6 +217,10 @@ unsafe extern "C" {
     fn custom_vehicle_pending_vehicle_queue_size(
         queue: *const CustomVehiclePendingVehicleQueue,
     ) -> usize;
+    fn custom_vehicle_pending_vehicle_queue_peek(
+        queue: *const CustomVehiclePendingVehicleQueue,
+        output: *mut CustomVehicleStreamInVehicleV1,
+    ) -> i32;
     fn custom_vehicle_pending_vehicle_queue_enqueue(
         queue: *mut CustomVehiclePendingVehicleQueue,
         request: *const CustomVehicleStreamInVehicleV1,
@@ -302,6 +306,9 @@ struct BridgeContext {
     native_tick_registered: AtomicBool,
     game_thread_tick_count: AtomicU32,
     pending_vehicle_count_on_game_thread: AtomicUsize,
+    pending_vehicle_base_exists_on_game_thread: AtomicBool,
+    pending_vehicle_id_on_game_thread: AtomicU32,
+    pending_vehicle_gta_handle_on_game_thread: AtomicI32,
     stopping: AtomicBool,
 }
 
@@ -314,6 +321,15 @@ impl BridgeContext {
         self.pending_vehicles.load(Ordering::Acquire)
     }
 
+    fn clear_pending_vehicle_probe(&self) {
+        self.pending_vehicle_base_exists_on_game_thread
+            .store(false, Ordering::Release);
+        self.pending_vehicle_id_on_game_thread
+            .store(0, Ordering::Release);
+        self.pending_vehicle_gta_handle_on_game_thread
+            .store(-1, Ordering::Release);
+    }
+
     fn clear_pending_vehicles(&self) {
         let queue = self.pending_vehicle_queue();
         if !queue.is_null() {
@@ -321,7 +337,14 @@ impl BridgeContext {
         }
         self.pending_vehicle_count_on_game_thread
             .store(0, Ordering::Release);
+        self.clear_pending_vehicle_probe();
     }
+}
+
+struct NativeTickCallbackContext {
+    context: Weak<BridgeContext>,
+    gta: GtaSaService,
+    samp_pools: Option<SampPoolService>,
 }
 
 struct NativeTickRegistration {
@@ -370,10 +393,18 @@ fn register_native_game_tick(context: &Arc<BridgeContext>) -> Option<NativeTickR
         }
     }
     let gta = gta?;
+    // Pool mappings are game-thread-refreshed owned state. They are optional if
+    // the host does not publish the matching SA-MP pool service.
+    let samp_pools = host.samp_pools().ok();
 
-    // The host owns this weak callback context after successful registration and
-    // calls the release callback only after the in-flight tick callbacks drain.
-    let user_data = Box::into_raw(Box::new(Arc::downgrade(context))).cast::<c_void>();
+    // The host owns this callback context after successful registration and
+    // calls the release callback only after in-flight tick callbacks drain.
+    let callback_context = NativeTickCallbackContext {
+        context: Arc::downgrade(context),
+        gta,
+        samp_pools,
+    };
+    let user_data = Box::into_raw(Box::new(callback_context)).cast::<c_void>();
     match unsafe {
         gta.register_tick(
             native_game_tick_callback,
@@ -387,7 +418,7 @@ fn register_native_game_tick(context: &Arc<BridgeContext>) -> Option<NativeTickR
         }
         Err(_) => {
             // Registration failed, so ownership never transferred to the host.
-            unsafe { drop(Box::from_raw(user_data.cast::<Weak<BridgeContext>>())); }
+            unsafe { drop(Box::from_raw(user_data.cast::<NativeTickCallbackContext>())); }
             None
         }
     }
@@ -405,8 +436,8 @@ unsafe extern "system" fn native_game_tick_callback(
         // Keep the native execution proof local to this callback. No token or
         // game-thread-only value is retained by the worker threads.
         let _game_context = unsafe { GameContext::from_raw(token) };
-        let weak_context = unsafe { &*user_data.cast::<Weak<BridgeContext>>() };
-        let Some(context) = weak_context.upgrade() else {
+        let callback_context = unsafe { &*user_data.cast::<NativeTickCallbackContext>() };
+        let Some(context) = callback_context.context.upgrade() else {
             return;
         };
         if context.stopping.load(Ordering::Acquire) {
@@ -415,14 +446,56 @@ unsafe extern "system" fn native_game_tick_callback(
 
         context.game_thread_tick_count.fetch_add(1, Ordering::Relaxed);
         let queue = context.pending_vehicle_queue();
-        if !queue.is_null() {
-            // Observe queue pressure only. Do not pop records until the native
-            // allocator, vehicle-existence checks, and rollback path are ready.
-            let pending = unsafe { custom_vehicle_pending_vehicle_queue_size(queue) };
+        if queue.is_null() {
             context
                 .pending_vehicle_count_on_game_thread
-                .store(pending, Ordering::Release);
+                .store(0, Ordering::Release);
+            context.clear_pending_vehicle_probe();
+            return;
         }
+
+        let pending = unsafe { custom_vehicle_pending_vehicle_queue_size(queue) };
+        context
+            .pending_vehicle_count_on_game_thread
+            .store(pending, Ordering::Release);
+
+        // Peek the oldest stream-in without removing it. Map the SA-MP vehicle ID
+        // to its current GTA handle, then verify it in this scoped game-thread call.
+        let mut request = CustomVehicleStreamInVehicleV1::default();
+        if unsafe { custom_vehicle_pending_vehicle_queue_peek(queue, &mut request) } != 1 {
+            context.clear_pending_vehicle_probe();
+            return;
+        }
+
+        let Some(pool_service) = callback_context.samp_pools else {
+            context.clear_pending_vehicle_probe();
+            return;
+        };
+        let handle = match pool_service.vehicle_handle(request.vehicle_id) {
+            Ok(Some(handle)) => handle,
+            _ => {
+                context.clear_pending_vehicle_probe();
+                return;
+            }
+        };
+        let exists = callback_context
+            .gta
+            .entity_exists(&_game_context, GTA_POOL_VEHICLE_V1, handle)
+            .unwrap_or(false);
+        if !exists {
+            context.clear_pending_vehicle_probe();
+            return;
+        }
+
+        context
+            .pending_vehicle_base_exists_on_game_thread
+            .store(true, Ordering::Release);
+        context
+            .pending_vehicle_id_on_game_thread
+            .store(u32::from(request.vehicle_id), Ordering::Release);
+        context
+            .pending_vehicle_gta_handle_on_game_thread
+            .store(handle, Ordering::Release);
     }));
 }
 
@@ -432,9 +505,10 @@ unsafe extern "system" fn native_game_tick_release_callback(user_data: *mut c_vo
             return;
         }
 
-        let weak_context = unsafe { Box::from_raw(user_data.cast::<Weak<BridgeContext>>()) };
-        if let Some(context) = weak_context.upgrade() {
+        let callback_context = unsafe { Box::from_raw(user_data.cast::<NativeTickCallbackContext>()) };
+        if let Some(context) = callback_context.context.upgrade() {
             context.native_tick_registered.store(false, Ordering::Release);
+            context.clear_pending_vehicle_probe();
         }
         // Dropping the Box releases the callback-owned weak reference.
     }));
@@ -546,6 +620,9 @@ fn initialize() {
         native_tick_registered: AtomicBool::new(false),
         game_thread_tick_count: AtomicU32::new(0),
         pending_vehicle_count_on_game_thread: AtomicUsize::new(0),
+        pending_vehicle_base_exists_on_game_thread: AtomicBool::new(false),
+        pending_vehicle_id_on_game_thread: AtomicU32::new(0),
+        pending_vehicle_gta_handle_on_game_thread: AtomicI32::new(-1),
         stopping: AtomicBool::new(false),
     });
 
@@ -1567,6 +1644,36 @@ pub extern "system" fn CustomVehicleWindows_PendingVehicleCountOnGameThread() ->
                 .load(Ordering::Acquire)
         })
         .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_PendingVehicleBaseExistsOnGameThread() -> i32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    state
+        .context
+        .as_ref()
+        .map(|context| i32::from(context.pending_vehicle_base_exists_on_game_thread.load(Ordering::Acquire)))
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_PendingVehicleIdOnGameThread() -> u32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    state
+        .context
+        .as_ref()
+        .map(|context| context.pending_vehicle_id_on_game_thread.load(Ordering::Acquire))
+        .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_PendingVehicleGtaHandleOnGameThread() -> i32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    state
+        .context
+        .as_ref()
+        .map(|context| context.pending_vehicle_gta_handle_on_game_thread.load(Ordering::Acquire))
+        .unwrap_or(-1)
 }
 
 #[unsafe(no_mangle)]

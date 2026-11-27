@@ -1281,6 +1281,30 @@ size_t custom_vehicle_pending_vehicle_queue_size(
 	return queue == nullptr ? 0 : queue->queue.size();
 }
 
+int32_t custom_vehicle_pending_vehicle_queue_peek(
+	const custom_vehicle_pending_vehicle_queue* queue,
+	custom_vehicle_stream_in_vehicle_v1* output)
+{
+	if (queue == nullptr || output == nullptr)
+	{
+		return -1;
+	}
+	try
+	{
+		custom_vehicle::native::VehicleStreamRequest request;
+		if (!queue->queue.peek(request))
+		{
+			return 0;
+		}
+		*output = makeStreamInVehicleRequest(request);
+		return 1;
+	}
+	catch (...)
+	{
+		return -1;
+	}
+}
+
 int32_t custom_vehicle_pending_vehicle_queue_enqueue(
 	custom_vehicle_pending_vehicle_queue* queue,
 	const custom_vehicle_stream_in_vehicle_v1* request)

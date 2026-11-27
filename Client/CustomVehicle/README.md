@@ -187,14 +187,16 @@ ID never reaches stock `CreateVehicle`. RPC 165 cancels an entry that has not
 yet been popped. `CustomVehicleWindows_PopPendingVehicle` exposes copied
 records for the game-thread processing stage.
 
-The ASI also registers an observation-only game-thread callback through the
-pinned `modkit-sdk` service when the exact GTA SA 1.0 US native profile is
-available. It validates the host-issued callback scope, counts ticks, and samples
-the pending queue length. The callback deliberately does not dequeue records or
-mutate GTA state. Callback teardown uses the host's drain operation and retains
-its context if in-flight work cannot be safely drained. If the native profile is
-unavailable, networking and asset transfers remain enabled while this callback
-stays disabled.
+The ASI also registers a read-only game-thread callback through the pinned
+`modkit-sdk` service when the exact GTA SA 1.0 US native profile is available.
+It validates the host-issued callback scope, counts ticks, and samples the pending
+queue length. A non-destructive queue peek copies the oldest pending SA-MP vehicle
+ID; `SampPoolService::vehicle_handle` maps it to a GTA handle, and
+`GtaSaService::entity_exists` validates that handle under the callback scope.
+The record remains queued, and the callback never mutates the GTA vehicle.
+Callback teardown uses the host's drain operation and retains its context if
+in-flight work cannot be safely drained. If the native profile is unavailable,
+networking and asset transfers remain enabled while this callback stays disabled.
 
 This is still only the network-to-game-thread handoff. The current code lets the
 stock client create the compatible **base vehicle**, but it has no processing

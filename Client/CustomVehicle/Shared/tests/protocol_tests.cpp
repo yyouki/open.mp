@@ -864,26 +864,40 @@ void testVehicleStreamQueue()
 
 	VehicleStreamQueue queue;
 	assert(queue.size() == 0);
+	custom_vehicle::native::VehicleStreamRequest peeked;
+	assert(!queue.peek(peeked));
 
 	auto first = makePendingVehicleStreamRequest(1, 30001, 400, 1.0f);
 	assert(queue.enqueue(first) == VehicleStreamQueueResult::Queued);
 	assert(queue.size() == 1);
+	assert(queue.peek(peeked));
+	assert(peeked.vehicle.vehicleId == 1);
+	assert(peeked.vehicle.modelId == 30001);
+	assert(queue.size() == 1); // Peek does not consume the record.
 
 	// A newer stream-in for the same vehicle replaces pending values in place.
 	auto updated = makePendingVehicleStreamRequest(1, 30002, 411, 42.5f);
 	assert(queue.enqueue(updated) == VehicleStreamQueueResult::Updated);
 	assert(queue.size() == 1);
+	assert(queue.peek(peeked));
+	assert(peeked.vehicle.modelId == 30002);
+	assert(peeked.baseModelId == 411);
+	assert(peeked.vehicle.position[0] == 42.5f);
 
 	auto second = makePendingVehicleStreamRequest(2, 30001, 400, 99.0f);
 	assert(queue.enqueue(second) == VehicleStreamQueueResult::Queued);
 	assert(queue.size() == 2);
 
 	custom_vehicle::native::VehicleStreamRequest popped;
+	assert(queue.peek(peeked));
+	assert(peeked.vehicle.vehicleId == 1);
 	assert(queue.pop(popped));
 	assert(popped.vehicle.vehicleId == 1);
 	assert(popped.vehicle.modelId == 30002);
 	assert(popped.baseModelId == 411);
 	assert(popped.vehicle.position[0] == 42.5f);
+	assert(queue.peek(peeked));
+	assert(peeked.vehicle.vehicleId == 2);
 	assert(queue.pop(popped));
 	assert(popped.vehicle.vehicleId == 2);
 	assert(popped.vehicle.position[0] == 99.0f);
@@ -896,6 +910,7 @@ void testVehicleStreamQueue()
 	assert(queue.cancel(1));
 	assert(!queue.cancel(1));
 	assert(queue.size() == 1);
+	assert(queue.peek(peeked) && peeked.vehicle.vehicleId == 2);
 	assert(queue.pop(popped) && popped.vehicle.vehicleId == 2);
 	assert(!queue.pop(popped));
 
@@ -927,6 +942,7 @@ void testVehicleStreamQueue()
 	assert(queue.size() == custom_vehicle::native::VehicleStreamQueueCapacity);
 	queue.clear();
 	assert(queue.size() == 0);
+	assert(!queue.peek(peeked));
 	assert(!queue.pop(popped));
 }
 
@@ -949,6 +965,11 @@ void testVehicleStreamQueueCAbi()
 	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
 		== CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED);
 	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
+	custom_vehicle_stream_in_vehicle_v1 peeked {};
+	assert(custom_vehicle_pending_vehicle_queue_peek(queue, &peeked) == 1);
+	assert(peeked.vehicle_id == 17);
+	assert(peeked.custom_model_id == 30001);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
 
 	custom_vehicle_stream_in_vehicle_v1 updated = request;
 	updated.custom_model_id = 30002;
@@ -956,6 +977,11 @@ void testVehicleStreamQueueCAbi()
 	updated.position[0] = 77.0f;
 	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &updated)
 		== CUSTOM_VEHICLE_STREAM_QUEUE_UPDATED);
+	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
+	assert(custom_vehicle_pending_vehicle_queue_peek(queue, &peeked) == 1);
+	assert(peeked.custom_model_id == 30002);
+	assert(peeked.base_model_id == 411);
+	assert(peeked.position[0] == 77.0f);
 	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 1);
 	assert(custom_vehicle_pending_vehicle_queue_destroy(queue) == 0);
 
@@ -967,12 +993,14 @@ void testVehicleStreamQueueCAbi()
 	assert(output.position[0] == 77.0f);
 	assert(output.health == 800.0f);
 	assert(custom_vehicle_pending_vehicle_queue_pop(queue, &output) == 0);
+	assert(custom_vehicle_pending_vehicle_queue_peek(queue, &peeked) == 0);
 
 	assert(custom_vehicle_pending_vehicle_queue_enqueue(queue, &request)
 		== CUSTOM_VEHICLE_STREAM_QUEUE_QUEUED);
 	assert(custom_vehicle_pending_vehicle_queue_cancel(queue, 17) == 1);
 	assert(custom_vehicle_pending_vehicle_queue_cancel(queue, 17) == 0);
 	assert(custom_vehicle_pending_vehicle_queue_size(queue) == 0);
+	assert(custom_vehicle_pending_vehicle_queue_peek(queue, &peeked) == 0);
 	assert(custom_vehicle_pending_vehicle_queue_destroy(queue) == 1);
 	assert(custom_vehicle_pending_vehicle_queue_destroy(nullptr) == 0);
 
