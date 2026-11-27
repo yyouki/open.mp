@@ -152,6 +152,21 @@ int32_t custom_vehicle_adapter_decode_stream_in_vehicle(
 	size_t payload_size,
 	custom_vehicle_stream_in_vehicle_v1* output);
 
+/* RPC 164 preparation result: -1 invalid, 0 stock vehicle, 1 custom ready,
+ * 2 custom manifest known but its DFF/TXD assets are not ready yet.
+ * For custom results the 63-byte output differs from input only at model ID
+ * bytes 2-5, which are rewritten to the manifest's compatible base vehicle ID.
+ */
+int32_t custom_vehicle_adapter_rewrite_stream_in_vehicle(
+	const custom_vehicle_adapter* adapter,
+	const uint8_t* payload,
+	size_t payload_size,
+	uint8_t* output,
+	size_t output_capacity,
+	size_t* output_size,
+	int32_t* custom_model_id,
+	int32_t* base_model_id);
+
 /*
  * Native vehicle model-slot registry.
  *
