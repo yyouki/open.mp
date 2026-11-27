@@ -412,6 +412,111 @@ void testStreamInVehicleDecode()
 	assert(vehicle.modelId == 31234);
 }
 
+void testStreamInVehicleBaseRewrite()
+{
+	const auto original = makeStreamInVehicle(30001);
+	std::array<std::uint8_t, StreamInVehicleWireSize> rewritten {};
+	rewritten.fill(0xA5);
+	std::size_t bytesWritten = 999;
+	DecodeError error = DecodeError::WrongSize;
+
+	assert(rewriteStreamInVehicleToBaseModel(
+		original.data(),
+		original.size(),
+		30001,
+		402,
+		rewritten.data(),
+		rewritten.size(),
+		bytesWritten,
+		error));
+	assert(error == DecodeError::None);
+	assert(bytesWritten == StreamInVehicleWireSize);
+
+	// Only bytes 2-5 (the packed int32 model field) may differ.
+	for (std::size_t index = 0; index < original.size(); ++index)
+	{
+		if (index >= StreamInVehicleModelFieldOffset
+			&& index < StreamInVehicleModelFieldOffset + sizeof(std::int32_t))
+		{
+			continue;
+		}
+		assert(rewritten[index] == original[index]);
+	}
+	assert(rewritten[2] == 0x92); // 402 = 0x00000192, little-endian.
+	assert(rewritten[3] == 0x01);
+	assert(rewritten[4] == 0x00);
+	assert(rewritten[5] == 0x00);
+
+	StreamInVehicleData decoded;
+	assert(decodeStreamInVehicle(
+		rewritten.data(), rewritten.size(), decoded, error));
+	assert(decoded.modelId == 402);
+	assert(decoded.vehicleId == 1234);
+	assert(decoded.position[0] == 1.25f);
+	assert(decoded.health == 875.5f);
+	assert(decoded.mods[13] == 14);
+	assert(decoded.paintjob == 3);
+
+	// The helper is also safe when the caller requests in-place rewriting.
+	auto inPlace = original;
+	assert(rewriteStreamInVehicleToBaseModel(
+		inPlace.data(),
+		inPlace.size(),
+		30001,
+		411,
+		inPlace.data(),
+		inPlace.size(),
+		bytesWritten,
+		error));
+	assert(bytesWritten == inPlace.size());
+	assert(inPlace[2] == 0x9B && inPlace[3] == 0x01);
+
+	// Every rejected case leaves the output buffer and byte count unchanged.
+	std::array<std::uint8_t, StreamInVehicleWireSize> untouched {};
+	untouched.fill(0x5A);
+	const auto sentinel = untouched;
+	bytesWritten = 123;
+	assert(!rewriteStreamInVehicleToBaseModel(
+		original.data(), original.size(), 30002, 402,
+		untouched.data(), untouched.size(), bytesWritten, error));
+	assert(error == DecodeError::InvalidVehicleModel);
+	assert(bytesWritten == 0);
+	assert(untouched == sentinel); // Requested model must match packet ID.
+
+	bytesWritten = 123;
+	assert(!rewriteStreamInVehicleToBaseModel(
+		original.data(), original.size(), 30001, 449,
+		untouched.data(), untouched.size(), bytesWritten, error));
+	assert(error == DecodeError::InvalidVehicleModel);
+	assert(bytesWritten == 0);
+	assert(untouched == sentinel); // Trains are not compatible base vehicles.
+
+	const auto standard = makeStreamInVehicle(411);
+	bytesWritten = 123;
+	assert(!rewriteStreamInVehicleToBaseModel(
+		standard.data(), standard.size(), 30001, 402,
+		untouched.data(), untouched.size(), bytesWritten, error));
+	assert(error == DecodeError::InvalidVehicleModel);
+	assert(bytesWritten == 0);
+	assert(untouched == sentinel); // Stock vehicles must remain untouched.
+
+	bytesWritten = 123;
+	assert(!rewriteStreamInVehicleToBaseModel(
+		original.data(), original.size() - 1, 30001, 402,
+		untouched.data(), untouched.size(), bytesWritten, error));
+	assert(error == DecodeError::WrongSize);
+	assert(bytesWritten == 0);
+	assert(untouched == sentinel);
+
+	bytesWritten = 123;
+	assert(!rewriteStreamInVehicleToBaseModel(
+		original.data(), original.size(), 30001, 402,
+		untouched.data(), untouched.size() - 1, bytesWritten, error));
+	assert(error == DecodeError::InvalidOutputBuffer);
+	assert(bytesWritten == 0);
+	assert(untouched == sentinel);
+}
+
 void testMalformedManifest()
 {
 	auto bytes = makeVehicleRequest();
@@ -1133,6 +1238,7 @@ int main()
 	testNativeVehicleModelSlotRegistryCAbi();
 	testManifestDecode();
 	testStreamInVehicleDecode();
+	testStreamInVehicleBaseRewrite();
 	testMalformedManifest();
 	testModelCountAndPoolIndexValidation();
 	testDownloadUrlCodec();
