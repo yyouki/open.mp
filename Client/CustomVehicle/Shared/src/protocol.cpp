@@ -1,5 +1,6 @@
 #include <custom_vehicle/protocol.hpp>
 
+#include <cmath>
 #include <cstring>
 
 namespace custom_vehicle::protocol
@@ -19,6 +20,15 @@ std::int32_t readI32LittleEndian(const std::uint8_t* data) noexcept
 	const std::uint32_t raw = readU32LittleEndian(data);
 	std::int32_t value = 0;
 	static_assert(sizeof(value) == sizeof(raw), "32-bit integer widths must match");
+	std::memcpy(&value, &raw, sizeof(value));
+	return value;
+}
+
+float readFloatLittleEndian(const std::uint8_t* data) noexcept
+{
+	const std::uint32_t raw = readU32LittleEndian(data);
+	float value = 0.0f;
+	static_assert(sizeof(value) == sizeof(raw), "32-bit float widths must match");
 	std::memcpy(&value, &raw, sizeof(value));
 	return value;
 }
@@ -82,6 +92,75 @@ bool decodeModelRequest(const std::uint8_t* data, std::size_t size,
 	if (decoded.poolId >= decoded.modelCount)
 	{
 		error = DecodeError::InvalidPoolIndex;
+		return false;
+	}
+
+	result = decoded;
+	return true;
+}
+
+bool decodeStreamInVehicle(
+	const std::uint8_t* data,
+	std::size_t size,
+	StreamInVehicleData& result,
+	DecodeError& error) noexcept
+{
+	error = DecodeError::None;
+	if (data == nullptr)
+	{
+		error = DecodeError::NullBuffer;
+		return false;
+	}
+	if (size != StreamInVehicleWireSize)
+	{
+		error = DecodeError::WrongSize;
+		return false;
+	}
+
+	StreamInVehicleData decoded;
+	decoded.vehicleId = static_cast<std::uint16_t>(data[0])
+		| static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[1]) << 8);
+	decoded.modelId = readI32LittleEndian(data + 2);
+	if (!((decoded.modelId >= 400 && decoded.modelId <= 611)
+		|| isCustomVehicleModelId(decoded.modelId)))
+	{
+		error = DecodeError::InvalidVehicleModel;
+		return false;
+	}
+
+	// The first 40 bytes match the packed native VehiclePoolQueueEntry record.
+	decoded.position = {
+		readFloatLittleEndian(data + 6),
+		readFloatLittleEndian(data + 10),
+		readFloatLittleEndian(data + 14)
+	};
+	decoded.angle = readFloatLittleEndian(data + 18);
+	decoded.colour1 = data[22];
+	decoded.colour2 = data[23];
+	decoded.health = readFloatLittleEndian(data + 24);
+	decoded.interior = data[28];
+	decoded.doorDamage = readU32LittleEndian(data + 29);
+	decoded.panelDamage = readU32LittleEndian(data + 33);
+	decoded.lightDamage = data[37];
+	decoded.tyreDamage = data[38];
+	decoded.siren = data[39];
+
+	// The 23-byte tail is 14 one-byte mods, paintjob, and two 32-bit body colours.
+	for (std::size_t index = 0; index < StreamInVehicleModCount; ++index)
+	{
+		decoded.mods[index] = data[40 + index];
+	}
+	decoded.paintjob = data[54];
+	decoded.bodyColour1 = readI32LittleEndian(data + 55);
+	decoded.bodyColour2 = readI32LittleEndian(data + 59);
+
+	if (!std::isfinite(decoded.position[0])
+		|| !std::isfinite(decoded.position[1])
+		|| !std::isfinite(decoded.position[2])
+		|| !std::isfinite(decoded.angle)
+		|| !std::isfinite(decoded.health))
+	{
+		error = DecodeError::InvalidVehicleData;
 		return false;
 	}
 
