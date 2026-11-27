@@ -2034,7 +2034,7 @@ void testCAbiBridge()
 			adapter, nativeRpc, nullptr, 0) == 0);
 	}
 
-	// Reserved client-to-server extension RPCs are still consumed if received inbound.
+	// Client-to-server extension IDs are not claimed by the inbound server RPC router.
 	for (const std::uint8_t wrongDirectionRpc : {
 		static_cast<std::uint8_t>(221),
 		static_cast<std::uint8_t>(223),
@@ -2043,7 +2043,7 @@ void testCAbiBridge()
 	})
 	{
 		assert(custom_vehicle_adapter_handle_server_rpc(
-			adapter, wrongDirectionRpc, nullptr, 0) == 1);
+			adapter, wrongDirectionRpc, nullptr, 0) == 0);
 	}
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 0) == 0);
 	assert(custom_vehicle_adapter_handle_server_rpc(adapter, 250, nullptr, 1) == -1);
