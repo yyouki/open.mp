@@ -80,6 +80,7 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)CustomVehicleWindows_ModelCount;
 	(void)CustomVehicleWindows_CopyModel;
 	(void)CustomVehicleWindows_DecodeStreamInVehicle;
+	(void)CustomVehicleWindows_RewriteStreamInVehicle;
 	(void)CustomVehicleWindows_IsModelReady;
 	(void)custom_vehicle_native_model_slot_registry_create;
 	(void)custom_vehicle_native_model_slot_registry_destroy;
