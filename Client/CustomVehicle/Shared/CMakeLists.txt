@@ -24,6 +24,7 @@ add_library(custom_vehicle_bridge_c_header_check OBJECT
 target_include_directories(custom_vehicle_bridge_c_header_check
 	PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/include
+		${CMAKE_CURRENT_SOURCE_DIR}/../Windows/include
 )
 target_compile_features(custom_vehicle_bridge_c_header_check PRIVATE c_std_99)
 
