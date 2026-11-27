@@ -118,6 +118,13 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_native_vehicle_model_backend_retry_cleanup;
 	(void)custom_vehicle_native_vehicle_model_backend_find;
 	(void)custom_vehicle_native_vehicle_model_backend_is_active;
+	(void)custom_vehicle_pending_vehicle_queue_create;
+	(void)custom_vehicle_pending_vehicle_queue_destroy;
+	(void)custom_vehicle_pending_vehicle_queue_size;
+	(void)custom_vehicle_pending_vehicle_queue_enqueue;
+	(void)custom_vehicle_pending_vehicle_queue_pop;
+	(void)custom_vehicle_pending_vehicle_queue_cancel;
+	(void)custom_vehicle_pending_vehicle_queue_clear;
 	{
 		custom_vehicle_stream_in_vehicle_v1 stream = { 0 };
 		(void)stream;
