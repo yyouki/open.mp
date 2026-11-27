@@ -143,6 +143,40 @@ It is evidence only: it provides no function addresses and is not used to
 dereference live game memory. The native backend must still verify the loaded
 GTA executable profile before using any game structure or function.
 
+The shared core now also contains `VehicleModelSlotRegistry` and a stable C ABI
+for it in `Shared/include/custom_vehicle/bridge.h`. The registry maps a server
+model ID to a vacant internal GTA model-info slot, tracks live-vehicle leases,
+and delays slot reuse until the model is retired, all vehicles release it, and
+the native slot is empty. It does not allocate or populate model-info objects,
+load RenderWare assets, or hook the game; a future Windows game-thread backend
+must provide the vacancy callback and perform those native operations. The
+callback executes while the registry lock is held and must not re-enter the
+registry. It must inspect the game model table only from a verified safe thread.
+
+### Reference lifecycle from MTA (design evidence only)
+
+The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
+
+- `CModelInfoSA::MakeVehicleAutomobile` allocates a vehicle model-info record,
+  copies the `0x308` vehicle interface from a compatible base vehicle, resets
+  the reference count and RW/visual pointers, sets native sentinel fields, and
+  copies the base model's streaming archive metadata to the new ID.
+- `CModelInfoSA::DeallocateModel` removes the model from streaming, resets
+  detached car-part references, deletes the vehicle interface, clears the
+  model-info table entry, and resets the streaming-info record.
+- `CRenderWareSA::ReplaceModel` releases the previous vehicle visual structure
+  before calling the vehicle `SetClump` routine again. It also balances TXD
+  and animation-block references after replacing the clump.
+
+Pinned references:
+[MakeVehicleAutomobile and DeallocateModel](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
+[vehicle interface layouts](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.h),
+and
+[vehicle clump replacement and pool cleanup](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.cpp).
+These are implementation patterns for the matching GTA build, not verified
+addresses for every SA-MP client revision. They are not copied into the adapter
+as native calls.
+
 ### Confirmed blockers for real vehicle spawning
 
 The reverse-engineered SA-MP client source
