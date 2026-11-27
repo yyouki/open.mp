@@ -56,6 +56,7 @@ public:
 
 	std::vector<ModelRequest> vehicleModels() const;
 	bool isVehicleModelReady(std::int32_t modelId) const;
+	bool resolveVehicleModel(std::int32_t modelId, ModelRequest& model, bool& ready) const;
 
 private:
 	bool requestNextAssetUnlocked() noexcept;
