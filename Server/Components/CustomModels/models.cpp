@@ -590,6 +590,10 @@ public:
 
 		if (requestedVehicleFile_)
 		{
+			if (url.empty())
+			{
+				return false;
+			}
 			const String redirectUrl(url.data(), url.size());
 			const bool validScheme = redirectUrl.compare(0, 7, "http://") == 0
 				|| redirectUrl.compare(0, 8, "https://") == 0;
