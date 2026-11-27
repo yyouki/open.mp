@@ -11,11 +11,75 @@ extern "C" {
 
 typedef struct custom_vehicle_adapter custom_vehicle_adapter;
 typedef struct custom_vehicle_native_model_slot_registry custom_vehicle_native_model_slot_registry;
+typedef struct custom_vehicle_native_vehicle_model_backend custom_vehicle_native_vehicle_model_backend;
 
 /* Non-zero means that the GTA model-info table entry is currently empty. */
 typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
 	void* user_data,
 	int32_t model_slot);
+
+/*
+ * Callbacks for the staged native vehicle model lifecycle controller.
+ *
+ * The caller must invoke activate/retire/retry from the verified GTA game
+ * thread. Callbacks run synchronously while controller state is locked and
+ * must not re-enter the backend API. On a failed create/load/attach callback,
+ * that callback must leave no resources of its own operation behind.
+ *
+ * destroy_model must be idempotent. It is passed the last fully completed
+ * stage and returns non-zero only when all native resources have been cleared.
+ * A zero return keeps the slot retired and reserved for a later cleanup retry.
+ */
+typedef int32_t (*custom_vehicle_native_model_create_fn)(
+	void* user_data,
+	int32_t native_model_slot,
+	const custom_vehicle_model_request_v1* model);
+typedef int32_t (*custom_vehicle_native_model_load_fn)(
+	void* user_data,
+	int32_t native_model_slot,
+	const custom_vehicle_model_request_v1* model);
+typedef int32_t (*custom_vehicle_native_model_attach_fn)(
+	void* user_data,
+	int32_t native_model_slot,
+	const custom_vehicle_model_request_v1* model);
+typedef int32_t (*custom_vehicle_native_model_destroy_fn)(
+	void* user_data,
+	int32_t native_model_slot,
+	const custom_vehicle_model_request_v1* model,
+	uint8_t completed_stage);
+
+#define CUSTOM_VEHICLE_NATIVE_MODEL_CALLBACKS_ABI_VERSION 1u
+
+typedef struct custom_vehicle_native_vehicle_model_callbacks_v1
+{
+	uint32_t struct_size;
+	uint32_t abi_version;
+	void* user_data;
+	custom_vehicle_native_slot_vacancy_fn is_slot_vacant;
+	custom_vehicle_native_model_create_fn create_model_info;
+	custom_vehicle_native_model_load_fn load_vehicle_assets;
+	custom_vehicle_native_model_attach_fn attach_vehicle_clump;
+	custom_vehicle_native_model_destroy_fn destroy_model;
+} custom_vehicle_native_vehicle_model_callbacks_v1;
+
+enum
+{
+	CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED = 1,
+	CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE = 2,
+	CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING = 3,
+	CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED = 4,
+	CUSTOM_VEHICLE_NATIVE_MODEL_NOT_FOUND = 0,
+	CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST = -1,
+	CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS = -2,
+	CUSTOM_VEHICLE_NATIVE_MODEL_NO_FREE_SLOT = -3,
+	CUSTOM_VEHICLE_NATIVE_MODEL_RETIRING = -4,
+	CUSTOM_VEHICLE_NATIVE_MODEL_REPLACEMENT_REQUIRED = -5,
+	CUSTOM_VEHICLE_NATIVE_MODEL_CREATE_FAILED = -6,
+	CUSTOM_VEHICLE_NATIVE_MODEL_LOAD_FAILED = -7,
+	CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED = -8,
+	CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE = -9,
+	CUSTOM_VEHICLE_NATIVE_MODEL_CLEANUP_PENDING = -10
+};
 
 enum
 {
@@ -213,6 +277,52 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 	int32_t expected_native_model_slot,
 	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
 	void* user_data);
+
+/*
+ * Staged native vehicle model lifecycle API.
+ *
+ * activate returns ASSETS_PENDING until both DFF and TXD have passed local
+ * size/CRC checks and the server acknowledgement. Native callbacks are
+ * synchronous and must be run only from a verified game-thread context.
+ */
+custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model_backend_create(
+	int32_t first_slot,
+	int32_t last_slot);
+void custom_vehicle_native_vehicle_model_backend_destroy(
+	custom_vehicle_native_vehicle_model_backend* backend);
+int32_t custom_vehicle_native_vehicle_model_backend_has_valid_range(
+	const custom_vehicle_native_vehicle_model_backend* backend);
+size_t custom_vehicle_native_vehicle_model_backend_size(
+	const custom_vehicle_native_vehicle_model_backend* backend);
+int32_t custom_vehicle_native_vehicle_model_backend_activate(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	const custom_vehicle_model_request_v1* model,
+	int32_t assets_ready,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_vehicle_model_backend_retain_for_vehicle(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_vehicle_model_backend_release_vehicle_use(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t native_model_slot);
+int32_t custom_vehicle_native_vehicle_model_backend_retire(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks);
+int32_t custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks);
+int32_t custom_vehicle_native_vehicle_model_backend_find(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t* native_model_slot);
+int32_t custom_vehicle_native_vehicle_model_backend_is_active(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id);
 
 #ifdef __cplusplus
 }
