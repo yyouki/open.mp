@@ -53,3 +53,11 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)callbacks;
 	(void)model;
 }
+
+/* Ensure the stream-in record remains usable from a C translation unit. */
+static custom_vehicle_stream_in_vehicle_v1 stream_in_vehicle_record;
+static int32_t (*decode_stream_in_vehicle)(
+	const custom_vehicle_adapter*,
+	const uint8_t*,
+	size_t,
+	custom_vehicle_stream_in_vehicle_v1*) = custom_vehicle_adapter_decode_stream_in_vehicle;
