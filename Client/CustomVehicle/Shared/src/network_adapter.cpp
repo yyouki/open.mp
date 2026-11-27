@@ -180,4 +180,23 @@ bool ClientNetworkAdapter::isVehicleModelReady(std::int32_t modelId) const
 	std::lock_guard lock(mutex_);
 	return session_.isVehicleModelReady(modelId);
 }
+
+bool ClientNetworkAdapter::resolveVehicleModel(
+	std::int32_t modelId,
+	ModelRequest& model,
+	bool& ready) const
+{
+	std::lock_guard lock(mutex_);
+	const auto& models = session_.vehicleModels();
+	const auto found = std::find_if(models.begin(), models.end(),
+		[modelId](const ModelRequest& entry) { return entry.newId == modelId; });
+	if (found == models.end())
+	{
+		return false;
+	}
+
+	model = *found;
+	ready = session_.isVehicleModelReady(modelId);
+	return true;
+}
 } // namespace custom_vehicle::protocol
