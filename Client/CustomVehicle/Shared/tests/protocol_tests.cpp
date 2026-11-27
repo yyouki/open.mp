@@ -10,6 +10,7 @@
 #undef NDEBUG // Keep assertions active even in Release test builds.
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -133,7 +134,7 @@ bool backendLoadVehicleAssets(
 	fixture.callbackOrder.push_back('L');
 	if (fixture.failLoad || !fixture.modelInfoCreated
 		|| fixture.lastCustomModelId != model.newId
-		|| !backendSlotIsVacant(userData, slot) == false)
+		|| backendSlotIsVacant(userData, slot))
 	{
 		return false;
 	}
@@ -227,10 +228,11 @@ void testNativeVehicleModelLifecycle()
 	const ModelRequest model = makeNativeVehicleModelRequest(30001, 400);
 
 	assert(backend.hasValidSlotRange());
-	assert(backend.activate(model, false, operations, &fixture, *new std::int32_t(-1))
+	std::int32_t unusedSlot = -1;
+	assert(backend.activate(model, false, operations, &fixture, unusedSlot)
 		== VehicleModelBackendResult::AssetsPending);
 	assert(backend.size() == 0);
-	assert(backend.activate(model, true, VehicleModelNativeOperations {}, &fixture, *new std::int32_t(-1))
+	assert(backend.activate(model, true, VehicleModelNativeOperations {}, &fixture, unusedSlot)
 		== VehicleModelBackendResult::MissingOperations);
 
 	std::int32_t nativeSlot = -1;
@@ -279,7 +281,23 @@ void testNativeVehicleModelLifecycle()
 
 	// An attach failure rolls back loaded assets and model-info. If cleanup itself
 	// fails once, the slot remains retired until a later explicit retry succeeds.
-	NativeVehicleModelFixture_unused_not_used();
+	fixture.failAttach = true;
+	fixture.failDestroyOnce = true;
+	const ModelRequest secondModel = makeNativeVehicleModelRequest(30002, 401);
+	std::int32_t secondNativeSlot = -1;
+	assert(backend.activate(secondModel, true, operations, &fixture, secondNativeSlot)
+		== VehicleModelBackendResult::CleanupPending);
+	assert(secondNativeSlot == -1); // Failed activation never publishes a slot.
+	assert(backend.size() == 1);
+	assert(!backend.isActive(30002));
+	assert(backend.find(30002, duplicateSlot));
+	assert(backendSlotIsVacant(&fixture, duplicateSlot) == false);
+	assert(backend.retryRetiredCleanup(30002, operations, &fixture)
+		== VehicleModelBackendResult::Released);
+	assert(backend.size() == 0);
+	assert(backendSlotIsVacant(&fixture, duplicateSlot));
+	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
+
 }
 
 void testNativeVehicleModelSlotRegistryCAbi()
