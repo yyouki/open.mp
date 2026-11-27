@@ -45,8 +45,13 @@ use windows_sys::core::BOOL;
 const RPC_REQUEST_DFF: u8 = 223;
 const RPC_REQUEST_TXD: u8 = 224;
 const RPC_FINISH_DOWNLOAD: u8 = 226;
+const RPC_WORLD_VEHICLE_ADD: u8 = 164;
+const RPC_WORLD_VEHICLE_REMOVE: u8 = 165;
 const RPC_CLIENT_SUPPORTS_VEHICLES: u8 = 221;
 const RPC_INIT_GAME: u8 = 139;
+const STREAM_IN_VEHICLE_BITS: usize = 63 * 8;
+const MIN_CUSTOM_VEHICLE_MODEL_ID: i32 = 30_001;
+const MAX_CUSTOM_VEHICLE_MODEL_ID: i32 = 32_767;
 
 // SA-MP's RakNet fork packet identifiers (from its bundled PacketEnumerations.h).
 const PACKET_CONNECTION_ATTEMPT_FAILED: u8 = 29;
@@ -68,6 +73,11 @@ const RETRY_DELAYS: [Duration; DOWNLOAD_ATTEMPTS] = [
 
 #[repr(C)]
 struct CustomVehicleAdapter {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+struct CustomVehiclePendingVehicleQueue {
     _private: [u8; 0],
 }
 
@@ -196,6 +206,29 @@ unsafe extern "C" {
         custom_model_id: *mut i32,
         base_model_id: *mut i32,
     ) -> i32;
+
+    fn custom_vehicle_pending_vehicle_queue_create() -> *mut CustomVehiclePendingVehicleQueue;
+    fn custom_vehicle_pending_vehicle_queue_destroy(
+        queue: *mut CustomVehiclePendingVehicleQueue,
+    ) -> i32;
+    fn custom_vehicle_pending_vehicle_queue_size(
+        queue: *const CustomVehiclePendingVehicleQueue,
+    ) -> usize;
+    fn custom_vehicle_pending_vehicle_queue_enqueue(
+        queue: *mut CustomVehiclePendingVehicleQueue,
+        request: *const CustomVehicleStreamInVehicleV1,
+    ) -> i32;
+    fn custom_vehicle_pending_vehicle_queue_pop(
+        queue: *mut CustomVehiclePendingVehicleQueue,
+        output: *mut CustomVehicleStreamInVehicleV1,
+    ) -> i32;
+    fn custom_vehicle_pending_vehicle_queue_cancel(
+        queue: *mut CustomVehiclePendingVehicleQueue,
+        vehicle_id: u16,
+    ) -> i32;
+    fn custom_vehicle_pending_vehicle_queue_clear(
+        queue: *mut CustomVehiclePendingVehicleQueue,
+    );
 }
 
 struct OutgoingRpc {
@@ -257,6 +290,7 @@ fn is_connection_termination_packet(packet_id: u8) -> bool {
 
 struct BridgeContext {
     adapter: AtomicPtr<CustomVehicleAdapter>,
+    pending_vehicles: AtomicPtr<CustomVehiclePendingVehicleQueue>,
     hooks_ready: AtomicBool,
     outgoing: Sender<WorkerMessage<OutgoingRpc>>,
     downloads: Sender<WorkerMessage<DownloadJob>>,
@@ -268,6 +302,17 @@ struct BridgeContext {
 impl BridgeContext {
     fn adapter(&self) -> *mut CustomVehicleAdapter {
         self.adapter.load(Ordering::Acquire)
+    }
+
+    fn pending_vehicle_queue(&self) -> *mut CustomVehiclePendingVehicleQueue {
+        self.pending_vehicles.load(Ordering::Acquire)
+    }
+
+    fn clear_pending_vehicles(&self) {
+        let queue = self.pending_vehicle_queue();
+        if !queue.is_null() {
+            unsafe { custom_vehicle_pending_vehicle_queue_clear(queue) };
+        }
     }
 }
 
@@ -360,12 +405,18 @@ fn initialize() {
         _ => return,
     };
 
+    let pending_vehicles = unsafe { custom_vehicle_pending_vehicle_queue_create() };
+    if pending_vehicles.is_null() {
+        return;
+    }
+
     let cache_root = cache_root();
     let (outgoing_tx, outgoing_rx) = mpsc::channel();
     let (download_tx, download_rx) = mpsc::channel();
     let (connection_events_tx, connection_events_rx) = mpsc::channel();
     let context = Arc::new(BridgeContext {
         adapter: AtomicPtr::new(ptr::null_mut()),
+        pending_vehicles: AtomicPtr::new(pending_vehicles),
         hooks_ready: AtomicBool::new(false),
         outgoing: outgoing_tx,
         downloads: download_tx,
@@ -391,7 +442,10 @@ fn initialize() {
         })
     {
         Ok(worker) => workers.push(worker),
-        Err(_) => return,
+        Err(_) => {
+            stop_workers(&context, workers);
+            return;
+        }
     }
 
     match outgoing_ready_rx.recv_timeout(Duration::from_secs(35)) {
@@ -487,6 +541,13 @@ fn handle_server_rpc(
 
     // Preserve native SA-MP and 0.3.DL RPCs exactly as received. Do not copy or
     // consume their bitstreams; the original game parser owns those packets.
+    if rpc_id == RPC_WORLD_VEHICLE_ADD {
+        return handle_world_vehicle_add(context, event);
+    }
+    if rpc_id == RPC_WORLD_VEHICLE_REMOVE {
+        return handle_world_vehicle_remove(context, event);
+    }
+
     if !is_custom_vehicle_rpc(rpc_id) {
         return SampClientSdkHookAction::Continue;
     }
@@ -527,6 +588,126 @@ fn handle_server_rpc(
     };
 
     SampClientSdkHookAction::Block
+}
+
+fn handle_world_vehicle_add(
+    context: &BridgeContext,
+    event: &mut samp_client_sdk::events::Event<'_>,
+) -> SampClientSdkHookAction {
+    // Stock RPC 164 is exactly 40 bytes of vehicle data plus 23 bytes of tuning.
+    // Leave non-matching payloads to the original client parser unchanged.
+    if event.reset_read().is_err() || event.remaining_bits() != STREAM_IN_VEHICLE_BITS {
+        let _ = event.reset_read();
+        return SampClientSdkHookAction::Continue;
+    }
+
+    let payload = match event.read_bits(STREAM_IN_VEHICLE_BITS) {
+        Ok(payload) if payload.len() == 63 => payload,
+        _ => {
+            let _ = event.reset_read();
+            return SampClientSdkHookAction::Continue;
+        }
+    };
+
+    // Model ID is the signed 32-bit value at byte offset 2 in the packed RPC.
+    let model_id = i32::from_le_bytes([
+        payload[2],
+        payload[3],
+        payload[4],
+        payload[5],
+    ]);
+    if !(MIN_CUSTOM_VEHICLE_MODEL_ID..=MAX_CUSTOM_VEHICLE_MODEL_ID).contains(&model_id) {
+        let _ = event.reset_read();
+        return SampClientSdkHookAction::Continue;
+    }
+
+    let adapter = context.adapter();
+    let queue = context.pending_vehicle_queue();
+    if adapter.is_null() || queue.is_null() {
+        return SampClientSdkHookAction::Block;
+    }
+
+    let payload_ptr = payload.as_ptr();
+    let mut decoded = CustomVehicleStreamInVehicleV1::default();
+    let decode_status = unsafe {
+        custom_vehicle_adapter_decode_stream_in_vehicle(
+            adapter,
+            payload_ptr,
+            payload.len(),
+            &mut decoded,
+        )
+    };
+    if !(1..=2).contains(&decode_status)
+        || decoded.custom_model_id != model_id
+        || !(400..=611).contains(&decoded.base_model_id)
+    {
+        // Unknown custom model IDs and malformed records must never reach stock
+        // CreateVehicle, which indexes the native keep-loaded table by model - 400.
+        return SampClientSdkHookAction::Block;
+    }
+
+    let mut rewritten = [0u8; 63];
+    let mut rewritten_size = 0usize;
+    let mut rewritten_custom_id = 0i32;
+    let mut rewritten_base_id = 0i32;
+    let rewrite_status = unsafe {
+        custom_vehicle_adapter_rewrite_stream_in_vehicle(
+            adapter,
+            payload_ptr,
+            payload.len(),
+            rewritten.as_mut_ptr(),
+            rewritten.len(),
+            &mut rewritten_size,
+            &mut rewritten_custom_id,
+            &mut rewritten_base_id,
+        )
+    };
+    if !(1..=2).contains(&rewrite_status)
+        || rewritten_size != rewritten.len()
+        || rewritten_custom_id != model_id
+        || rewritten_base_id != decoded.base_model_id
+    {
+        return SampClientSdkHookAction::Block;
+    }
+
+    // Replace only the model ID with the compatible stock base ID. The stock
+    // client therefore constructs a valid base vehicle while the copied custom
+    // record waits for the native game-thread registration/swap stage.
+    if event.replace_bits(&rewritten, STREAM_IN_VEHICLE_BITS).is_err()
+        || event.reset_read().is_err()
+    {
+        return SampClientSdkHookAction::Block;
+    }
+
+    let queue_result = unsafe { custom_vehicle_pending_vehicle_queue_enqueue(queue, &decoded) };
+    if queue_result <= 0 {
+        // Do not allow a base-only vehicle to spawn when its custom handoff could
+        // not be queued. A later server stream-in can retry after queue pressure clears.
+        return SampClientSdkHookAction::Block;
+    }
+
+    SampClientSdkHookAction::Continue
+}
+
+fn handle_world_vehicle_remove(
+    context: &BridgeContext,
+    event: &mut samp_client_sdk::events::Event<'_>,
+) -> SampClientSdkHookAction {
+    // RPC 165 carries a single 16-bit vehicle-pool ID. Cancellation is best-effort:
+    // the stock remove handler always remains responsible for deleting the entity.
+    if event.reset_read().is_ok() && event.remaining_bits() == 16 {
+        if let Ok(payload) = event.read_bits(16) {
+            if payload.len() == 2 {
+                let vehicle_id = u16::from_le_bytes([payload[0], payload[1]]);
+                let queue = context.pending_vehicle_queue();
+                if !queue.is_null() {
+                    unsafe { custom_vehicle_pending_vehicle_queue_cancel(queue, vehicle_id) };
+                }
+            }
+        }
+    }
+    let _ = event.reset_read();
+    SampClientSdkHookAction::Continue
 }
 
 fn handle_server_packet(
@@ -693,10 +874,12 @@ fn outgoing_worker(
         while let Ok(event) = connection_events.try_recv() {
             match event {
                 ConnectionEvent::GameInitialized => {
+                    context.clear_pending_vehicles();
                     init_game_seen = true;
                     disconnect_latched = false;
                 }
                 ConnectionEvent::Disconnected => {
+                    context.clear_pending_vehicles();
                     init_game_seen = false;
                     disconnect_latched = true;
                 }
@@ -726,10 +909,12 @@ fn outgoing_worker(
         }
 
         if connected && !session_active {
+            context.clear_pending_vehicles();
             if unsafe { custom_vehicle_adapter_begin_connection(adapter) } != 0 {
                 session_active = true;
             }
         } else if !connected && session_active {
+            context.clear_pending_vehicles();
             unsafe { custom_vehicle_adapter_end_connection(adapter) };
             session_active = false;
         }
@@ -1100,6 +1285,16 @@ fn stop_workers(
             custom_vehicle_adapter_destroy(adapter);
         }
     }
+
+    let queue = context
+        .pending_vehicles
+        .swap(ptr::null_mut(), Ordering::AcqRel);
+    if !queue.is_null() {
+        unsafe {
+            custom_vehicle_pending_vehicle_queue_clear(queue);
+            let _ = custom_vehicle_pending_vehicle_queue_destroy(queue);
+        }
+    }
 }
 
 fn drain_subscriptions(
@@ -1313,6 +1508,57 @@ pub extern "system" fn CustomVehicleWindows_IsModelReady(custom_model_id: i32) -
         unsafe { custom_vehicle_adapter_is_model_ready(adapter, custom_model_id) }
     })
     .unwrap_or(0)
+}
+
+/// Number of copied custom vehicle stream-in records waiting for game-thread work.
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_PendingVehicleCount() -> usize {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    let Some(context) = state.context.as_ref() else {
+        return 0;
+    };
+    let queue = context.pending_vehicle_queue();
+    if queue.is_null() {
+        return 0;
+    }
+    unsafe { custom_vehicle_pending_vehicle_queue_size(queue) }
+}
+
+/// Pop one copied stream-in record. Call only from the verified GTA game thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn CustomVehicleWindows_PopPendingVehicle(
+    output: *mut CustomVehicleStreamInVehicleV1,
+) -> i32 {
+    if output.is_null() {
+        return -1;
+    }
+
+    std::panic::catch_unwind(|| {
+        let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(context) = state.context.as_ref() else {
+            return -1;
+        };
+        let queue = context.pending_vehicle_queue();
+        if queue.is_null() {
+            return -1;
+        }
+        unsafe { custom_vehicle_pending_vehicle_queue_pop(queue, output) }
+    })
+    .unwrap_or(-1)
+}
+
+/// Cancel a not-yet-popped stream-in record by SA-MP vehicle-pool ID.
+#[unsafe(no_mangle)]
+pub extern "system" fn CustomVehicleWindows_CancelPendingVehicle(vehicle_id: u16) -> i32 {
+    let state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+    let Some(context) = state.context.as_ref() else {
+        return 0;
+    };
+    let queue = context.pending_vehicle_queue();
+    if queue.is_null() {
+        return 0;
+    }
+    unsafe { custom_vehicle_pending_vehicle_queue_cancel(queue, vehicle_id) }
 }
 
 #[cfg(test)]
