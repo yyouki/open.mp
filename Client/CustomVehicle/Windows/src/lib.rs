@@ -1652,7 +1652,13 @@ pub extern "system" fn CustomVehicleWindows_PendingVehicleBaseExistsOnGameThread
     state
         .context
         .as_ref()
-        .map(|context| i32::from(context.pending_vehicle_base_exists_on_game_thread.load(Ordering::Acquire)))
+        .map(|context| {
+            if context.pending_vehicle_base_exists_on_game_thread.load(Ordering::Acquire) {
+                1
+            } else {
+                0
+            }
+        })
         .unwrap_or(0)
 }
 
