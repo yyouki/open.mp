@@ -31,6 +31,26 @@ inline constexpr std::size_t ModelInfoPointerTableCount = 20000;
 inline constexpr std::uint32_t StreamingInfoTableAddress = 0x008E4CC0;
 inline constexpr std::size_t StreamingInfoTableCount = 26316;
 
+// Separate TXD resource namespace and CTxdPool entry layout.
+inline constexpr std::int32_t FirstTxdResourceId = 20000;
+inline constexpr std::size_t TxdPoolCapacity = 5000;
+inline constexpr std::int32_t LastTxdResourceId = 24999;
+
+constexpr std::int32_t txdResourceIdForPoolSlot(std::int32_t slot) noexcept
+{
+    return slot >= 0 && slot < static_cast<std::int32_t>(TxdPoolCapacity)
+        ? FirstTxdResourceId + slot
+        : -1;
+}
+
+struct TxdDefLayout
+{
+    std::uint32_t rw_dictionary;
+    std::int16_t reference_count;
+    std::int16_t parent_index;
+    std::uint32_t name_hash;
+};
+
 // 32-bit CStreamingInfo record. Dynamic entries must be initialized separately;
 // only archive image/offset/size may be copied from the compatible base model.
 struct StreamingInfoLayout
@@ -164,6 +184,18 @@ static_assert(offsetof(StreamingInfoLayout, image_id) == 0x07);
 static_assert(offsetof(StreamingInfoLayout, cd_offset) == 0x08);
 static_assert(offsetof(StreamingInfoLayout, cd_size) == 0x0C);
 static_assert(offsetof(StreamingInfoLayout, load_state) == 0x10);
+static_assert(sizeof(TxdDefLayout) == 0x0C);
+static_assert(offsetof(TxdDefLayout, rw_dictionary) == 0x00);
+static_assert(offsetof(TxdDefLayout, reference_count) == 0x04);
+static_assert(offsetof(TxdDefLayout, parent_index) == 0x06);
+static_assert(offsetof(TxdDefLayout, name_hash) == 0x08);
+static_assert(FirstTxdResourceId == 20000);
+static_assert(TxdPoolCapacity == 5000);
+static_assert(LastTxdResourceId == 24999);
+static_assert(txdResourceIdForPoolSlot(0) == 20000);
+static_assert(txdResourceIdForPoolSlot(4999) == 24999);
+static_assert(txdResourceIdForPoolSlot(-1) == -1);
+static_assert(txdResourceIdForPoolSlot(5000) == -1);
 static_assert(sizeof(BaseModelInfoLayout) == 0x20);
 static_assert(offsetof(BaseModelInfoLayout, reference_count) == 0x08);
 static_assert(offsetof(BaseModelInfoLayout, texture_dictionary_index) == 0x0A);

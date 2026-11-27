@@ -4,6 +4,7 @@
 #include <custom_vehicle/asset_cache.hpp>
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/model_slot_registry.hpp>
+#include <custom_vehicle/txd_slot_registry.hpp>
 #include <custom_vehicle/vehicle_stream_queue.hpp>
 #include <custom_vehicle/native_vehicle_model_backend.hpp>
 
@@ -67,6 +68,43 @@ struct NativeSlotVacancyState
 {
 	std::vector<std::int32_t> occupiedSlots;
 };
+
+struct TxdPoolFixture
+{
+    std::vector<bool> occupied;
+};
+
+bool allocateTxdPoolSlot(void* userData, std::int32_t& slot) noexcept
+{
+    if (userData == nullptr) return false;
+    auto& fixture = *static_cast<TxdPoolFixture*>(userData);
+    for (std::size_t i = 0; i < fixture.occupied.size(); ++i)
+    {
+        if (!fixture.occupied[i])
+        {
+            fixture.occupied[i] = true;
+            slot = static_cast<std::int32_t>(i);
+            return true;
+        }
+    }
+    return false;
+}
+
+void rollbackTxdPoolSlot(void* userData, std::int32_t slot) noexcept
+{
+    if (userData == nullptr || slot < 0) return;
+    auto& fixture = *static_cast<TxdPoolFixture*>(userData);
+    const auto i = static_cast<std::size_t>(slot);
+    if (i < fixture.occupied.size()) fixture.occupied[i] = false;
+}
+
+bool isTxdPoolSlotVacant(void* userData, std::int32_t slot) noexcept
+{
+    if (userData == nullptr || slot < 0) return false;
+    const auto& fixture = *static_cast<const TxdPoolFixture*>(userData);
+    const auto i = static_cast<std::size_t>(slot);
+    return i < fixture.occupied.size() && !fixture.occupied[i];
+}
 
 bool isNativeModelSlotVacant(void* userData, std::int32_t slot) noexcept
 {
@@ -609,6 +647,69 @@ void testNativeVehicleModelLifecycleCAbi()
 
 	assert(custom_vehicle_native_vehicle_model_backend_destroy(backend) == 1);
 	assert(custom_vehicle_native_vehicle_model_backend_destroy(nullptr) == 0);
+}
+
+void testNativeVehicleTxdSlotRegistry()
+{
+    using namespace custom_vehicle::native;
+
+    TxdPoolFixture pool { std::vector<bool>(2, false) };
+    TxdResourceSlotRegistry registry(0, 1);
+    assert(registry.hasValidRange());
+    assert(registry.size() == 0);
+
+    std::int32_t slot = -1;
+    std::int32_t resource = -1;
+    assert(registry.reserve(30001, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, slot, resource) == TxdSlotReserveResult::Reserved);
+    assert(slot == 0 && resource == 20000 && pool.occupied[0]);
+
+    std::int32_t repeatedSlot = -1;
+    std::int32_t repeatedResource = -1;
+    assert(registry.reserve(30001, nullptr, nullptr, nullptr,
+        repeatedSlot, repeatedResource) == TxdSlotReserveResult::AlreadyReserved);
+    assert(repeatedSlot == 0 && repeatedResource == 20000);
+
+    std::int32_t secondSlot = -1;
+    std::int32_t secondResource = -1;
+    assert(registry.reserve(30002, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, secondSlot, secondResource) == TxdSlotReserveResult::Reserved);
+    assert(secondSlot == 1 && secondResource == 20001);
+    assert(registry.size() == 2);
+
+    std::int32_t untouchedSlot = -88;
+    std::int32_t untouchedResource = -99;
+    assert(registry.reserve(30003, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, untouchedSlot, untouchedResource) == TxdSlotReserveResult::AllocationFailed);
+    assert(untouchedSlot == -88 && untouchedResource == -99);
+    assert(registry.reserve(30000, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, slot, resource) == TxdSlotReserveResult::InvalidCustomModelId);
+    assert(registry.reserve(30003, nullptr, rollbackTxdPoolSlot, &pool,
+        slot, resource) == TxdSlotReserveResult::MissingAllocator);
+    assert(registry.reserve(30003, allocateTxdPoolSlot, nullptr, &pool,
+        slot, resource) == TxdSlotReserveResult::MissingRollback);
+
+    assert(registry.retire(30001));
+    assert(registry.reserve(30001, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, repeatedSlot, repeatedResource) == TxdSlotReserveResult::ModelRetiring);
+    assert(registry.release(30001, 0, isTxdPoolSlotVacant, &pool)
+        == TxdSlotReleaseResult::NativeSlotStillOccupied);
+
+    // Native teardown removes the TXD pool entry before its registry mapping.
+    pool.occupied[0] = false;
+    assert(registry.release(30001, 0, isTxdPoolSlotVacant, &pool)
+        == TxdSlotReleaseResult::Released);
+    assert(!registry.find(30001, slot, resource));
+    assert(registry.size() == 1);
+
+    assert(registry.reserve(30003, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, slot, resource) == TxdSlotReserveResult::Reserved);
+    assert(slot == 0 && resource == 20000);
+
+    TxdResourceSlotRegistry invalidRange(-1, 4999);
+    assert(!invalidRange.hasValidRange());
+    assert(invalidRange.reserve(30004, allocateTxdPoolSlot, rollbackTxdPoolSlot,
+        &pool, slot, resource) == TxdSlotReserveResult::InvalidSlotRange);
 }
 
 void testNativeVehicleModelLifecycle()
@@ -2199,6 +2300,7 @@ int main()
 {
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
+	testNativeVehicleTxdSlotRegistry();
 	testNativeVehicleModelLifecycle();
 	testNativeVehicleModelVehicleBindings();
 	testNativeVehicleModelLifecycleCAbi();

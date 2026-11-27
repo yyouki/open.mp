@@ -6,6 +6,13 @@ static_assert(custom_vehicle::gta_sa::ModelInfoPointerTableAddress == 0x00A9B0C8
 static_assert(custom_vehicle::gta_sa::ModelInfoPointerTableCount == 20000);
 static_assert(custom_vehicle::gta_sa::StreamingInfoTableAddress == 0x008E4CC0);
 static_assert(custom_vehicle::gta_sa::StreamingInfoTableCount == 26316);
+static_assert(custom_vehicle::gta_sa::TxdPoolCapacity == 5000);
+static_assert(custom_vehicle::gta_sa::FirstTxdResourceId == 20000);
+static_assert(custom_vehicle::gta_sa::LastTxdResourceId == 24999);
+static_assert(sizeof(custom_vehicle::gta_sa::TxdDefLayout) == 0x0C);
+static_assert(offsetof(custom_vehicle::gta_sa::TxdDefLayout, reference_count) == 0x04);
+static_assert(offsetof(custom_vehicle::gta_sa::TxdDefLayout, parent_index) == 0x06);
+static_assert(offsetof(custom_vehicle::gta_sa::TxdDefLayout, name_hash) == 0x08);
 
 namespace
 {

@@ -352,6 +352,25 @@ must remain independent. This follows the pinned MTA
 `CopyStreamingInfoFromModel` implementation and GTA
 `CStreamingInfo::Init` semantics.
 
+### TXD pool and resource IDs are separate from DFF model IDs
+
+GTA SA has 20,000 DFF resource IDs (`0-19999`) and a separate 5,000-entry TXD
+pool. A TXD pool slot is an index (`0-4999`); its TXD streaming resource ID is
+`20000 + slot` (`20000-24999`). `CVehicleModelInfo::m_nTxdIndex` stores the
+pool slot, not the TXD resource ID or the server custom model ID.
+
+The portable `TxdResourceSlotRegistry` maps each custom server model ID to the
+actual TXD pool slot returned by the native allocator and the derived TXD
+streaming resource ID. It requires a rollback callback for a just-allocated
+slot it rejects, and will not free a mapping until the native pool confirms
+that the slot is vacant.
+
+On GTA SA 1.0 US, `CTxdStore::AddTxdSlot()` obtains a `TxdDef` via
+`CPool::New()` and immediately writes to the result without checking for null.
+The native allocator must preflight `CTxdPool::GetNoOfFreeSpaces()` before
+calling it. If the pool is full, it must return an allocation-pending/failure
+result without calling `AddTxdSlot()`.
+
 The compile-only header now asserts the exact 0x14-byte streaming record, the
 0x20-byte `CBaseModelInfo` prefix, and the model-info/streaming table constants.
 These values remain evidence for the exact GTA SA 1.0 US profile only and are
