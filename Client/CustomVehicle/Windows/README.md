@@ -6,8 +6,9 @@ standalone SA-MP client.
 
 ## Supported network profiles
 
-The pinned upstream host verifies direct SA-MP bridges for GTA: San Andreas
-1.0 US with these client builds:
+The pinned upstream host recognizes these SA-MP builds under GTA: San Andreas
+1.0 US. All six expose RakClient packet/RPC hooks; only four expose a verified
+direct native game-state reader:
 
 | Client build | Status in this adapter |
 | --- | --- |
@@ -47,9 +48,10 @@ as `samp_client_sdk.asi`.
   fresh URL.
 - Exposes copied vehicle model metadata through plugin exports for the native
   model-loader milestone.
-- Starts RPC 221 only when the selected profile reaches its verified connected
-  game state 14. State 15 (AwaitingJoin) is deliberately excluded. The sender
-  polls the cached SDK state and resets the extension session on disconnect.
+- Starts RPC 221 after the server's InitGame RPC (139). R1/R3-1/R5-1/DL R1
+  additionally wait for verified game state 14 and can detect an already-active
+  connection when loaded late. R2/R4-2 rely on packet/RPC lifecycle events because
+  the pinned SDK has no verified native game-state reader for those builds.
 
 ## Build
 
