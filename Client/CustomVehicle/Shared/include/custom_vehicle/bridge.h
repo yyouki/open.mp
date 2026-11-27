@@ -118,6 +118,17 @@ enum
 
 enum
 {
+	CUSTOM_VEHICLE_MODEL_BINDING_BOUND = 1,
+	CUSTOM_VEHICLE_MODEL_BINDING_ALREADY_BOUND = 2,
+	CUSTOM_VEHICLE_MODEL_BINDING_INVALID_VEHICLE_ID = -1,
+	CUSTOM_VEHICLE_MODEL_BINDING_INVALID_CUSTOM_ID = -2,
+	CUSTOM_VEHICLE_MODEL_BINDING_MODEL_NOT_ACTIVE = -3,
+	CUSTOM_VEHICLE_MODEL_BINDING_VEHICLE_ALREADY_BOUND = -4,
+	CUSTOM_VEHICLE_MODEL_BINDING_GENERATION_EXHAUSTED = -5
+};
+
+enum
+{
 	CUSTOM_VEHICLE_MODEL_SLOT_RESERVED = 1,
 	CUSTOM_VEHICLE_MODEL_SLOT_ALREADY_RESERVED = 2,
 	CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT = -1,
@@ -177,6 +188,21 @@ typedef struct custom_vehicle_model_request_v1
 	uint8_t time_on;
 	uint8_t time_off;
 } custom_vehicle_model_request_v1;
+
+/*
+ * Per-SA-MP-vehicle binding to one active custom model. Generation is a
+ * monotonically increasing token; callers must pass the exact copied binding
+ * back to release it. Reserved fields must be zero.
+ */
+typedef struct custom_vehicle_vehicle_model_binding_v1
+{
+	uint16_t vehicle_id;
+	uint16_t reserved;
+	int32_t custom_model_id;
+	int32_t native_model_slot;
+	uint32_t reserved2;
+	uint64_t generation;
+} custom_vehicle_vehicle_model_binding_v1;
 
 #define CUSTOM_VEHICLE_STREAM_IN_VEHICLE_MOD_COUNT 14u
 
@@ -366,6 +392,24 @@ int32_t custom_vehicle_native_vehicle_model_backend_find(
 int32_t custom_vehicle_native_vehicle_model_backend_is_active(
 	const custom_vehicle_native_vehicle_model_backend* backend,
 	int32_t custom_model_id);
+
+/*
+ * Generation-safe vehicle leases. Repeated binds for the same pool ID/model
+ * are idempotent. A different model cannot replace an existing binding until
+ * the old vehicle's native teardown has released its exact binding token.
+ */
+int32_t custom_vehicle_native_vehicle_model_backend_bind_vehicle(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	uint16_t vehicle_id,
+	int32_t custom_model_id,
+	custom_vehicle_vehicle_model_binding_v1* output);
+int32_t custom_vehicle_native_vehicle_model_backend_find_vehicle_binding(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	uint16_t vehicle_id,
+	custom_vehicle_vehicle_model_binding_v1* output);
+int32_t custom_vehicle_native_vehicle_model_backend_release_vehicle_binding(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	const custom_vehicle_vehicle_model_binding_v1* binding);
 
 /*
  * Bounded RPC-164 handoff queue.
