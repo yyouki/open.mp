@@ -210,11 +210,36 @@ model may be assigned to a vehicle. A pending model remains registered but is
 not active and must not be used for spawn/replacement.
 
 Callbacks execute synchronously while lifecycle state is locked. They must not
-re-enter the backend. Asset polling must not block the game thread. Retain one
-vehicle-use lease for every live vehicle that refers to the custom model and
-release it on vehicle removal. Retirement stops new leases; if old vehicles
-remain, the API returns `CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE` (-9) until all
-leases are released.
+re-enter the backend. Asset polling must not block the game thread.
+
+For actual SA-MP vehicles, prefer the generation-tagged binding API over the
+anonymous `retain_for_vehicle` / `release_vehicle_use` pair. Call
+`custom_vehicle_native_vehicle_model_backend_bind_vehicle` once the spawned
+vehicle is confirmed to use the custom model. The binding records the SA-MP
+vehicle-pool ID, custom model ID, native model-info slot, and a monotonically
+increasing generation token. Repeating the same bind is idempotent; trying to
+bind a different custom model to an already-bound pool ID is rejected.
+`find_vehicle_binding` can recover the current binding, and
+`release_vehicle_binding` accepts the exact copied token only. A delayed
+removal carrying an older generation therefore cannot release a newer
+vehicle's lease after SA-MP reuses the same pool ID.
+
+The game-thread consumer must first ensure the old native vehicle entity and
+its RenderWare resources are actually removed, then release its binding. An RPC
+165 event only cancels a record that is still pending in the network queue; it
+does not by itself prove that an already-popped or active vehicle has finished
+native teardown. Retirement stops new model binds; if vehicles remain, the API
+returns `CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE` (-9) until their exact bindings
+(and any separately held anonymous leases) have been released.
+
+The controller now also exposes generation-safe, per-vehicle bindings. A
+binding records the SA-MP vehicle-pool ID, custom model ID, native slot, and
+generation token; duplicate binds for the same vehicle/model are idempotent,
+and a different model cannot take over a still-bound vehicle ID. Releasing a
+binding requires the exact copied token. This prevents stale removal work from
+releasing a lease belonging to a later vehicle that reused the same SA-MP pool
+ID. The network queue and game-thread consumer still need to coordinate this
+API with verified vehicle existence and completed native entity teardown.
 
 The C ABI destroy functions refuse to discard live ownership state:
 `custom_vehicle_native_vehicle_model_backend_destroy` returns 0 while any
@@ -253,22 +278,47 @@ The pinned MTA source for GTA SA 1.0 US provides a useful comparison:
 - `CModelInfoSA::MakeVehicleAutomobile` allocates a vehicle model-info record,
   copies the `0x308` vehicle interface from a compatible base vehicle, resets
   the reference count and RW/visual pointers, sets native sentinel fields, and
-  copies the base model's streaming archive metadata to the new ID.
-- `CModelInfoSA::DeallocateModel` removes the model from streaming, resets
-  detached car-part references, deletes the vehicle interface, clears the
-  model-info table entry, and resets the streaming-info record.
+  copies the base model's streaming archive metadata to the new ID. The custom
+  model-info record therefore exists before the DFF is read.
+- `CClientDFF::GetLoadedClump` requests the model and then passes the vehicle
+  model-info ID into `CRenderWareSA::ReadDFF`, enabling embedded vehicle
+  collision loading. Before `RpClumpStreamRead`, `ReadDFF` clears any prior
+  collision model, sets RenderWare's embedded-collision context to the active
+  model-info pointer, and enables GTA's common vehicle texture-dictionary
+  handling; it resets that context immediately after the stream read. This
+  makes DFF parsing dependent on a correctly initialized model-info entry.
+- `CClientTXD::Import` does not simply overwrite the base model's TXD pointer.
+  MTA reads a temporary TXD, extracts its textures, detaches those textures
+  from the temporary dictionary, and applies them to the model's texture
+  dictionary while tracking original textures and references shared by other
+  replacements. Teardown restores the original named textures and removes
+  copied texture resources. MTA also has a separate TXD-pool-slot allocation
+  path for client-created models. Our backend must choose and own an equivalent
+  strategy; changing a base vehicle's shared TXD without reference tracking
+  could affect unrelated vehicles.
+- `CClientDFF::ReplaceVehicleModel` first requests the target model, applies
+  the clump through the vehicle model-info wrapper, resets default wheel sizes,
+  notifies the vehicle manager, and restreams vehicles using that model.
+  Restreaming streams matching entities out and later recreates them, rather
+  than assuming an arbitrary live entity can safely change its model pointer.
 - `CRenderWareSA::ReplaceModel` releases the previous vehicle visual structure
   before calling the vehicle `SetClump` routine again. It also balances TXD
   and animation-block references after replacing the clump.
+- `CModelInfoSA::DeallocateModel` removes the model from streaming, resets
+  detached car-part references, deletes the vehicle interface, clears the
+  model-info table entry, and resets the streaming-info record.
 
 Pinned references:
-[MakeVehicleAutomobile and DeallocateModel](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
+[model-info allocation and deallocation](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
 [vehicle interface layouts](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.h),
+[DFF loading and vehicle restream](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientDFF.cpp),
+[TXD texture ownership](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientTXD.cpp),
+[TXD replacement reference tracking](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.TextureReplacing.cpp),
 and
-[vehicle clump replacement and pool cleanup](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.cpp).
-These are implementation patterns for the matching GTA build, not verified
-addresses for every SA-MP client revision. They are not copied into the adapter
-as native calls.
+[vehicle clump replacement/pool cleanup](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.cpp).
+These are implementation patterns for the pinned GTA SA 1.0 US source revision,
+not verified addresses for every SA-MP client revision. They are not copied
+into the adapter as native calls.
 
 ### Confirmed blockers for real vehicle spawning
 
