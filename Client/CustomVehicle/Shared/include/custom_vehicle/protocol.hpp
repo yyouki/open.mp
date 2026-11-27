@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -29,6 +30,9 @@ inline constexpr std::size_t MaxDownloadUrlBytes = 255;
 inline constexpr std::size_t AssetRequestWireSize = 4;
 // RPC 226 completion payload: asset type byte followed by the CRC32 checksum in little-endian order.
 inline constexpr std::size_t AssetCompletionWireSize = 5;
+// Server RPC 164: a 40-byte vehicle record followed by 14 mods, paintjob and two colours.
+inline constexpr std::size_t StreamInVehicleModCount = 14;
+inline constexpr std::size_t StreamInVehicleWireSize = 63;
 
 struct ModelRequest
 {
@@ -46,6 +50,27 @@ struct ModelRequest
 	std::uint8_t timeOff = 0;
 };
 
+struct StreamInVehicleData
+{
+	std::uint16_t vehicleId = 0;
+	std::int32_t modelId = 0;
+	std::array<float, 3> position {};
+	float angle = 0.0f;
+	std::uint8_t colour1 = 0;
+	std::uint8_t colour2 = 0;
+	float health = 0.0f;
+	std::uint8_t interior = 0;
+	std::uint32_t doorDamage = 0;
+	std::uint32_t panelDamage = 0;
+	std::uint8_t lightDamage = 0;
+	std::uint8_t tyreDamage = 0;
+	std::uint8_t siren = 0;
+	std::array<std::uint8_t, StreamInVehicleModCount> mods {};
+	std::uint8_t paintjob = 0;
+	std::int32_t bodyColour1 = 0;
+	std::int32_t bodyColour2 = 0;
+};
+
 struct DownloadUrl
 {
 	AssetType type = AssetType::Dff;
@@ -58,11 +83,16 @@ enum class DecodeError
 {
 	None, NullBuffer, WrongSize, InvalidModelType, InvalidModelCount,
 	InvalidPoolIndex, InvalidUrlMarker, InvalidAssetType, InvalidUrlLength,
-	InvalidUrl, InvalidOutputBuffer
+	InvalidUrl, InvalidOutputBuffer, InvalidVehicleModel, InvalidVehicleData
 };
 
 bool decodeModelRequest(const std::uint8_t* data, std::size_t size, ModelRequest& result, DecodeError& error) noexcept;
 bool decodeDownloadUrl(const std::uint8_t* data, std::size_t size, DownloadUrl& result, DecodeError& error) noexcept;
+bool decodeStreamInVehicle(
+	const std::uint8_t* data,
+	std::size_t size,
+	StreamInVehicleData& result,
+	DecodeError& error) noexcept;
 bool encodeAssetRequest(AssetType type, std::uint32_t checksum, std::uint8_t* output,
 	std::size_t capacity, std::size_t& bytesWritten, RpcId& rpcId) noexcept;
 bool encodeAssetCompletion(AssetType type, std::uint32_t checksum, std::uint8_t* output,
