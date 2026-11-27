@@ -1,8 +1,9 @@
 //! Windows x86 SA-MP network/download adapter.
 //!
-//! Native GTA model registration is deliberately not attempted here. This plugin
-//! negotiates the extension, downloads verified DFF/TXD assets, and exposes copied
-//! model metadata for the next native-rendering milestone.
+//! Native GTA model registration and vehicle mutation remain disabled. When the
+//! exact GTA profile is available, this plugin registers an observation-only game
+//! tick, negotiates the extension, downloads verified DFF/TXD assets, and exposes
+//! copied model metadata for the next native-rendering milestone.
 
 #[cfg(not(all(windows, target_arch = "x86")))]
 compile_error!("custom-vehicle-windows supports only 32-bit Windows x86 targets");
@@ -318,6 +319,8 @@ impl BridgeContext {
         if !queue.is_null() {
             unsafe { custom_vehicle_pending_vehicle_queue_clear(queue) };
         }
+        self.pending_vehicle_count_on_game_thread
+            .store(0, Ordering::Release);
     }
 }
 
