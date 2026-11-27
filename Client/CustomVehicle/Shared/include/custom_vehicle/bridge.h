@@ -264,7 +264,10 @@ int32_t custom_vehicle_adapter_rewrite_stream_in_vehicle(
 custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_registry_create(
 	int32_t first_slot,
 	int32_t last_slot);
-/* Returns 1 and destroys the registry only when it owns no reserved slots. */
+/* Caller must quiesce concurrent API calls before destruction. Returns 1 and
+ * destroys the registry only when it owns no reserved slots. A 0 return leaves
+ * the registry valid and unchanged.
+ */
 int32_t custom_vehicle_native_model_slot_registry_destroy(
 	custom_vehicle_native_model_slot_registry* registry);
 int32_t custom_vehicle_native_model_slot_registry_has_valid_range(
@@ -312,7 +315,10 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model_backend_create(
 	int32_t first_slot,
 	int32_t last_slot);
-/* Returns 1 and destroys the backend only after every model lifecycle entry is released. */
+/* Caller must quiesce concurrent API calls before destruction. Returns 1 and
+ * destroys the backend only after every model lifecycle entry is released. A
+ * 0 return leaves the backend and all pending cleanup state valid and unchanged.
+ */
 int32_t custom_vehicle_native_vehicle_model_backend_destroy(
 	custom_vehicle_native_vehicle_model_backend* backend);
 int32_t custom_vehicle_native_vehicle_model_backend_has_valid_range(
