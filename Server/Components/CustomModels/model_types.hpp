@@ -14,17 +14,17 @@ constexpr int MAX_CUSTOM_VEHICLE_MODEL_ID = 32767;
 
 inline bool isCustomVehicleModelId(int modelId)
 {
-	return modelId >= MIN_CUSTOM_VEHICLE_MODEL_ID &&
-		modelId <= MAX_CUSTOM_VEHICLE_MODEL_ID;
+	return modelId >= MIN_CUSTOM_VEHICLE_MODEL_ID
+		&& modelId <= MAX_CUSTOM_VEHICLE_MODEL_ID;
 }
 
 // Train locomotives, rail vehicles, and train carriages need dedicated
 // consist/streaming behavior and are not valid replacement bases yet.
 inline bool isSupportedBaseVehicleModel(int modelId)
 {
-	return modelId >= 400 && modelId <= 611 &&
-		modelId != 449 && modelId != 537 && modelId != 538 &&
-		modelId != 569 && modelId != 570;
+	return modelId >= 400 && modelId <= 611
+		&& modelId != 449 && modelId != 537 && modelId != 538
+		&& modelId != 569 && modelId != 570;
 }
 } // namespace CustomModels
 
