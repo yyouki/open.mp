@@ -371,7 +371,7 @@ void testNativeVehicleModelLifecycleCAbi()
 	assert(foundSlot == slot);
 	assert(fixture.callbackOrder == std::vector<char>({ 'C', 'L', 'L', 'A' }));
 
-	custom_vehicle_model_request_v1 changedModel;
+	custom_vehicle_model_request_v1 changedModel = model;
 	changedModel.dff_checksum++;
 	std::int32_t unchangedSlot = -88;
 	assert(custom_vehicle_native_vehicle_model_backend_activate(
