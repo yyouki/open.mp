@@ -301,11 +301,11 @@ custom_vehicle::native::VehicleClumpAttachResult nativeVehicleAttachClump(
 			slot,
 			&record))
 		{
-			case CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_READY:
+			case CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_READY:
 				return VehicleClumpAttachResult::Attached;
-			case CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_PENDING:
+			case CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_PENDING:
 				return VehicleClumpAttachResult::Pending;
-			case CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_FAILED:
+			case CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_FAILED:
 			default:
 				return VehicleClumpAttachResult::Failed;
 		}
@@ -444,7 +444,7 @@ std::int32_t mapNativeVehicleBackendResult(
 		case VehicleModelBackendResult::LoadAssetsFailed:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_LOAD_FAILED;
 		case VehicleModelBackendResult::AttachClumpFailed:
-			return CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_FAILED;
+			return CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_FAILED;
 		case VehicleModelBackendResult::ModelInUse:
 			return CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE;
 		case VehicleModelBackendResult::CleanupPending:

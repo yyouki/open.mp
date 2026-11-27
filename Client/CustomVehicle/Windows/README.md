@@ -221,12 +221,12 @@ The `request_or_poll_vehicle_assets` callback returns one of three named values:
   stages. The callback itself must not leave partial resources behind.
 
 The `attach_vehicle_clump` callback is tri-state:
-- `CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_READY` (1): the vehicle clump was attached.
-- `CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_PENDING` (2): a bounded native resource,
+- `CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_READY` (1): the vehicle clump was attached.
+- `CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_PENDING` (2): a bounded native resource,
   such as the GTA `CVehicleStructure` pool, is temporarily full. The controller
   retains the model-info and loaded assets at `AssetsLoaded` and retries on a
   later game tick; it does not call `SetClump()` or roll back while full.
-- `CUSTOM_VEHICLE_NATIVE_CLUMP_ATTACH_FAILED` (0): a real attach failure; the
+- `CUSTOM_VEHICLE_NATIVE_ATTACH_CALLBACK_FAILED` (0): a real attach failure; the
   controller starts rollback.
 
 The backend reports
