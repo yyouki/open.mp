@@ -23,6 +23,10 @@
 
 namespace custom_vehicle::gta_sa
 {
+// Created by CVehicleModelInfo::SetupCommonData in the referenced GTA build.
+// SetClump allocates one VehicleStructure; DeleteRwObject releases it.
+inline constexpr std::size_t VehicleStructurePoolInitialCapacity = 50;
+
 struct VehicleUpgradePositionLayout
 {
 	float position[3];
