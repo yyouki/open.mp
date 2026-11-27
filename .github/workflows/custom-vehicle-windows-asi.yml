@@ -30,6 +30,16 @@ jobs:
         with:
           targets: i686-pc-windows-msvc
 
+      - name: Checkout pinned SDK host source
+        uses: actions/checkout@v4
+        with:
+          repository: Akionka/rak-samp
+          ref: c658b939a3d5b5be512b5b27ea869995bc37b44d
+          path: build/custom-vehicle-sdk-host
+
+      - name: Build pinned SDK host
+        run: cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release
+
       - name: Configure shared C++ core (Win32)
         run: cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-windows-x86 -A Win32 -DBUILD_TESTING=OFF
 
@@ -40,12 +50,14 @@ jobs:
         shell: pwsh
         env:
           CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
+          CUSTOM_VEHICLE_HOST_DLL_PATH: ${{ github.workspace }}\build\custom-vehicle-sdk-host\target\i686-pc-windows-msvc\release\samp_client_sdk.dll
         run: cargo build --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
 
       - name: Test Windows x86 adapter
         shell: pwsh
         env:
           CUSTOM_VEHICLE_CORE_LIB_DIR: ${{ github.workspace }}\build\custom-vehicle-windows-x86\Release
+          CUSTOM_VEHICLE_HOST_DLL_PATH: ${{ github.workspace }}\build\custom-vehicle-sdk-host\target\i686-pc-windows-msvc\release\samp_client_sdk.dll
         run: cargo test --manifest-path Client/CustomVehicle/Windows/Cargo.toml --target i686-pc-windows-msvc --release
 
       - name: Stage ASI artifact
