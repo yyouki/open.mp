@@ -1,5 +1,6 @@
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/network_adapter.hpp>
+#include <custom_vehicle/model_slot_registry.hpp>
 
 #include <algorithm>
 #include <new>
@@ -54,6 +55,19 @@ public:
 private:
 	const custom_vehicle_callbacks_v1& callbacks_;
 };
+
+struct NativeSlotVacancyCallbackContext
+{
+	custom_vehicle_native_slot_vacancy_fn callback;
+	void* user_data;
+};
+
+bool queryNativeSlotVacancy(void* user_data, std::int32_t model_slot) noexcept
+{
+	const auto* context = static_cast<const NativeSlotVacancyCallbackContext*>(user_data);
+	return context != nullptr && context->callback != nullptr
+		&& context->callback(context->user_data, model_slot) != 0;
+}
 } // namespace
 
 struct custom_vehicle_adapter
@@ -68,6 +82,16 @@ struct custom_vehicle_adapter
 		, transport(callbacks)
 		, downloader(callbacks)
 		, adapter(transport, downloader)
+	{
+	}
+};
+
+struct custom_vehicle_native_model_slot_registry
+{
+	custom_vehicle::native::VehicleModelSlotRegistry registry;
+
+	custom_vehicle_native_model_slot_registry(std::int32_t first_slot, std::int32_t last_slot)
+		: registry(first_slot, last_slot)
 	{
 	}
 };
@@ -298,6 +322,168 @@ int32_t custom_vehicle_adapter_copy_model(
 	catch (...)
 	{
 		return 0;
+
+custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_registry_create(
+	int32_t first_slot,
+	int32_t last_slot)
+{
+	try
+	{
+		return new custom_vehicle_native_model_slot_registry(first_slot, last_slot);
+	}
+	catch (...)
+	{
+		return nullptr;
+	}
+}
+
+void custom_vehicle_native_model_slot_registry_destroy(
+	custom_vehicle_native_model_slot_registry* registry)
+{
+	delete registry;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_has_valid_range(
+	const custom_vehicle_native_model_slot_registry* registry)
+{
+	return registry != nullptr && registry->registry.hasValidRange() ? 1 : 0;
+}
+
+size_t custom_vehicle_native_model_slot_registry_size(
+	const custom_vehicle_native_model_slot_registry* registry)
+{
+	return registry == nullptr ? 0 : registry->registry.size();
+}
+
+int32_t custom_vehicle_native_model_slot_registry_reserve(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
+	void* user_data,
+	int32_t* native_model_slot)
+{
+	if (registry == nullptr || native_model_slot == nullptr)
+	{
+		return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+	}
+
+	NativeSlotVacancyCallbackContext callback_context { is_slot_vacant, user_data };
+	const auto query = is_slot_vacant == nullptr ? nullptr : queryNativeSlotVacancy;
+	std::int32_t slot = -1;
+	const auto result = registry->registry.reserve(
+		custom_model_id,
+		query,
+		is_slot_vacant == nullptr ? nullptr : &callback_context,
+		slot);
+
+	switch (result)
+	{
+		case custom_vehicle::native::ModelSlotReserveResult::Reserved:
+			*native_model_slot = slot;
+			return CUSTOM_VEHICLE_MODEL_SLOT_RESERVED;
+		case custom_vehicle::native::ModelSlotReserveResult::AlreadyReserved:
+			*native_model_slot = slot;
+			return CUSTOM_VEHICLE_MODEL_SLOT_ALREADY_RESERVED;
+		case custom_vehicle::native::ModelSlotReserveResult::InvalidCustomModelId:
+			return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_CUSTOM_ID;
+		case custom_vehicle::native::ModelSlotReserveResult::InvalidSlotRange:
+			return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_RANGE;
+		case custom_vehicle::native::ModelSlotReserveResult::NoFreeSlot:
+			return CUSTOM_VEHICLE_MODEL_SLOT_NO_FREE_SLOT;
+		case custom_vehicle::native::ModelSlotReserveResult::ModelRetiring:
+			return CUSTOM_VEHICLE_MODEL_SLOT_RETIRING;
+		case custom_vehicle::native::ModelSlotReserveResult::MissingVacancyQuery:
+			return CUSTOM_VEHICLE_MODEL_SLOT_MISSING_VACANCY_QUERY;
+	}
+	return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_find(
+	const custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* native_model_slot)
+{
+	if (registry == nullptr || native_model_slot == nullptr)
+	{
+		return 0;
+	}
+	return registry->registry.find(custom_model_id, *native_model_slot) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_retain(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* native_model_slot)
+{
+	if (registry == nullptr || native_model_slot == nullptr)
+	{
+		return 0;
+	}
+	return registry->registry.retain(custom_model_id, *native_model_slot) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_release_use(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t native_model_slot)
+{
+	return registry != nullptr
+		&& registry->registry.releaseUse(custom_model_id, native_model_slot) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_retire(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id)
+{
+	return registry != nullptr && registry->registry.retire(custom_model_id) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_can_release(
+	const custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id)
+{
+	return registry != nullptr && registry->registry.canRelease(custom_model_id) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_model_slot_registry_release(
+	custom_vehicle_native_model_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t expected_native_model_slot,
+	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
+	void* user_data)
+{
+	if (registry == nullptr)
+	{
+		return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+	}
+
+	NativeSlotVacancyCallbackContext callback_context { is_slot_vacant, user_data };
+	const auto query = is_slot_vacant == nullptr ? nullptr : queryNativeSlotVacancy;
+	const auto result = registry->registry.release(
+		custom_model_id,
+		expected_native_model_slot,
+		query,
+		is_slot_vacant == nullptr ? nullptr : &callback_context);
+
+	switch (result)
+	{
+		case custom_vehicle::native::ModelSlotReleaseResult::Released:
+			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASED;
+		case custom_vehicle::native::ModelSlotReleaseResult::NotFound:
+			return CUSTOM_VEHICLE_MODEL_SLOT_NOT_FOUND;
+		case custom_vehicle::native::ModelSlotReleaseResult::SlotMismatch:
+			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISMATCH;
+		case custom_vehicle::native::ModelSlotReleaseResult::NotRetiring:
+			return CUSTOM_VEHICLE_MODEL_SLOT_NOT_RETIRING;
+		case custom_vehicle::native::ModelSlotReleaseResult::ModelInUse:
+			return CUSTOM_VEHICLE_MODEL_SLOT_IN_USE;
+		case custom_vehicle::native::ModelSlotReleaseResult::NativeSlotStillOccupied:
+			return CUSTOM_VEHICLE_MODEL_SLOT_STILL_OCCUPIED;
+		case custom_vehicle::native::ModelSlotReleaseResult::MissingVacancyQuery:
+			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY;
+	}
+	return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+}
 	}
 }
 } // extern "C"
