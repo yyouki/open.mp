@@ -12,6 +12,7 @@ extern "C" {
 typedef struct custom_vehicle_adapter custom_vehicle_adapter;
 typedef struct custom_vehicle_native_model_slot_registry custom_vehicle_native_model_slot_registry;
 typedef struct custom_vehicle_native_vehicle_model_backend custom_vehicle_native_vehicle_model_backend;
+struct custom_vehicle_model_request_v1;
 
 /* Non-zero means that the GTA model-info table entry is currently empty. */
 typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
@@ -33,15 +34,15 @@ typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
 typedef int32_t (*custom_vehicle_native_model_create_fn)(
 	void* user_data,
 	int32_t native_model_slot,
-	const custom_vehicle_model_request_v1* model);
+	const struct custom_vehicle_model_request_v1* model);
 typedef int32_t (*custom_vehicle_native_model_load_fn)(
 	void* user_data,
 	int32_t native_model_slot,
-	const custom_vehicle_model_request_v1* model);
+	const struct custom_vehicle_model_request_v1* model);
 typedef int32_t (*custom_vehicle_native_model_attach_fn)(
 	void* user_data,
 	int32_t native_model_slot,
-	const custom_vehicle_model_request_v1* model);
+	const struct custom_vehicle_model_request_v1* model);
 typedef int32_t (*custom_vehicle_native_model_destroy_fn)(
 	void* user_data,
 	int32_t native_model_slot,
