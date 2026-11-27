@@ -1468,7 +1468,7 @@ void testSessionDownloadLifecycle()
 	assert(session.capabilityState() == CapabilityState::AwaitingAcknowledgement);
 
 	SessionError sessionError = SessionError::None;
-	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+	assert(session.acceptCapabilityAcknowledgement(CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size(), sessionError));
 	assert(session.capabilityState() == CapabilityState::Ready);
 
 	auto manifest = makeVehicleRequest(dffCrc, txdCrc, static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
@@ -1520,7 +1520,7 @@ void testSessionRejectsMismatchedUrlAndCorruptFile()
 	ClientSession session;
 	session.beginNegotiation();
 	SessionError sessionError = SessionError::None;
-	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+	assert(session.acceptCapabilityAcknowledgement(CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size(), sessionError));
 
 	auto manifest = makeVehicleRequest(dffCrc, txdCrc, static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
 	DecodeError decodeError = DecodeError::None;
@@ -1550,7 +1550,7 @@ void testManifestGrowthAndPoolUniqueness()
 	ClientSession session;
 	session.beginNegotiation();
 	SessionError sessionError = SessionError::None;
-	assert(session.acceptCapabilityAcknowledgement(nullptr, 0, sessionError));
+	assert(session.acceptCapabilityAcknowledgement(CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size(), sessionError));
 	DecodeError decodeError = DecodeError::None;
 
 	auto first = makeVehicleRequest(11, 12, 20, 21, 0, 1, 30001);
@@ -1649,10 +1649,13 @@ void testNetworkAdapterFlow()
 	assert(adapter.beginConnection());
 	assert(transport.sentCalls.size() == 1);
 	assert(transport.sentCalls.back().id == RpcId::ClientSupportsCustomVehicleModels);
-	assert(transport.sentCalls.back().payload.empty());
+	assert((transport.sentCalls.back().payload == std::vector<std::uint8_t>(CapabilityHandshakeToken.begin(), CapabilityHandshakeToken.end())));
+	const std::array<std::uint8_t, 8> foreignCapability = { 1, 2, 3, 4, 5, 6, 7, 8 };
+	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
+		foreignCapability.data(), foreignCapability.size()) == RpcDisposition::ForwardToGame);
 
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
-		nullptr, 0) == RpcDisposition::Consume);
+		CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size()) == RpcDisposition::Consume);
 
 	auto manifest = makeVehicleRequest(dffCrc, txdCrc,
 		static_cast<std::uint32_t>(dff.size()), static_cast<std::uint32_t>(txd.size()));
@@ -1666,7 +1669,7 @@ void testNetworkAdapterFlow()
 	auto invalidExtensionManifest = manifest;
 	invalidExtensionManifest[8] = static_cast<std::uint8_t>(ModelType::Skin);
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelRequest),
-		invalidExtensionManifest.data(), invalidExtensionManifest.size()) == RpcDisposition::Consume);
+		invalidExtensionManifest.data(), invalidExtensionManifest.size()) == RpcDisposition::ForwardToGame);
 
 	// Native SA-MP and 0.3.DL RPCs are never intercepted by this extension.
 	constexpr std::array<std::uint8_t, 1> nativePayload = { 0x80 };
@@ -1695,7 +1698,7 @@ void testNetworkAdapterFlow()
 		static_cast<std::uint8_t>(226)
 	})
 	{
-		assert(adapter.handleServerRpc(wrongDirectionRpc, nullptr, 0) == RpcDisposition::Consume);
+		assert(adapter.handleServerRpc(wrongDirectionRpc, nullptr, 0) == RpcDisposition::ForwardToGame);
 	}
 
 	auto malformedDffUrl = makeDownloadUrl(AssetType::Dff, dffCrc, "https://example.test/car.dff");
@@ -1750,9 +1753,9 @@ void testNetworkAdapterFlow()
 
 	adapter.endConnection();
 	assert(adapter.vehicleModels().empty());
-	// RPC 225 is extension-only, even after the current session is reset.
+	// After reset, extension-shaped RPC 225 traffic is no longer intercepted.
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
-		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
+		dffUrl.data(), dffUrl.size()) == RpcDisposition::ForwardToGame);
 }
 
 
@@ -1829,8 +1832,8 @@ void testCAbiBridge()
 	assert(custom_vehicle_adapter_handle_server_rpc(
 		adapter,
 		static_cast<std::uint8_t>(RpcId::ServerSupportsCustomVehicleModels),
-		nullptr,
-		0) == 1);
+		CapabilityHandshakeToken.data(),
+		CapabilityHandshakeToken.size()) == 1);
 
 	constexpr std::array<std::uint8_t, 4> dff = { 'd','f','f','!' };
 	constexpr std::array<std::uint8_t, 4> txd = { 't','x','d','!' };

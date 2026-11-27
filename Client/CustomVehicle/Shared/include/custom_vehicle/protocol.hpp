@@ -21,6 +21,11 @@ enum class RpcId : std::uint8_t
 };
 enum class AssetType : std::uint8_t { Dff = 1, Txd = 2 };
 
+// Exact RPC 221/222 payload shared by the client and server capability handshake.
+inline constexpr std::array<std::uint8_t, 8> CapabilityHandshakeToken = {
+	0x4F, 0x4D, 0x50, 0x2D, 0x43, 0x56, 0x4D, 0x01
+};
+
 inline constexpr std::int32_t MinCustomVehicleModelId = 30001;
 inline constexpr std::int32_t MaxCustomVehicleModelId = 32767;
 inline constexpr std::size_t ModelRequestWireSize = 39;

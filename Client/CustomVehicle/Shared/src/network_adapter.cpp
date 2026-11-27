@@ -10,7 +10,8 @@ bool ClientNetworkAdapter::beginConnection() noexcept
 {
 	std::lock_guard lock(mutex_);
 	session_.beginNegotiation();
-	if (!transport_.sendRpc(RpcId::ClientSupportsCustomVehicleModels, nullptr, 0))
+	if (!transport_.sendRpc(RpcId::ClientSupportsCustomVehicleModels,
+		CapabilityHandshakeToken.data(), CapabilityHandshakeToken.size()))
 	{
 		session_.reset();
 		return false;
@@ -36,12 +37,19 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		case RpcId::ServerSupportsCustomVehicleModels:
 		{
 			SessionError error = SessionError::None;
-			session_.acceptCapabilityAcknowledgement(payload, size, error);
-			// RPC 222 belongs only to the custom vehicle extension.
+			if (!session_.acceptCapabilityAcknowledgement(payload, size, error))
+			{
+				// A non-matching RPC 222 may belong to another plugin; leave it untouched.
+				return RpcDisposition::ForwardToGame;
+			}
 			return RpcDisposition::Consume;
 		}
 		case RpcId::ModelUrl:
 		{
+			if (session_.capabilityState() != CapabilityState::Ready)
+			{
+				return RpcDisposition::ForwardToGame;
+			}
 			AssetDownload download;
 			DecodeError decodeError = DecodeError::None;
 			SessionError sessionError = SessionError::None;
@@ -61,6 +69,10 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 		}
 		case RpcId::DownloadCompleted:
 		{
+			if (session_.capabilityState() != CapabilityState::Ready)
+			{
+				return RpcDisposition::ForwardToGame;
+			}
 			SessionError error = SessionError::None;
 			if (!session_.acceptDownloadAcknowledgement(payload, size, error))
 			{
@@ -70,19 +82,14 @@ RpcDisposition ClientNetworkAdapter::handleServerRpc(
 			requestNextAssetUnlocked();
 			return RpcDisposition::Consume;
 		}
-		case RpcId::ClientSupportsCustomVehicleModels:
-		case RpcId::RequestDff:
-		case RpcId::RequestTxd:
-		case RpcId::FinishDownload:
-			// These extension IDs are client-to-server only; never forward them to the stock game.
-			return RpcDisposition::Consume;
 		case RpcId::ModelRequest:
 		{
-			// RPC 220 is reserved for vehicle manifests; native artwork stays on native RPC 179.
-			if (payload == nullptr || size <= 8
+			// Do not claim RPC 220 until the versioned capability handshake succeeds.
+			if (session_.capabilityState() != CapabilityState::Ready
+				|| payload == nullptr || size <= 8
 				|| payload[8] != static_cast<std::uint8_t>(ModelType::Vehicle))
 			{
-				return RpcDisposition::Consume;
+				return RpcDisposition::ForwardToGame;
 			}
 
 			try

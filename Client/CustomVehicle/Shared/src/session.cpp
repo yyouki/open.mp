@@ -22,7 +22,8 @@ bool ClientSession::acceptCapabilityAcknowledgement(
 		error = SessionError::InvalidState;
 		return false;
 	}
-	if (size != 0 || (data == nullptr && size != 0))
+	if (data == nullptr || size != CapabilityHandshakeToken.size()
+		|| !std::equal(CapabilityHandshakeToken.begin(), CapabilityHandshakeToken.end(), data))
 	{
 		error = SessionError::InvalidPayload;
 		return false;

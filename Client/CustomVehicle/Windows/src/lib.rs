@@ -524,7 +524,7 @@ fn initialize() {
 }
 
 fn is_custom_vehicle_rpc(rpc_id: u8) -> bool {
-    (220..=227).contains(&rpc_id)
+    matches!(rpc_id, 220 | 222 | 225 | 227)
 }
 
 fn handle_server_rpc(
@@ -554,21 +554,25 @@ fn handle_server_rpc(
 
     let bit_len = event.remaining_bits();
     if bit_len > MAX_RPC_BYTES.saturating_mul(8) || bit_len % 8 != 0 {
-        return SampClientSdkHookAction::Block;
+        return SampClientSdkHookAction::Continue;
     }
 
     if event.reset_read().is_err() {
-        return SampClientSdkHookAction::Block;
+        return SampClientSdkHookAction::Continue;
     }
 
     let payload = match event.read_bits(bit_len) {
         Ok(payload) => payload,
-        Err(_) => return SampClientSdkHookAction::Block,
+        Err(_) => {
+            let _ = event.reset_read();
+            return SampClientSdkHookAction::Continue;
+        }
     };
 
     let adapter = context.adapter();
     if adapter.is_null() {
-        return SampClientSdkHookAction::Block;
+        let _ = event.reset_read();
+        return SampClientSdkHookAction::Continue;
     }
 
     let payload_ptr = if payload.is_empty() {
@@ -576,9 +580,8 @@ fn handle_server_rpc(
     } else {
         payload.as_ptr()
     };
-    // IDs 220-227 are extension-only, so even malformed or unexpected states
-    // must never expose them to the stock game parser.
-    let _ = unsafe {
+    // Only consume packets that the negotiated extension adapter positively claims.
+    let disposition = unsafe {
         custom_vehicle_adapter_handle_server_rpc(
             adapter,
             rpc_id,
@@ -587,7 +590,12 @@ fn handle_server_rpc(
         )
     };
 
-    SampClientSdkHookAction::Block
+    if disposition > 0 {
+        SampClientSdkHookAction::Block
+    } else {
+        let _ = event.reset_read();
+        SampClientSdkHookAction::Continue
+    }
 }
 
 fn handle_world_vehicle_add(
@@ -1578,12 +1586,12 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn custom_vehicle_rpc_range_is_isolated() {
-        for rpc_id in 220..=227 {
-            assert!(is_custom_vehicle_rpc(rpc_id), "extension RPC {rpc_id} was not classified");
+    fn only_server_to_client_vehicle_rpcs_are_classified() {
+        for rpc_id in [220, 222, 225, 227] {
+            assert!(is_custom_vehicle_rpc(rpc_id), "server extension RPC {rpc_id} was not classified");
         }
 
-        for rpc_id in [179, 181, 182, 183, 184, 185, 186, 187, 188, 189, 219, 228, 255] {
+        for rpc_id in [179, 181, 182, 183, 184, 185, 186, 187, 188, 189, 219, 221, 223, 224, 226, 228, 255] {
             assert!(
                 !is_custom_vehicle_rpc(rpc_id),
                 "native or unrelated RPC {rpc_id} was classified as a vehicle extension"

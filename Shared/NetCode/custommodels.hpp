@@ -17,12 +17,25 @@ namespace NetCode
 {
 namespace RPC
 {
+// Versioned marker prevents unrelated RPC 221 traffic from enabling this extension.
+constexpr uint8_t CustomVehicleCapabilityToken[8] = {
+	0x4F, 0x4D, 0x50, 0x2D, 0x43, 0x56, 0x4D, 0x01
+};
+
 // Experimental custom-vehicle extension RPCs use a separate ID range.
 // Native SA-MP/0.3.DL artwork RPCs 179 and 181-185 remain unchanged.
 struct ClientSupportsCustomVehicleModels : NetworkPacketBase<221, NetworkPacketType::RPC, OrderingChannel_SyncRPC>
 {
 	bool read(NetworkBitStream& bs)
 	{
+		for (uint8_t expected : CustomVehicleCapabilityToken)
+		{
+			uint8_t actual = 0;
+			if (!bs.readUINT8(actual) || actual != expected)
+			{
+				return false;
+			}
+		}
 		return true;
 	}
 };
@@ -36,6 +49,10 @@ struct ServerSupportsCustomVehicleModels : NetworkPacketBase<222, NetworkPacketT
 
 	void write(NetworkBitStream& bs) const
 	{
+		for (uint8_t byte : CustomVehicleCapabilityToken)
+		{
+			bs.writeUINT8(byte);
+		}
 	}
 };
 

@@ -37,7 +37,7 @@ public:
 	{
 	}
 
-	// Sends the empty RPC 186 capability opt-in and resets state for this connection.
+	// Sends the versioned RPC 221 capability opt-in and resets state for this connection.
 	bool beginConnection() noexcept;
 	void endConnection() noexcept;
 
