@@ -536,8 +536,9 @@ void testNetworkAdapterFlow()
 
 	adapter.endConnection();
 	assert(adapter.vehicleModels().empty());
+	// RPC 225 is extension-only, even after the current session is reset.
 	assert(adapter.handleServerRpc(static_cast<std::uint8_t>(RpcId::ModelUrl),
-		dffUrl.data(), dffUrl.size()) == RpcDisposition::ForwardToGame);
+		dffUrl.data(), dffUrl.size()) == RpcDisposition::Consume);
 }
 
 
