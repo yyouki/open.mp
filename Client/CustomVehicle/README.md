@@ -216,9 +216,18 @@ The next native integration must be implemented as one guarded path:
    wrapper: its `model - 400` keep-loaded array access is not range-checked.
    Construct the vehicle through a verified base-model path, then associate
    its native entity with a safely registered internal vehicle model slot.
-4. Clone/initialize a real vehicle model-info record before DFF parsing;
-   provide the embedded-collision loading context, a reference-safe TXD strategy,
-   required animation/streaming metadata, and vehicle-specific clump setup.
+4. For the pinned GTA SA 1.0 US profile, use a typed, heap-owned vehicle
+   model-info strategy rather than appending beyond the fixed 212-record
+   `CStore<CVehicleModelInfo>`: the MTA reference allocates a complete
+   `CVehicleModelInfoSAInterface`, copies the `0x308` interface from a compatible
+   base vehicle, resets references/RW pointers and sentinels, registers it in the
+   model-info pointer table, and copies the base streaming archive metadata.
+   This is design evidence only; validate the exact interface and slot for the
+   selected executable before any write. The paired teardown must remove the
+   model from streaming, balance references, reset detached car-part references,
+   delete the correctly typed interface, clear the model-info pointer, and reset
+   the streaming-info record. It must also release the embedded-collision context,
+   TXD/animation references, vehicle visual structure, and RenderWare clump.
    Unwind every acquired resource on failure or stream-out.
 5. Keep model-info slots, vehicle entities, RenderWare objects, TXD references,
    detached car parts, and streaming references synchronized through deletion
