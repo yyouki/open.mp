@@ -14,8 +14,16 @@ enum class VehicleModelResourceStage : std::uint8_t
 {
 	Reserved,
 	ModelInfoCreated,
+	AssetsRequested,
 	AssetsLoaded,
 	ClumpAttached
+};
+
+enum class VehicleAssetLoadResult : std::uint8_t
+{
+	Failed,
+	Pending,
+	Ready
 };
 
 enum class VehicleModelBackendResult
@@ -23,6 +31,7 @@ enum class VehicleModelBackendResult
 	Activated,
 	AlreadyActive,
 	AssetsPending,
+	NativeAssetsPending,
 	InvalidRequest,
 	MissingOperations,
 	NoFreeSlot,
@@ -45,9 +54,12 @@ enum class VehicleModelBackendResult
  * thread after the original CGame::Process has completed. These callbacks must
  * not re-enter VehicleModelLifecycleController.
  *
- * Failed create/load/attach callbacks must leave no resources from the failed
- * operation behind. destroy_model must be idempotent and clear every resource
- * acquired up to completed_stage, including the model-info table entry,
+ * create_model_info and attach_vehicle_clump are synchronous. The asset callback
+ * is called once to request streaming and again on later game ticks to poll it;
+ * Pending keeps the model-info slot reserved without blocking the game thread.
+ * Failed callbacks must not leave resources from their failed operation behind.
+ * destroy_model must be idempotent and clear every resource acquired up to
+ * completed_stage, including pending streaming requests, model-info table entry,
  * RenderWare clump, vehicle structure, streaming metadata, and TXD references.
  * It returns true only when teardown is complete; false keeps the slot retired
  * and reserved so a later retry can finish cleanup without reusing it.
@@ -62,7 +74,7 @@ struct VehicleModelNativeOperations
 		void* user_data,
 		std::int32_t native_model_slot,
 		const protocol::ModelRequest& model) noexcept = nullptr;
-	bool (*load_vehicle_assets)(
+	VehicleAssetLoadResult (*request_or_poll_vehicle_assets)(
 		void* user_data,
 		std::int32_t native_model_slot,
 		const protocol::ModelRequest& model) noexcept = nullptr;
