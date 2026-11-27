@@ -1,6 +1,7 @@
 #include <custom_vehicle/bridge.h>
 #include <custom_vehicle/network_adapter.hpp>
 #include <custom_vehicle/model_slot_registry.hpp>
+#include <custom_vehicle/native_vehicle_model_backend.hpp>
 
 #include <algorithm>
 #include <array>
@@ -66,8 +67,262 @@ struct NativeSlotVacancyCallbackContext
 bool queryNativeSlotVacancy(void* user_data, std::int32_t model_slot) noexcept
 {
 	const auto* context = static_cast<const NativeSlotVacancyCallbackContext*>(user_data);
-	return context != nullptr && context->callback != nullptr
-		&& context->callback(context->user_data, model_slot) != 0;
+	if (context == nullptr || context->callback == nullptr)
+	{
+		return false;
+	}
+	try
+	{
+		return context->callback(context->user_data, model_slot) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+struct NativeVehicleCallbackContext
+{
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks;
+};
+
+bool copyVehicleModelRequest(
+	const custom_vehicle_model_request_v1& source,
+	custom_vehicle::protocol::ModelRequest& destination) noexcept
+{
+	using custom_vehicle::protocol::ModelType;
+	switch (source.type)
+	{
+		case static_cast<std::uint8_t>(ModelType::Skin):
+			destination.type = ModelType::Skin;
+			break;
+		case static_cast<std::uint8_t>(ModelType::Object):
+			destination.type = ModelType::Object;
+			break;
+		case static_cast<std::uint8_t>(ModelType::Vehicle):
+			destination.type = ModelType::Vehicle;
+			break;
+		default:
+			return false;
+	}
+
+	destination.poolId = source.pool_id;
+	destination.modelCount = source.model_count;
+	destination.virtualWorld = source.virtual_world;
+	destination.baseId = source.base_id;
+	destination.newId = source.new_id;
+	destination.dffChecksum = source.dff_checksum;
+	destination.txdChecksum = source.txd_checksum;
+	destination.dffSize = source.dff_size;
+	destination.txdSize = source.txd_size;
+	destination.timeOn = source.time_on;
+	destination.timeOff = source.time_off;
+	return true;
+}
+
+custom_vehicle_model_request_v1 makeVehicleModelRequest(
+	const custom_vehicle::protocol::ModelRequest& model) noexcept
+{
+	custom_vehicle_model_request_v1 result {};
+	result.pool_id = model.poolId;
+	result.model_count = model.modelCount;
+	result.type = static_cast<std::uint8_t>(model.type);
+	result.virtual_world = model.virtualWorld;
+	result.base_id = model.baseId;
+	result.new_id = model.newId;
+	result.dff_checksum = model.dffChecksum;
+	result.txd_checksum = model.txdChecksum;
+	result.dff_size = model.dffSize;
+	result.txd_size = model.txdSize;
+	result.time_on = model.timeOn;
+	result.time_off = model.timeOff;
+	return result;
+}
+
+bool nativeVehicleSlotVacant(void* user_data, std::int32_t slot) noexcept
+{
+	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
+	if (context == nullptr || context->callbacks == nullptr
+		|| context->callbacks->is_slot_vacant == nullptr)
+	{
+		return false;
+	}
+	try
+	{
+		return context->callbacks->is_slot_vacant(
+			context->callbacks->user_data,
+			slot) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool nativeVehicleCreateModelInfo(
+	void* user_data,
+	std::int32_t slot,
+	const custom_vehicle::protocol::ModelRequest& model) noexcept
+{
+	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
+	if (context == nullptr || context->callbacks == nullptr
+		|| context->callbacks->create_model_info == nullptr)
+	{
+		return false;
+	}
+	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
+	try
+	{
+		return context->callbacks->create_model_info(
+			context->callbacks->user_data,
+			slot,
+			&record) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool nativeVehicleLoadAssets(
+	void* user_data,
+	std::int32_t slot,
+	const custom_vehicle::protocol::ModelRequest& model) noexcept
+{
+	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
+	if (context == nullptr || context->callbacks == nullptr
+		|| context->callbacks->load_vehicle_assets == nullptr)
+	{
+		return false;
+	}
+	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
+	try
+	{
+		return context->callbacks->load_vehicle_assets(
+			context->callbacks->user_data,
+			slot,
+			&record) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool nativeVehicleAttachClump(
+	void* user_data,
+	std::int32_t slot,
+	const custom_vehicle::protocol::ModelRequest& model) noexcept
+{
+	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
+	if (context == nullptr || context->callbacks == nullptr
+		|| context->callbacks->attach_vehicle_clump == nullptr)
+	{
+		return false;
+	}
+	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
+	try
+	{
+		return context->callbacks->attach_vehicle_clump(
+			context->callbacks->user_data,
+			slot,
+			&record) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool nativeVehicleDestroyModel(
+	void* user_data,
+	std::int32_t slot,
+	const custom_vehicle::protocol::ModelRequest& model,
+	custom_vehicle::native::VehicleModelResourceStage completed_stage) noexcept
+{
+	const auto* context = static_cast<const NativeVehicleCallbackContext*>(user_data);
+	if (context == nullptr || context->callbacks == nullptr
+		|| context->callbacks->destroy_model == nullptr)
+	{
+		return false;
+	}
+	const custom_vehicle_model_request_v1 record = makeVehicleModelRequest(model);
+	try
+	{
+		return context->callbacks->destroy_model(
+			context->callbacks->user_data,
+			slot,
+			&record,
+			static_cast<std::uint8_t>(completed_stage)) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+bool makeNativeVehicleOperations(
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks,
+	custom_vehicle::native::VehicleModelNativeOperations& operations) noexcept
+{
+	if (callbacks == nullptr
+		|| callbacks->struct_size < sizeof(custom_vehicle_native_vehicle_model_callbacks_v1)
+		|| callbacks->abi_version != CUSTOM_VEHICLE_NATIVE_MODEL_CALLBACKS_ABI_VERSION
+		|| callbacks->is_slot_vacant == nullptr
+		|| callbacks->create_model_info == nullptr
+		|| callbacks->load_vehicle_assets == nullptr
+		|| callbacks->attach_vehicle_clump == nullptr
+		|| callbacks->destroy_model == nullptr)
+	{
+		return false;
+	}
+
+	operations.is_slot_vacant = nativeVehicleSlotVacant;
+	operations.create_model_info = nativeVehicleCreateModelInfo;
+	operations.load_vehicle_assets = nativeVehicleLoadAssets;
+	operations.attach_vehicle_clump = nativeVehicleAttachClump;
+	operations.destroy_model = nativeVehicleDestroyModel;
+	return true;
+}
+
+std::int32_t mapNativeVehicleBackendResult(
+	custom_vehicle::native::VehicleModelBackendResult result) noexcept
+{
+	using custom_vehicle::native::VehicleModelBackendResult;
+	switch (result)
+	{
+		case VehicleModelBackendResult::Activated:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED;
+		case VehicleModelBackendResult::AlreadyActive:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE;
+		case VehicleModelBackendResult::AssetsPending:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_ASSETS_PENDING;
+		case VehicleModelBackendResult::InvalidRequest:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+		case VehicleModelBackendResult::MissingOperations:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS;
+		case VehicleModelBackendResult::NoFreeSlot:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_NO_FREE_SLOT;
+		case VehicleModelBackendResult::ModelRetiring:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_RETIRING;
+		case VehicleModelBackendResult::ModelReplacementRequired:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_REPLACEMENT_REQUIRED;
+		case VehicleModelBackendResult::CreateModelInfoFailed:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_CREATE_FAILED;
+		case VehicleModelBackendResult::LoadAssetsFailed:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_LOAD_FAILED;
+		case VehicleModelBackendResult::AttachClumpFailed:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_ATTACH_FAILED;
+		case VehicleModelBackendResult::ModelInUse:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_IN_USE;
+		case VehicleModelBackendResult::CleanupPending:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_CLEANUP_PENDING;
+		case VehicleModelBackendResult::Released:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_RELEASED;
+		case VehicleModelBackendResult::NotFound:
+			return CUSTOM_VEHICLE_NATIVE_MODEL_NOT_FOUND;
+	}
+	return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
 }
 } // namespace
 
@@ -93,6 +348,16 @@ struct custom_vehicle_native_model_slot_registry
 
 	custom_vehicle_native_model_slot_registry(std::int32_t first_slot, std::int32_t last_slot)
 		: registry(first_slot, last_slot)
+	{
+	}
+};
+
+struct custom_vehicle_native_vehicle_model_backend
+{
+	custom_vehicle::native::VehicleModelLifecycleController controller;
+
+	custom_vehicle_native_vehicle_model_backend(std::int32_t first_slot, std::int32_t last_slot)
+		: controller(first_slot, last_slot)
 	{
 	}
 };
@@ -557,5 +822,226 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY;
 	}
 	return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+}
+
+custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model_backend_create(
+	int32_t first_slot,
+	int32_t last_slot)
+{
+	try
+	{
+		return new custom_vehicle_native_vehicle_model_backend(first_slot, last_slot);
+	}
+	catch (...)
+	{
+		return nullptr;
+	}
+}
+
+void custom_vehicle_native_vehicle_model_backend_destroy(
+	custom_vehicle_native_vehicle_model_backend* backend)
+{
+	delete backend;
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_has_valid_range(
+	const custom_vehicle_native_vehicle_model_backend* backend)
+{
+	return backend != nullptr && backend->controller.hasValidSlotRange() ? 1 : 0;
+}
+
+size_t custom_vehicle_native_vehicle_model_backend_size(
+	const custom_vehicle_native_vehicle_model_backend* backend)
+{
+	return backend == nullptr ? 0 : backend->controller.size();
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_activate(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	const custom_vehicle_model_request_v1* model,
+	int32_t assets_ready,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks,
+	int32_t* native_model_slot)
+{
+	if (backend == nullptr || model == nullptr || native_model_slot == nullptr)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+	}
+
+	custom_vehicle::protocol::ModelRequest decoded_model;
+	if (!copyVehicleModelRequest(*model, decoded_model))
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+	}
+
+	custom_vehicle::native::VehicleModelNativeOperations operations;
+	if (!makeNativeVehicleOperations(callbacks, operations))
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS;
+	}
+
+	NativeVehicleCallbackContext callback_context { callbacks };
+	std::int32_t slot = -1;
+	try
+	{
+		const auto result = backend->controller.activate(
+			decoded_model,
+			assets_ready != 0,
+			operations,
+			&callback_context,
+			slot);
+		const std::int32_t mapped = mapNativeVehicleBackendResult(result);
+		if (mapped == CUSTOM_VEHICLE_NATIVE_MODEL_ACTIVATED
+			|| mapped == CUSTOM_VEHICLE_NATIVE_MODEL_ALREADY_ACTIVE)
+		{
+			*native_model_slot = slot;
+		}
+		return mapped;
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_retain_for_vehicle(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t* native_model_slot)
+{
+	if (backend == nullptr || native_model_slot == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		std::int32_t slot = -1;
+		if (!backend->controller.retainForVehicle(custom_model_id, slot))
+		{
+			return 0;
+		}
+		*native_model_slot = slot;
+		return 1;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_release_vehicle_use(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t native_model_slot)
+{
+	if (backend == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		return backend->controller.releaseVehicleUse(custom_model_id, native_model_slot) ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_retire(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks)
+{
+	if (backend == nullptr)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+	}
+
+	custom_vehicle::native::VehicleModelNativeOperations operations;
+	if (!makeNativeVehicleOperations(callbacks, operations))
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS;
+	}
+	NativeVehicleCallbackContext callback_context { callbacks };
+	try
+	{
+		return mapNativeVehicleBackendResult(
+			backend->controller.retire(custom_model_id, operations, &callback_context));
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_CLEANUP_PENDING;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_retry_cleanup(
+	custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	const custom_vehicle_native_vehicle_model_callbacks_v1* callbacks)
+{
+	if (backend == nullptr)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_INVALID_REQUEST;
+	}
+
+	custom_vehicle::native::VehicleModelNativeOperations operations;
+	if (!makeNativeVehicleOperations(callbacks, operations))
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_MISSING_OPERATIONS;
+	}
+	NativeVehicleCallbackContext callback_context { callbacks };
+	try
+	{
+		return mapNativeVehicleBackendResult(
+			backend->controller.retryRetiredCleanup(custom_model_id, operations, &callback_context));
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_NATIVE_MODEL_CLEANUP_PENDING;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_find(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id,
+	int32_t* native_model_slot)
+{
+	if (backend == nullptr || native_model_slot == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		std::int32_t slot = -1;
+		if (!backend->controller.find(custom_model_id, slot))
+		{
+			return 0;
+		}
+		*native_model_slot = slot;
+		return 1;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+}
+
+int32_t custom_vehicle_native_vehicle_model_backend_is_active(
+	const custom_vehicle_native_vehicle_model_backend* backend,
+	int32_t custom_model_id)
+{
+	if (backend == nullptr)
+	{
+		return 0;
+	}
+	try
+	{
+		return backend->controller.isActive(custom_model_id) ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
 }
 } // extern "C"
