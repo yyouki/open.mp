@@ -642,8 +642,7 @@ private:
 		{
 			// Retries may request a fresh URL for the same asset, but a different
 			// asset must wait until the current transfer has been acknowledged.
-			if (hasPendingDownload_ &&
-				(pendingType_ != type || pendingChecksum_ != checksum))
+			if (hasPendingDownload_ && (pendingType_ != type || pendingChecksum_ != checksum))
 			{
 				return false;
 			}
@@ -1050,16 +1049,18 @@ private:
 
 		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
 		{
-			if (!self.supportsCustomVehicles(peer))
+			if (!self.enabled || !self.vehicleModelsEnabled)
 			{
 				return true;
 			}
 
 			PlayerCustomVehicleModelsData* vehicleData =
 				queryExtension<PlayerCustomVehicleModelsData>(peer);
-			if (vehicleData == nullptr || !vehicleData->completePendingDownload())
+			if (vehicleData == nullptr || !vehicleData->supportsCustomVehicleModels()
+				|| !vehicleData->completePendingDownload())
 			{
-				// Ignore duplicate or unsolicited completion RPCs.
+				// Ignore duplicate or unsolicited completion RPCs. A valid in-flight
+				// transfer may finish after the local HTTP endpoint has stopped.
 				return true;
 			}
 
