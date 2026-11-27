@@ -98,6 +98,13 @@ The first implementation is in [Shared](Shared/). It currently provides:
   C, Rust, or JNI-backed Android code. The C boundary exposes opaque adapter
   handles, RPC/download callbacks, and copied model snapshots without exposing
   C++ STL types. CI also compiles this header as C.
+- A bounded native model-slot registry that maps server IDs `30001-32767` to
+  confirmed-vacant entries in GTA SA's original `0-19999` model-info table.
+  Its default allocation range is `612-19999`; each slot is checked through
+  a caller-supplied vacancy callback. It tracks live-vehicle leases and blocks
+  slot reuse until a model is retired, all vehicles release their leases, and
+  the native table entry is confirmed empty. C ABI wrappers keep C++ mutex,
+  vector, and class internals outside the Rust/ASI ABI.
 - Android JNI exposes the same RPC 164 decoder to Java hosts; the returned
   status distinguishes native vehicles, ready custom vehicles, and custom models
   whose assets are still pending. Float fields are passed as IEEE-754 bit patterns.
@@ -142,6 +149,50 @@ macOS, and cross-compiles the Android JNI shared library for `arm64-v8a`,
 `armeabi-v7a`, `x86`, and `x86_64`. These jobs validate the portable
 protocol, adapter, cache, C ABI and JNI build; they do not certify an Android
 multiplayer game client or its native model backend.
+
+## Native backend checkpoint
+
+The model-slot registry is groundwork for the native backend, not vehicle
+registration itself. It does not create a `CVehicleModelInfo`, load a DFF/TXD
+into RenderWare, call `SetClump`, patch GTA/SA-MP code, alter RPC 164, or spawn
+a vehicle. The Windows adapter currently exposes an RPC 164 decoder, but its
+incoming RPC hook still forwards native RPC 164 unchanged.
+
+The next native integration must be implemented as one guarded path:
+
+1. Identify the exact GTA and SA-MP executable profile and validate all hook
+   signatures before installing any native detour.
+2. Intercept RPC 164 before the stock handler rejects IDs outside 400-611.
+   Preserve ordinary vehicles byte-for-byte and handle unknown custom IDs
+   without forwarding malformed data to the game.
+3. Avoid passing an external ID directly to the stock `CGame::CreateVehicle`
+   wrapper: its `model - 400` keep-loaded array access is not range-checked.
+   Construct the vehicle through a verified base-model path, then associate
+   its native entity with a safely registered internal vehicle model slot.
+4. Clone/initialize a real vehicle model-info record, attach verified DFF/TXD
+   and required animation/streaming metadata, run the vehicle-specific clump
+   setup, and unwind every acquired resource on failure or stream-out.
+5. Keep model-info slots, vehicle entities, RenderWare objects, TXD references,
+   detached car parts, and streaming references synchronized through deletion
+   and same-ID model replacement.
+
+GTA SA's initial `CVehicleStructure` pool capacity is 50. The registry's
+available model-info slot count does not increase this pool. The renderer
+backend must manage the lifetime of loaded vehicle clumps and decide, from
+verified allocator behavior, whether to reuse a bounded number of slots or
+safely expand the structure pool. It must not assume that the model-info
+table's free slots imply unlimited loaded vehicle models.
+
+### Feature backlog after basic spawn
+
+The supplied LunarVehiclesMP/LunarVisualsMP release notes are useful as a
+reference for later compatibility work. The backlog is intentionally staged:
+custom tuning parts and paintjobs; correct damage/repair and original-part
+restoration; fast model replacement and old-resource cleanup; robust downloads,
+retry, cache pruning and integrity-checked updates; then client-specific Android
+texture handling, mod coexistence, crash diagnostics, custom engine sounds,
+sirens and motorcycle rider animations. These are not implemented features or
+current compatibility claims.
 
 ## Milestones
 
