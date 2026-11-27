@@ -38,7 +38,7 @@ jobs:
           path: build/custom-vehicle-sdk-host
 
       - name: Build pinned SDK host
-        run: cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release
+        run: cargo build --manifest-path build/custom-vehicle-sdk-host/Cargo.toml --target i686-pc-windows-msvc --release --locked
 
       - name: Configure shared C++ core (Win32)
         run: cmake -S Client/CustomVehicle/Shared -B build/custom-vehicle-windows-x86 -A Win32 -DBUILD_TESTING=OFF
