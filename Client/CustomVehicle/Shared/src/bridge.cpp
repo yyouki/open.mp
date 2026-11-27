@@ -322,6 +322,8 @@ int32_t custom_vehicle_adapter_copy_model(
 	catch (...)
 	{
 		return 0;
+	}
+}
 
 custom_vehicle_native_model_slot_registry* custom_vehicle_native_model_slot_registry_create(
 	int32_t first_slot,
@@ -483,7 +485,5 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY;
 	}
 	return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
-}
-	}
 }
 } // extern "C"
