@@ -185,12 +185,21 @@ validated, rewritten to its compatible base ID, and copied into a bounded
 queue. Unknown custom IDs and queue failures are blocked so an invalid external
 ID never reaches stock `CreateVehicle`. RPC 165 cancels an entry that has not
 yet been popped. `CustomVehicleWindows_PopPendingVehicle` exposes copied
-records for a future game-thread consumer.
+records for the game-thread processing stage.
 
-This is only the network-to-game-thread handoff. The current code lets the stock
-client create the compatible **base vehicle**, but there is no queue consumer,
-native model-info allocator, DFF/TXD RenderWare loader, clump attachment, or
-base-to-custom vehicle swap yet. Therefore the actual custom vehicle is not
+The ASI also registers an observation-only game-thread callback through the
+pinned `modkit-sdk` service when the exact GTA SA 1.0 US native profile is
+available. It validates the host-issued callback scope, counts ticks, and samples
+the pending queue length. The callback deliberately does not dequeue records or
+mutate GTA state. Callback teardown uses the host's drain operation and retains
+its context if in-flight work cannot be safely drained. If the native profile is
+unavailable, networking and asset transfers remain enabled while this callback
+stays disabled.
+
+This is still only the network-to-game-thread handoff. The current code lets the
+stock client create the compatible **base vehicle**, but it has no processing
+consumer, native model-info allocator, DFF/TXD RenderWare loader, clump attachment,
+or base-to-custom vehicle swap yet. Therefore the actual custom vehicle is not
 rendered by this milestone.
 
 The next native integration must be implemented as one guarded path:
