@@ -54,6 +54,28 @@ int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_DecodeStreamInVehicle(
     size_t payload_size,
     custom_vehicle_stream_in_vehicle_v1* output);
 
+/* Rewrites only the model ID in an exact 63-byte RPC 164 payload.
+ *
+ * Return values:
+ *  -1: malformed payload, unknown custom model, or inactive adapter.
+ *   0: stock vehicle; output and metadata remain untouched.
+ *   1: registered custom model with verified/acknowledged assets.
+ *   2: registered custom model with assets still pending.
+ *
+ * For returns 1 and 2, the output is a copy of the original payload with only
+ * the model ID field (bytes 2-5) changed to the compatible base vehicle ID.
+ * Native callers must not forward it until they have queued the corresponding
+ * custom-model activation for the verified game thread.
+ */
+int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_RewriteStreamInVehicle(
+    const uint8_t* payload,
+    size_t payload_size,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* output_size,
+    int32_t* custom_model_id,
+    int32_t* base_model_id);
+
 /* Rechecks local verification plus server acknowledgement for both assets. */
 int32_t CUSTOM_VEHICLE_WINDOWS_CALL CustomVehicleWindows_IsModelReady(
     int32_t custom_model_id);
