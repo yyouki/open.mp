@@ -34,4 +34,7 @@ struct IPlayerCustomVehicleModelsData : public IExtension
 	PROVIDE_EXT_UID(0x4B9E2D31A765C80F)
 
 	virtual bool supportsCustomVehicleModels() const = 0;
+
+	// Reserve the requested asset before a redirected vehicle URL is sent.
+	virtual bool beginPendingDownload(ModelDownloadType type, uint32_t checksum) = 0;
 };
