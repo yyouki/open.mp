@@ -827,6 +827,13 @@ private:
 
 		bool onReceive(IPlayer& peer, NetworkBitStream& bs) override
 		{
+			NetCode::RPC::ClientSupportsCustomVehicleModels capability;
+			// Ignore unrelated or malformed RPC 221 traffic without blocking other handlers.
+			if (!capability.read(bs))
+			{
+				return true;
+			}
+
 			if (!self.enabled || !self.vehicleModelsEnabled)
 			{
 				return true;
