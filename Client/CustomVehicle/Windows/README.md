@@ -337,6 +337,21 @@ unknown/sentinel field at `+0x14`, the dynamic index at `+0x16`, and the
 RenderWare object pointer at `+0x1C`. These facts are for the exact supported
 GTA SA 1.0 US executable profile only; they are not universal SA-MP, 0.3.DL,
 open.mp-client, Android, or other-architecture offsets.
+
+The dynamic model's `CStreamingInfo` record must not be copied wholesale from
+its base model. Reset the target record to its empty state first (all three
+linked-list indices to -1, zero request flags, no loaded/requested state), then
+copy only the archive image ID, archive offset and archive size. The archive
+metadata points the DFF/TXD reader at the same IMG file data; linked-list links,
+request flags and load state belong to the target model ID and must remain
+independent. This follows the pinned MTA `CopyStreamingInfoFromModel`
+implementation and the GTA `CStreamingInfo::Init` semantics.
+
+The compile-only header now asserts the exact 0x14-byte streaming record, the
+0x20-byte `CBaseModelInfo` prefix, and the model-info/streaming table constants.
+These values remain evidence for the exact GTA SA 1.0 US profile only and are
+not used for runtime memory access until executable identity and native
+operations are separately validated.
 - `CClientDFF::GetLoadedClump` requests the model and then passes the vehicle
   model-info ID into `CRenderWareSA::ReadDFF`, enabling embedded vehicle
   collision loading. Before `RpClumpStreamRead`, `ReadDFF` clears any prior

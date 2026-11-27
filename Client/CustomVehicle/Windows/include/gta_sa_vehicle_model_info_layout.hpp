@@ -11,7 +11,8 @@
  * executable has been positively identified as the matching 32-bit build.
  *
  * Layout evidence:
- * - gta-reversed/gta-reversed, source/game_sa/Models/VehicleModelInfo.h
+ * - gta-reversed/gta-reversed, source/game_sa/Models/VehicleModelInfo.h,
+ *   Models/BaseModelInfo.h, StreamingInfo.h, Streaming.h
  *   commit 85bce0be4bd3229eb5ef445d3a7ac2e611a994f4
  * - multitheftauto/mtasa-blue, Client/game_sa/CModelInfoSA.h
  *   commit 002d0274c63740c512ae06daab67e0b6e770745a
@@ -23,6 +24,45 @@
 
 namespace custom_vehicle::gta_sa
 {
+// Exact table facts for the referenced GTA SA 1.0 US executable only.
+// These constants are compile-time evidence, not permission to dereference memory.
+inline constexpr std::uint32_t ModelInfoPointerTableAddress = 0x00A9B0C8;
+inline constexpr std::size_t ModelInfoPointerTableCount = 20000;
+inline constexpr std::uint32_t StreamingInfoTableAddress = 0x008E4CC0;
+inline constexpr std::size_t StreamingInfoTableCount = 26316;
+
+// 32-bit CStreamingInfo record. Dynamic entries must be initialized separately;
+// only archive image/offset/size may be copied from the compatible base model.
+struct StreamingInfoLayout
+{
+	std::int16_t next_index;
+	std::int16_t previous_index;
+	std::int16_t next_index_on_cd;
+	std::uint8_t flags;
+	std::uint8_t image_id;
+	std::uint32_t cd_offset;
+	std::uint32_t cd_size;
+	std::uint8_t load_state;
+	std::uint8_t alignment_padding[3];
+};
+
+// The fixed 0x20-byte CBaseModelInfo prefix of CVehicleModelInfo.
+struct BaseModelInfoLayout
+{
+	std::uint32_t vtable;
+	std::uint32_t model_name_hash;
+	std::uint16_t reference_count;
+	std::int16_t texture_dictionary_index;
+	std::uint8_t alpha;
+	std::uint8_t two_d_effect_count;
+	std::int16_t two_d_effect_index;
+	std::int16_t object_info_index;
+	std::uint16_t flags;
+	std::uint32_t collision_model;
+	float draw_distance;
+	std::uint32_t renderware_object;
+};
+
 // Created by CVehicleModelInfo::SetupCommonData in the referenced GTA build.
 // SetClump allocates one VehicleStructure; DeleteRwObject releases it.
 inline constexpr std::size_t VehicleStructurePoolInitialCapacity = 50;
@@ -95,6 +135,26 @@ struct VehicleModelInfoLayout
 };
 
 static_assert(sizeof(void*) == 4, "GTA SA 1.0 US is a 32-bit process");
+static_assert(sizeof(StreamingInfoLayout) == 0x14);
+static_assert(offsetof(StreamingInfoLayout, next_index) == 0x00);
+static_assert(offsetof(StreamingInfoLayout, previous_index) == 0x02);
+static_assert(offsetof(StreamingInfoLayout, next_index_on_cd) == 0x04);
+static_assert(offsetof(StreamingInfoLayout, flags) == 0x06);
+static_assert(offsetof(StreamingInfoLayout, image_id) == 0x07);
+static_assert(offsetof(StreamingInfoLayout, cd_offset) == 0x08);
+static_assert(offsetof(StreamingInfoLayout, cd_size) == 0x0C);
+static_assert(offsetof(StreamingInfoLayout, load_state) == 0x10);
+static_assert(sizeof(BaseModelInfoLayout) == 0x20);
+static_assert(offsetof(BaseModelInfoLayout, reference_count) == 0x08);
+static_assert(offsetof(BaseModelInfoLayout, texture_dictionary_index) == 0x0A);
+static_assert(offsetof(BaseModelInfoLayout, alpha) == 0x0C);
+static_assert(offsetof(BaseModelInfoLayout, two_d_effect_count) == 0x0D);
+static_assert(offsetof(BaseModelInfoLayout, two_d_effect_index) == 0x0E);
+static_assert(offsetof(BaseModelInfoLayout, object_info_index) == 0x10);
+static_assert(offsetof(BaseModelInfoLayout, flags) == 0x12);
+static_assert(offsetof(BaseModelInfoLayout, collision_model) == 0x14);
+static_assert(offsetof(BaseModelInfoLayout, draw_distance) == 0x18);
+static_assert(offsetof(BaseModelInfoLayout, renderware_object) == 0x1C);
 static_assert(sizeof(VehicleUpgradePositionLayout) == 0x20);
 static_assert(sizeof(VehicleStructureLayout) == 0x314);
 static_assert(offsetof(VehicleStructureLayout, upgrade_positions) == 0x0B4);
