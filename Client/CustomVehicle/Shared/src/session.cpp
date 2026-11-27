@@ -307,4 +307,28 @@ const std::vector<ModelRequest>& ClientSession::vehicleModels() const noexcept
 {
 	return vehicleModels_;
 }
+
+bool ClientSession::isVehicleModelReady(std::int32_t modelId) const noexcept
+{
+	const auto model = std::find_if(vehicleModels_.begin(), vehicleModels_.end(),
+		[modelId](const ModelRequest& entry) { return entry.newId == modelId; });
+	if (model == vehicleModels_.end())
+	{
+		return false;
+	}
+
+	const auto isAssetComplete = [this](AssetType type, std::uint32_t checksum, std::uint32_t size)
+	{
+		const auto asset = std::find_if(assets_.begin(), assets_.end(),
+			[type, checksum, size](const PendingAsset& entry)
+			{
+				return entry.type == type && entry.checksum == checksum
+					&& entry.expectedSize == size && entry.state == AssetState::Complete;
+			});
+		return asset != assets_.end();
+	};
+
+	return isAssetComplete(AssetType::Dff, model->dffChecksum, model->dffSize)
+		&& isAssetComplete(AssetType::Txd, model->txdChecksum, model->txdSize);
+}
 } // namespace custom_vehicle::protocol
