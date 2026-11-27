@@ -87,6 +87,20 @@ public final class NativeBridge implements AutoCloseable {
     }
 
     /**
+     * Decodes server RPC 164. Returns null for malformed/unknown custom models.
+     * Result index 0 is the status: 0=standard vehicle, 1=custom ready, 2=custom assets pending.
+     * For custom results, remaining fields are:
+     * vehicleId, customModelId, baseModelId, positionXBits, positionYBits, positionZBits,
+     * angleBits, colour1, colour2, healthBits, interior, doorDamage, panelDamage,
+     * lightDamage, tyreDamage, siren, 14 mod bytes, paintjob, bodyColour1, bodyColour2.
+     * Float values are returned as raw IEEE-754 bits; use Float.intBitsToFloat((int) value).
+     */
+    public synchronized long[] decodeStreamInVehicle(byte[] payload) {
+        Objects.requireNonNull(payload, "payload");
+        return handle == 0 ? null : nativeDecodeStreamInVehicle(handle, payload);
+    }
+
+    /**
      * Returns the model fields in this order:
      * poolId, modelCount, type, virtualWorld, baseId, newId,
      * dffChecksum, txdChecksum, dffSize, txdSize, timeOn, timeOff.
@@ -137,6 +151,7 @@ public final class NativeBridge implements AutoCloseable {
     private static native boolean nativeBeginConnection(long handle);
     private static native void nativeEndConnection(long handle);
     private static native int nativeHandleServerRpc(long handle, int rpcId, byte[] payload);
+    private static native long[] nativeDecodeStreamInVehicle(long handle, byte[] payload);
     private static native boolean nativeCompleteAsset(
             long handle, int assetType, long checksum, long expectedSize, byte[] data);
     private static native boolean nativeHasAsset(
