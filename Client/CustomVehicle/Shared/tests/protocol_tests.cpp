@@ -355,6 +355,8 @@ void testNativeVehicleModelLifecycleCAbi()
 		== CUSTOM_VEHICLE_NATIVE_MODEL_NATIVE_ASSETS_PENDING);
 	assert(slot == -77);
 	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_destroy(backend) == 0);
+	assert(custom_vehicle_native_vehicle_model_backend_size(backend) == 1); // Live state remains owned.
 	std::int32_t pendingSlot = -1;
 	assert(custom_vehicle_native_vehicle_model_backend_find(backend, 30001, &pendingSlot) == 1);
 	assert(pendingSlot == 613);
@@ -411,7 +413,8 @@ void testNativeVehicleModelLifecycleCAbi()
 	assert(backendSlotIsVacant(&fixture, slot));
 	assert(!fixture.modelInfoCreated && !fixture.assetsLoaded && !fixture.clumpAttached);
 
-	custom_vehicle_native_vehicle_model_backend_destroy(backend);
+	assert(custom_vehicle_native_vehicle_model_backend_destroy(backend) == 1);
+	assert(custom_vehicle_native_vehicle_model_backend_destroy(nullptr) == 0);
 }
 
 void testNativeVehicleModelLifecycle()
@@ -548,6 +551,8 @@ void testNativeVehicleModelSlotRegistryCAbi()
 		== CUSTOM_VEHICLE_MODEL_SLOT_RESERVED);
 	assert(nativeSlot == 613);
 	assert(custom_vehicle_native_model_slot_registry_size(registry) == 1);
+	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 0);
+	assert(custom_vehicle_native_model_slot_registry_size(registry) == 1); // Refuse to drop a live mapping.
 
 	std::int32_t repeatedSlot = -1;
 	assert(custom_vehicle_native_model_slot_registry_reserve(
@@ -572,6 +577,21 @@ void testNativeVehicleModelSlotRegistryCAbi()
 		== CUSTOM_VEHICLE_MODEL_SLOT_RELEASED);
 	assert(custom_vehicle_native_model_slot_registry_find(registry, 30001, &repeatedSlot) == 0);
 	assert(custom_vehicle_native_model_slot_registry_size(registry) == 0);
+	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 1);
+	assert(custom_vehicle_native_model_slot_registry_destroy(nullptr) == 0);
+
+	registry = custom_vehicle_native_model_slot_registry_create(612, 613);
+	assert(registry != nullptr);
+	assert(custom_vehicle_native_model_slot_registry_reserve(
+		registry, 30001, cAbiNativeModelSlotIsVacant, &nativeState, &nativeSlot)
+		== CUSTOM_VEHICLE_MODEL_SLOT_RESERVED);
+	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 0);
+	assert(custom_vehicle_native_model_slot_registry_size(registry) == 1);
+	assert(custom_vehicle_native_model_slot_registry_retire(registry, 30001) == 1);
+	assert(custom_vehicle_native_model_slot_registry_release(
+		registry, 30001, nativeSlot, cAbiNativeModelSlotIsVacant, &nativeState)
+		== CUSTOM_VEHICLE_MODEL_SLOT_RELEASED);
+	assert(custom_vehicle_native_model_slot_registry_destroy(registry) == 1);
 
 	assert(custom_vehicle_native_model_slot_registry_reserve(
 		registry, 30002, nullptr, &nativeState, &nativeSlot)
@@ -584,7 +604,7 @@ void testNativeVehicleModelSlotRegistryCAbi()
 	assert(custom_vehicle_native_model_slot_registry_reserve(
 		invalidRange, 30003, cAbiNativeModelSlotIsVacant, &nativeState, &nativeSlot)
 		== CUSTOM_VEHICLE_MODEL_SLOT_INVALID_RANGE);
-	custom_vehicle_native_model_slot_registry_destroy(invalidRange);
+	assert(custom_vehicle_native_model_slot_registry_destroy(invalidRange) == 1);
 }
 
 void testNativeVehicleModelSlotRegistry()
