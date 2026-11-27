@@ -1072,7 +1072,53 @@ void testCAbiBridge()
 	assert(decodedVehicle.vehicle_id == 1234);
 	assert(decodedVehicle.custom_model_id == 30001);
 	assert(decodedVehicle.base_model_id == 400);
+
+	std::array<std::uint8_t, StreamInVehicleWireSize> rewrittenStreamIn {};
+	rewrittenStreamIn.fill(0xA5);
+	std::size_t rewrittenSize = 999;
+	std::int32_t rewrittenCustomModelId = -1;
+	std::int32_t rewrittenBaseModelId = -1;
+	assert(custom_vehicle_adapter_rewrite_stream_in_vehicle(
+		adapter,
+		streamIn.data(),
+		streamIn.size(),
+		rewrittenStreamIn.data(),
+		rewrittenStreamIn.size(),
+		&rewrittenSize,
+		&rewrittenCustomModelId,
+		&rewrittenBaseModelId) == 2);
+	assert(rewrittenSize == StreamInVehicleWireSize);
+	assert(rewrittenCustomModelId == 30001);
+	assert(rewrittenBaseModelId == 400);
+	assert(rewrittenStreamIn[2] == 0x90 && rewrittenStreamIn[3] == 0x01);
+	for (std::size_t index = 0; index < streamIn.size(); ++index)
+	{
+		if (index >= StreamInVehicleModelFieldOffset
+			&& index < StreamInVehicleModelFieldOffset + sizeof(std::int32_t))
+		{
+			continue;
+		}
+		assert(rewrittenStreamIn[index] == streamIn[index]);
+	}
+
 	const auto standardStreamIn = makeStreamInVehicle(411);
+	const auto rewriteSentinel = rewrittenStreamIn;
+	rewrittenSize = 999;
+	rewrittenCustomModelId = -1;
+	rewrittenBaseModelId = -1;
+	assert(custom_vehicle_adapter_rewrite_stream_in_vehicle(
+		adapter,
+		standardStreamIn.data(),
+		standardStreamIn.size(),
+		rewrittenStreamIn.data(),
+		rewrittenStreamIn.size(),
+		&rewrittenSize,
+		&rewrittenCustomModelId,
+		&rewrittenBaseModelId) == 0);
+	assert(rewrittenSize == 999);
+	assert(rewrittenCustomModelId == -1 && rewrittenBaseModelId == -1);
+	assert(rewrittenStreamIn == rewriteSentinel);
+
 	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
 		adapter, standardStreamIn.data(), standardStreamIn.size(), &decodedVehicle) == 0);
 	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
@@ -1135,9 +1181,31 @@ void testCAbiBridge()
 	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
 		adapter, streamIn.data(), streamIn.size(), &decodedVehicle) == 1);
 	assert(decodedVehicle.custom_model_id == 30001 && decodedVehicle.base_model_id == 400);
+	rewrittenSize = 0;
+	assert(custom_vehicle_adapter_rewrite_stream_in_vehicle(
+		adapter,
+		streamIn.data(),
+		streamIn.size(),
+		rewrittenStreamIn.data(),
+		rewrittenStreamIn.size(),
+		&rewrittenSize,
+		&rewrittenCustomModelId,
+		&rewrittenBaseModelId) == 1);
+	assert(rewrittenSize == StreamInVehicleWireSize);
+	assert(rewrittenCustomModelId == 30001 && rewrittenBaseModelId == 400);
+
 	auto unknownCustomStreamIn = makeStreamInVehicle(30002);
 	assert(custom_vehicle_adapter_decode_stream_in_vehicle(
 		adapter, unknownCustomStreamIn.data(), unknownCustomStreamIn.size(), &decodedVehicle) == -1);
+	assert(custom_vehicle_adapter_rewrite_stream_in_vehicle(
+		adapter,
+		unknownCustomStreamIn.data(),
+		unknownCustomStreamIn.size(),
+		rewrittenStreamIn.data(),
+		rewrittenStreamIn.size(),
+		&rewrittenSize,
+		&rewrittenCustomModelId,
+		&rewrittenBaseModelId) == -1);
 
 	// Native actor/artwork IDs are passed through unchanged.
 	for (const std::uint8_t nativeRpc : {
