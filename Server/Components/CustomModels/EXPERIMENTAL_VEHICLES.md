@@ -72,10 +72,12 @@ a URL response.
 
 The server tracks one pending vehicle asset transfer per opted-in player.
 Retries for the same asset may receive a fresh URL, but a different asset waits
-until the current transfer is completed. RPC 226 is acknowledged only when a
-vehicle transfer is pending; unsolicited or duplicate completion messages are
-ignored. Once a URL has been issued, its completion can still be acknowledged
-even if the local HTTP endpoint stops before the client finishes downloading.
+until the current transfer is completed. RPC 226 carries a five-byte completion
+payload: `assetType:u8` followed by `checksum:u32` in little-endian order.
+The server acknowledges the completion only when both values match the pending
+asset; unsolicited, mismatched, or duplicate completion messages are ignored.
+Once a URL has been issued, its completion can still be acknowledged even if
+the local HTTP endpoint stops before the client finishes downloading.
 
 The native SA-MP/0.3.DL artwork RPCs remain unchanged: 179 carries native
 skin/object model records, 181/182 request their DFF/TXD files, 183 carries
