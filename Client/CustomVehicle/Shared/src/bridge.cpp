@@ -182,7 +182,19 @@ int32_t custom_vehicle_adapter_is_model_ready(
 	const custom_vehicle_adapter* adapter,
 	int32_t custom_model_id)
 {
-	return adapter != nullptr && adapter->adapter.isVehicleModelReady(custom_model_id) ? 1 : 0;
+	if (adapter == nullptr)
+	{
+		return 0;
+	}
+
+	try
+	{
+		return adapter->adapter.isVehicleModelReady(custom_model_id) ? 1 : 0;
+	}
+	catch (...)
+	{
+		return 0;
+	}
 }
 
 int32_t custom_vehicle_adapter_copy_model(
