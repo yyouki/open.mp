@@ -361,9 +361,11 @@ pool slot, not the TXD resource ID or the server custom model ID.
 
 The portable `TxdResourceSlotRegistry` maps each custom server model ID to the
 actual TXD pool slot returned by the native allocator and the derived TXD
-streaming resource ID. It requires a rollback callback for a just-allocated
+streaming resource ID. It requires a rollback callback for a newly allocated
 slot it rejects, and will not free a mapping until the native pool confirms
-that the slot is vacant.
+that the slot is vacant. It is also exposed through a C ABI for C, Rust, and
+JNI-backed hosts. A slot already owned by another mapping is never rolled back
+by the registry.
 
 On GTA SA 1.0 US, `CTxdStore::AddTxdSlot()` obtains a `TxdDef` via
 `CPool::New()` and immediately writes to the result without checking for null.

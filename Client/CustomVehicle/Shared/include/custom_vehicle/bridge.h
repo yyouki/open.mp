@@ -11,6 +11,7 @@ extern "C" {
 
 typedef struct custom_vehicle_adapter custom_vehicle_adapter;
 typedef struct custom_vehicle_native_model_slot_registry custom_vehicle_native_model_slot_registry;
+typedef struct custom_vehicle_native_txd_slot_registry custom_vehicle_native_txd_slot_registry;
 typedef struct custom_vehicle_native_vehicle_model_backend custom_vehicle_native_vehicle_model_backend;
 typedef struct custom_vehicle_pending_vehicle_queue custom_vehicle_pending_vehicle_queue;
 struct custom_vehicle_model_request_v1;
@@ -19,6 +20,22 @@ struct custom_vehicle_model_request_v1;
 typedef int32_t (*custom_vehicle_native_slot_vacancy_fn)(
 	void* user_data,
 	int32_t model_slot);
+
+/*
+ * TXD allocator callbacks run on the GTA game thread. The allocator returns a
+ * newly allocated CTxdPool index (0-4999), not a server model ID or TXD resource
+ * ID. On GTA SA 1.0 US it must preflight CTxdPool::GetNoOfFreeSpaces() before
+ * calling CTxdStore::AddTxdSlot().
+ */
+typedef int32_t (*custom_vehicle_native_txd_slot_allocate_fn)(
+	void* user_data,
+	int32_t* txd_pool_slot);
+typedef void (*custom_vehicle_native_txd_slot_rollback_fn)(
+	void* user_data,
+	int32_t txd_pool_slot);
+typedef int32_t (*custom_vehicle_native_txd_slot_vacancy_fn)(
+	void* user_data,
+	int32_t txd_pool_slot);
 
 /*
  * Callbacks for the staged native vehicle model lifecycle controller.
@@ -162,6 +179,31 @@ enum
 	CUSTOM_VEHICLE_MODEL_SLOT_IN_USE = -3,
 	CUSTOM_VEHICLE_MODEL_SLOT_STILL_OCCUPIED = -4,
 	CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY = -5
+};
+
+enum
+{
+	CUSTOM_VEHICLE_TXD_SLOT_RESERVED = 1,
+	CUSTOM_VEHICLE_TXD_SLOT_ALREADY_RESERVED = 2,
+	CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT = -1,
+	CUSTOM_VEHICLE_TXD_SLOT_INVALID_CUSTOM_ID = -2,
+	CUSTOM_VEHICLE_TXD_SLOT_INVALID_RANGE = -3,
+	CUSTOM_VEHICLE_TXD_SLOT_MISSING_ALLOCATOR = -4,
+	CUSTOM_VEHICLE_TXD_SLOT_MISSING_ROLLBACK = -5,
+	CUSTOM_VEHICLE_TXD_SLOT_ALLOCATION_FAILED = -6,
+	CUSTOM_VEHICLE_TXD_SLOT_INVALID_ALLOCATED_SLOT = -7,
+	CUSTOM_VEHICLE_TXD_SLOT_ALREADY_OWNED = -8,
+	CUSTOM_VEHICLE_TXD_SLOT_RETIRING = -9
+};
+
+enum
+{
+	CUSTOM_VEHICLE_TXD_SLOT_RELEASED = 1,
+	CUSTOM_VEHICLE_TXD_SLOT_NOT_FOUND = 0,
+	CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISMATCH = -1,
+	CUSTOM_VEHICLE_TXD_SLOT_NOT_RETIRING = -2,
+	CUSTOM_VEHICLE_TXD_SLOT_STILL_OCCUPIED = -3,
+	CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISSING_QUERY = -4
 };
 
 typedef int32_t (*custom_vehicle_send_rpc_fn)(
@@ -355,6 +397,49 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 	int32_t custom_model_id,
 	int32_t expected_native_model_slot,
 	custom_vehicle_native_slot_vacancy_fn is_slot_vacant,
+	void* user_data);
+
+/*
+ * TXD slot registry.
+ *
+ * Maps a custom server model ID to a native CTxdPool index and the corresponding
+ * TXD streaming resource ID (20000 + slot). Reserve/release callbacks run
+ * synchronously on the caller's thread and must not re-enter the registry.
+ * Call reserve/release from the verified GTA game thread. The caller must
+ * remove the native dictionary and release its references before reporting the
+ * pool slot vacant.
+ */
+custom_vehicle_native_txd_slot_registry* custom_vehicle_native_txd_slot_registry_create(
+	int32_t first_slot,
+	int32_t last_slot);
+/* Returns 1 only when no TXD slots remain reserved; 0 leaves the registry alive. */
+int32_t custom_vehicle_native_txd_slot_registry_destroy(
+	custom_vehicle_native_txd_slot_registry* registry);
+int32_t custom_vehicle_native_txd_slot_registry_has_valid_range(
+	const custom_vehicle_native_txd_slot_registry* registry);
+size_t custom_vehicle_native_txd_slot_registry_size(
+	const custom_vehicle_native_txd_slot_registry* registry);
+int32_t custom_vehicle_native_txd_slot_registry_reserve(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	custom_vehicle_native_txd_slot_allocate_fn allocate_slot,
+	custom_vehicle_native_txd_slot_rollback_fn rollback_slot,
+	void* user_data,
+	int32_t* txd_pool_slot,
+	int32_t* txd_resource_id);
+int32_t custom_vehicle_native_txd_slot_registry_find(
+	const custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* txd_pool_slot,
+	int32_t* txd_resource_id);
+int32_t custom_vehicle_native_txd_slot_registry_retire(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id);
+int32_t custom_vehicle_native_txd_slot_registry_release(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t expected_txd_pool_slot,
+	custom_vehicle_native_txd_slot_vacancy_fn is_slot_vacant,
 	void* user_data);
 
 /*

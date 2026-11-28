@@ -30,6 +30,10 @@ typedef char custom_vehicle_vehicle_binding_native_slot_must_be_at_8[
 	offsetof(custom_vehicle_vehicle_model_binding_v1, native_model_slot) == 8 ? 1 : -1];
 typedef char custom_vehicle_vehicle_binding_generation_must_be_at_16[
 	offsetof(custom_vehicle_vehicle_model_binding_v1, generation) == 16 ? 1 : -1];
+typedef char custom_vehicle_txd_pool_reserved_status_must_be_1[
+	CUSTOM_VEHICLE_TXD_SLOT_RESERVED == 1 ? 1 : -1];
+typedef char custom_vehicle_txd_pool_allocation_failure_must_be_negative_6[
+	CUSTOM_VEHICLE_TXD_SLOT_ALLOCATION_FAILED == -6 ? 1 : -1];
 typedef char custom_vehicle_native_asset_pending_must_be_1[
 	CUSTOM_VEHICLE_NATIVE_ASSET_LOAD_PENDING == 1 ? 1 : -1];
 typedef char custom_vehicle_native_asset_ready_must_be_2[
@@ -118,6 +122,14 @@ void custom_vehicle_bridge_c_header_smoke(void)
 	(void)custom_vehicle_native_model_slot_registry_retire;
 	(void)custom_vehicle_native_model_slot_registry_can_release;
 	(void)custom_vehicle_native_model_slot_registry_release;
+	(void)custom_vehicle_native_txd_slot_registry_create;
+	(void)custom_vehicle_native_txd_slot_registry_destroy;
+	(void)custom_vehicle_native_txd_slot_registry_has_valid_range;
+	(void)custom_vehicle_native_txd_slot_registry_size;
+	(void)custom_vehicle_native_txd_slot_registry_reserve;
+	(void)custom_vehicle_native_txd_slot_registry_find;
+	(void)custom_vehicle_native_txd_slot_registry_retire;
+	(void)custom_vehicle_native_txd_slot_registry_release;
 	(void)custom_vehicle_native_vehicle_model_backend_create;
 	(void)custom_vehicle_native_vehicle_model_backend_destroy;
 	(void)custom_vehicle_native_vehicle_model_backend_has_valid_range;

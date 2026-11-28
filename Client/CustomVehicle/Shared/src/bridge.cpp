@@ -2,6 +2,7 @@
 #include <custom_vehicle/network_adapter.hpp>
 #include <custom_vehicle/model_slot_registry.hpp>
 #include <custom_vehicle/native_vehicle_model_backend.hpp>
+#include <custom_vehicle/txd_slot_registry.hpp>
 #include <custom_vehicle/vehicle_stream_queue.hpp>
 
 #include <algorithm>
@@ -70,6 +71,71 @@ struct NativeSlotVacancyCallbackContext
 	custom_vehicle_native_slot_vacancy_fn callback;
 	void* user_data;
 };
+
+struct NativeTxdSlotCallbackContext
+{
+	custom_vehicle_native_txd_slot_allocate_fn allocate;
+	custom_vehicle_native_txd_slot_rollback_fn rollback;
+	custom_vehicle_native_txd_slot_vacancy_fn is_vacant;
+	void* user_data;
+};
+
+bool allocateNativeTxdSlot(void* user_data, std::int32_t& txd_pool_slot) noexcept
+{
+	const auto* context = static_cast<const NativeTxdSlotCallbackContext*>(user_data);
+	if (context == nullptr || context->allocate == nullptr)
+	{
+		return false;
+	}
+	std::int32_t allocated_slot = -1;
+	try
+	{
+		if (context->allocate(context->user_data, &allocated_slot) == 0)
+		{
+			return false;
+		}
+	}
+	catch (...)
+	{
+		return false;
+	}
+	txd_pool_slot = allocated_slot;
+	return true;
+}
+
+void rollbackNativeTxdSlot(void* user_data, std::int32_t txd_pool_slot) noexcept
+{
+	const auto* context = static_cast<const NativeTxdSlotCallbackContext*>(user_data);
+	if (context == nullptr || context->rollback == nullptr)
+	{
+		return;
+	}
+	try
+	{
+		context->rollback(context->user_data, txd_pool_slot);
+	}
+	catch (...)
+	{
+		// C ABI callbacks must not throw across the native bridge.
+	}
+}
+
+bool queryNativeTxdSlotVacancy(void* user_data, std::int32_t txd_pool_slot) noexcept
+{
+	const auto* context = static_cast<const NativeTxdSlotCallbackContext*>(user_data);
+	if (context == nullptr || context->is_vacant == nullptr)
+	{
+		return false;
+	}
+	try
+	{
+		return context->is_vacant(context->user_data, txd_pool_slot) != 0;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
 
 bool queryNativeSlotVacancy(void* user_data, std::int32_t model_slot) noexcept
 {
@@ -479,6 +545,16 @@ struct custom_vehicle_native_model_slot_registry
 	custom_vehicle::native::VehicleModelSlotRegistry registry;
 
 	custom_vehicle_native_model_slot_registry(std::int32_t first_slot, std::int32_t last_slot)
+		: registry(first_slot, last_slot)
+	{
+	}
+};
+
+struct custom_vehicle_native_txd_slot_registry
+{
+	custom_vehicle::native::TxdResourceSlotRegistry registry;
+
+	custom_vehicle_native_txd_slot_registry(std::int32_t first_slot, std::int32_t last_slot)
 		: registry(first_slot, last_slot)
 	{
 	}
@@ -964,6 +1040,180 @@ int32_t custom_vehicle_native_model_slot_registry_release(
 			return CUSTOM_VEHICLE_MODEL_SLOT_RELEASE_MISSING_QUERY;
 	}
 	return CUSTOM_VEHICLE_MODEL_SLOT_INVALID_ARGUMENT;
+}
+
+custom_vehicle_native_txd_slot_registry* custom_vehicle_native_txd_slot_registry_create(
+	int32_t first_slot,
+	int32_t last_slot)
+{
+	try
+	{
+		return new custom_vehicle_native_txd_slot_registry(first_slot, last_slot);
+	}
+	catch (...)
+	{
+		return nullptr;
+	}
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_destroy(
+	custom_vehicle_native_txd_slot_registry* registry)
+{
+	if (registry == nullptr || registry->registry.size() != 0)
+	{
+		return 0;
+	}
+	delete registry;
+	return 1;
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_has_valid_range(
+	const custom_vehicle_native_txd_slot_registry* registry)
+{
+	return registry != nullptr && registry->registry.hasValidRange() ? 1 : 0;
+}
+
+size_t custom_vehicle_native_txd_slot_registry_size(
+	const custom_vehicle_native_txd_slot_registry* registry)
+{
+	return registry == nullptr ? 0 : registry->registry.size();
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_reserve(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	custom_vehicle_native_txd_slot_allocate_fn allocate_slot,
+	custom_vehicle_native_txd_slot_rollback_fn rollback_slot,
+	void* user_data,
+	int32_t* txd_pool_slot,
+	int32_t* txd_resource_id)
+{
+	if (registry == nullptr || txd_pool_slot == nullptr || txd_resource_id == nullptr)
+	{
+		return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
+	}
+
+	NativeTxdSlotCallbackContext callback_context {
+		allocate_slot, rollback_slot, nullptr, user_data
+	};
+	const auto allocate = allocate_slot == nullptr ? nullptr : allocateNativeTxdSlot;
+	const auto rollback = rollback_slot == nullptr ? nullptr : rollbackNativeTxdSlot;
+	std::int32_t slot = -1;
+	std::int32_t resource = -1;
+	try
+	{
+		switch (registry->registry.reserve(
+			custom_model_id,
+			allocate,
+			rollback,
+			&callback_context,
+			slot,
+			resource))
+		{
+			case custom_vehicle::native::TxdSlotReserveResult::Reserved:
+				*txd_pool_slot = slot;
+				*txd_resource_id = resource;
+				return CUSTOM_VEHICLE_TXD_SLOT_RESERVED;
+			case custom_vehicle::native::TxdSlotReserveResult::AlreadyReserved:
+				*txd_pool_slot = slot;
+				*txd_resource_id = resource;
+				return CUSTOM_VEHICLE_TXD_SLOT_ALREADY_RESERVED;
+			case custom_vehicle::native::TxdSlotReserveResult::InvalidCustomModelId:
+				return CUSTOM_VEHICLE_TXD_SLOT_INVALID_CUSTOM_ID;
+			case custom_vehicle::native::TxdSlotReserveResult::InvalidSlotRange:
+				return CUSTOM_VEHICLE_TXD_SLOT_INVALID_RANGE;
+			case custom_vehicle::native::TxdSlotReserveResult::MissingAllocator:
+				return CUSTOM_VEHICLE_TXD_SLOT_MISSING_ALLOCATOR;
+			case custom_vehicle::native::TxdSlotReserveResult::MissingRollback:
+				return CUSTOM_VEHICLE_TXD_SLOT_MISSING_ROLLBACK;
+			case custom_vehicle::native::TxdSlotReserveResult::AllocationFailed:
+				return CUSTOM_VEHICLE_TXD_SLOT_ALLOCATION_FAILED;
+			case custom_vehicle::native::TxdSlotReserveResult::InvalidAllocatedSlot:
+				return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ALLOCATED_SLOT;
+			case custom_vehicle::native::TxdSlotReserveResult::SlotAlreadyOwned:
+				return CUSTOM_VEHICLE_TXD_SLOT_ALREADY_OWNED;
+			case custom_vehicle::native::TxdSlotReserveResult::ModelRetiring:
+				return CUSTOM_VEHICLE_TXD_SLOT_RETIRING;
+		}
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
+	}
+	return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_find(
+	const custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t* txd_pool_slot,
+	int32_t* txd_resource_id)
+{
+	if (registry == nullptr || txd_pool_slot == nullptr || txd_resource_id == nullptr)
+	{
+		return 0;
+	}
+	std::int32_t slot = -1;
+	std::int32_t resource = -1;
+	if (!registry->registry.find(custom_model_id, slot, resource))
+	{
+		return 0;
+	}
+	*txd_pool_slot = slot;
+	*txd_resource_id = resource;
+	return 1;
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_retire(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id)
+{
+	return registry != nullptr && registry->registry.retire(custom_model_id) ? 1 : 0;
+}
+
+int32_t custom_vehicle_native_txd_slot_registry_release(
+	custom_vehicle_native_txd_slot_registry* registry,
+	int32_t custom_model_id,
+	int32_t expected_txd_pool_slot,
+	custom_vehicle_native_txd_slot_vacancy_fn is_slot_vacant,
+	void* user_data)
+{
+	if (registry == nullptr)
+	{
+		return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
+	}
+
+	NativeTxdSlotCallbackContext callback_context {
+		nullptr, nullptr, is_slot_vacant, user_data
+	};
+	const auto query = is_slot_vacant == nullptr ? nullptr : queryNativeTxdSlotVacancy;
+	try
+	{
+		switch (registry->registry.release(
+			custom_model_id,
+			expected_txd_pool_slot,
+			query,
+			&callback_context))
+		{
+			case custom_vehicle::native::TxdSlotReleaseResult::Released:
+				return CUSTOM_VEHICLE_TXD_SLOT_RELEASED;
+			case custom_vehicle::native::TxdSlotReleaseResult::NotFound:
+				return CUSTOM_VEHICLE_TXD_SLOT_NOT_FOUND;
+			case custom_vehicle::native::TxdSlotReleaseResult::SlotMismatch:
+				return CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISMATCH;
+			case custom_vehicle::native::TxdSlotReleaseResult::NotRetiring:
+				return CUSTOM_VEHICLE_TXD_SLOT_NOT_RETIRING;
+			case custom_vehicle::native::TxdSlotReleaseResult::NativeSlotStillOccupied:
+				return CUSTOM_VEHICLE_TXD_SLOT_STILL_OCCUPIED;
+			case custom_vehicle::native::TxdSlotReleaseResult::MissingVacancyQuery:
+				return CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISSING_QUERY;
+		}
+	}
+	catch (...)
+	{
+		return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
+	}
+	return CUSTOM_VEHICLE_TXD_SLOT_INVALID_ARGUMENT;
 }
 
 custom_vehicle_native_vehicle_model_backend* custom_vehicle_native_vehicle_model_backend_create(

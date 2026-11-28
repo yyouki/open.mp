@@ -54,7 +54,7 @@ TxdSlotReserveResult TxdResourceSlotRegistry::reserve(
 
     const std::size_t offset = static_cast<std::size_t>(allocated_slot - first_slot_);
     if (slot_owners_[offset] >= 0) {
-        rollback_slot(user_data, allocated_slot);
+        // Never free a slot that an existing mapping already owns.
         return TxdSlotReserveResult::SlotAlreadyOwned;
     }
 

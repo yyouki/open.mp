@@ -98,6 +98,12 @@ The first implementation is in [Shared](Shared/). It currently provides:
   C, Rust, or JNI-backed Android code. The C boundary exposes opaque adapter
   handles, RPC/download callbacks, and copied model snapshots without exposing
   C++ STL types. CI also compiles this header as C.
+- A portable TXD pool-slot registry that maps each custom server model ID to
+  the actual GTA `CTxdPool` slot and separate TXD streaming resource ID
+  `20000 + slot`. It includes reserve/retire/release checks, rollback handling,
+  and a C ABI for C, Rust, and JNI-backed hosts. An occupied slot is never
+  rolled back, and a mapping is released only after the native dictionary is
+  removed and the pool reports the slot vacant.
 - A bounded native model-slot registry that maps server IDs `30001-32767` to
   confirmed-vacant entries in GTA SA's original `0-19999` model-info table.
   Its default allocation range is `612-19999`; each slot is checked through

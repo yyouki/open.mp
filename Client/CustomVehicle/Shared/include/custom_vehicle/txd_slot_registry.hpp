@@ -46,11 +46,14 @@ enum class TxdSlotReleaseResult
  * Maps a custom server model ID to a native CTxdPool slot and its TXD streaming
  * resource ID (20000 + pool slot).
  *
- * The allocator callback runs on the GTA game thread. On GTA SA 1.0 US it must
- * check CTxdPool::GetNoOfFreeSpaces() before calling CTxdStore::AddTxdSlot(),
- * whose stock implementation dereferences CPool::New() without checking null.
- * The rollback callback releases a just-allocated slot if this registry rejects
- * it. Callbacks must not re-enter this registry.
+ * The allocator, rollback, and vacancy callbacks run synchronously on the GTA
+ * game thread. On GTA SA 1.0 US the allocator must check
+ * CTxdPool::GetNoOfFreeSpaces() before calling CTxdStore::AddTxdSlot(), whose
+ * stock implementation dereferences CPool::New() without checking null.
+ * The rollback callback releases a newly allocated slot rejected by this
+ * registry. A slot already owned by another mapping is never rolled back:
+ * doing so could destroy the existing owner's dictionary. Callbacks must not
+ * re-enter this registry.
  *
  * The DFF model lifecycle owns vehicle leases and TXD reference counts. Retire
  * a TXD mapping only after the DFF owner stops accepting vehicle bindings;

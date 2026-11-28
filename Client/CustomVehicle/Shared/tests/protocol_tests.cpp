@@ -50,6 +50,65 @@ extern "C" std::int32_t cAbiNativeModelSlotIsVacant(void* userData, std::int32_t
 	return 1;
 }
 
+struct CAbiTxdPoolFixture
+{
+	std::vector<bool> occupied;
+};
+
+extern "C" std::int32_t cAbiAllocateTxdPoolSlot(void* userData, std::int32_t* output)
+{
+	if (userData == nullptr || output == nullptr)
+	{
+		return 0;
+	}
+	auto& fixture = *static_cast<CAbiTxdPoolFixture*>(userData);
+	for (std::size_t index = 0; index < fixture.occupied.size(); ++index)
+	{
+		if (!fixture.occupied[index])
+		{
+			fixture.occupied[index] = true;
+			*output = static_cast<std::int32_t>(index);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+extern "C" std::int32_t cAbiReturnExistingTxdSlot(void*, std::int32_t* output)
+{
+	if (output == nullptr)
+	{
+		return 0;
+	}
+	*output = 0;
+	return 1;
+}
+
+extern "C" void cAbiRollbackTxdPoolSlot(void* userData, std::int32_t slot)
+{
+	if (userData == nullptr || slot < 0)
+	{
+		return;
+	}
+	auto& fixture = *static_cast<CAbiTxdPoolFixture*>(userData);
+	const auto index = static_cast<std::size_t>(slot);
+	if (index < fixture.occupied.size())
+	{
+		fixture.occupied[index] = false;
+	}
+}
+
+extern "C" std::int32_t cAbiTxdPoolSlotIsVacant(void* userData, std::int32_t slot)
+{
+	if (userData == nullptr || slot < 0)
+	{
+		return 0;
+	}
+	const auto& fixture = *static_cast<const CAbiTxdPoolFixture*>(userData);
+	const auto index = static_cast<std::size_t>(slot);
+	return index < fixture.occupied.size() && !fixture.occupied[index] ? 1 : 0;
+}
+
 static_assert(sizeof(custom_vehicle_stream_in_vehicle_v1) == 76);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, vehicle_id) == 0);
 static_assert(offsetof(custom_vehicle_stream_in_vehicle_v1, custom_model_id) == 4);
@@ -710,6 +769,96 @@ void testNativeVehicleTxdSlotRegistry()
     assert(!invalidRange.hasValidRange());
     assert(invalidRange.reserve(30004, allocateTxdPoolSlot, rollbackTxdPoolSlot,
         &pool, slot, resource) == TxdSlotReserveResult::InvalidSlotRange);
+}
+
+void testNativeVehicleTxdSlotRegistryCAbi()
+{
+	CAbiTxdPoolFixture pool { std::vector<bool>(2, false) };
+	auto* registry = custom_vehicle_native_txd_slot_registry_create(0, 1);
+	assert(registry != nullptr);
+	assert(custom_vehicle_native_txd_slot_registry_has_valid_range(registry) == 1);
+	assert(custom_vehicle_native_txd_slot_registry_size(registry) == 0);
+
+	std::int32_t slot = -11;
+	std::int32_t resource = -22;
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30001, cAbiAllocateTxdPoolSlot, cAbiRollbackTxdPoolSlot,
+		&pool, &slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_RESERVED);
+	assert(slot == 0 && resource == 20000 && pool.occupied[0]);
+	assert(custom_vehicle_native_txd_slot_registry_size(registry) == 1);
+
+	std::int32_t foundSlot = -1;
+	std::int32_t foundResource = -1;
+	assert(custom_vehicle_native_txd_slot_registry_find(
+		registry, 30001, &foundSlot, &foundResource) == 1);
+	assert(foundSlot == 0 && foundResource == 20000);
+
+	std::int32_t repeatedSlot = -1;
+	std::int32_t repeatedResource = -1;
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30001, nullptr, nullptr, nullptr,
+		&repeatedSlot, &repeatedResource) == CUSTOM_VEHICLE_TXD_SLOT_ALREADY_RESERVED);
+	assert(repeatedSlot == 0 && repeatedResource == 20000);
+
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30002, cAbiReturnExistingTxdSlot, cAbiRollbackTxdPoolSlot,
+		&pool, &repeatedSlot, &repeatedResource) == CUSTOM_VEHICLE_TXD_SLOT_ALREADY_OWNED);
+	assert(pool.occupied[0]); // An aliased slot must not free model 30001's dictionary.
+	assert(custom_vehicle_native_txd_slot_registry_size(registry) == 1);
+
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30000, cAbiAllocateTxdPoolSlot, cAbiRollbackTxdPoolSlot,
+		&pool, &slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_INVALID_CUSTOM_ID);
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30002, nullptr, cAbiRollbackTxdPoolSlot, &pool,
+		&slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_MISSING_ALLOCATOR);
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30002, cAbiAllocateTxdPoolSlot, nullptr, &pool,
+		&slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_MISSING_ROLLBACK);
+
+	assert(custom_vehicle_native_txd_slot_registry_retire(registry, 30001) == 1);
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30001, nullptr, nullptr, nullptr,
+		&repeatedSlot, &repeatedResource) == CUSTOM_VEHICLE_TXD_SLOT_RETIRING);
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30001, 0, nullptr, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISSING_QUERY);
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30001, 1, cAbiTxdPoolSlotIsVacant, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_RELEASE_MISMATCH);
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30001, 0, cAbiTxdPoolSlotIsVacant, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_STILL_OCCUPIED);
+
+	pool.occupied[0] = false; // Simulate CTxdStore::RemoveTxdSlot after refs reach zero.
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30001, 0, cAbiTxdPoolSlotIsVacant, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_RELEASED);
+	assert(custom_vehicle_native_txd_slot_registry_find(
+		registry, 30001, &foundSlot, &foundResource) == 0);
+	assert(custom_vehicle_native_txd_slot_registry_size(registry) == 0);
+
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		registry, 30002, cAbiAllocateTxdPoolSlot, cAbiRollbackTxdPoolSlot,
+		&pool, &slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_RESERVED);
+	assert(slot == 0 && resource == 20000);
+	assert(custom_vehicle_native_txd_slot_registry_destroy(registry) == 0);
+
+	pool.occupied[0] = false;
+	assert(custom_vehicle_native_txd_slot_registry_retire(registry, 30002) == 1);
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30002, 0, cAbiTxdPoolSlotIsVacant, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_RELEASED);
+	assert(custom_vehicle_native_txd_slot_registry_destroy(registry) == 1);
+	assert(custom_vehicle_native_txd_slot_registry_destroy(nullptr) == 0);
+
+	auto* invalidRange = custom_vehicle_native_txd_slot_registry_create(5000, 5000);
+	assert(invalidRange != nullptr);
+	assert(custom_vehicle_native_txd_slot_registry_has_valid_range(invalidRange) == 0);
+	assert(custom_vehicle_native_txd_slot_registry_reserve(
+		invalidRange, 30003, cAbiAllocateTxdPoolSlot, cAbiRollbackTxdPoolSlot,
+		&pool, &slot, &resource) == CUSTOM_VEHICLE_TXD_SLOT_INVALID_RANGE);
+	assert(custom_vehicle_native_txd_slot_registry_destroy(invalidRange) == 1);
 }
 
 void testNativeVehicleModelLifecycle()
@@ -2301,6 +2450,7 @@ int main()
 	testRpcIdIsolation();
 	testNativeVehicleModelSlotRegistry();
 	testNativeVehicleTxdSlotRegistry();
+	testNativeVehicleTxdSlotRegistryCAbi();
 	testNativeVehicleModelLifecycle();
 	testNativeVehicleModelVehicleBindings();
 	testNativeVehicleModelLifecycleCAbi();
