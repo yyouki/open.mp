@@ -184,12 +184,22 @@ layout reference for GTA: San Andreas 1.0 US. The Win32 CMake build checks:
   remap-TXD, and animation-block offsets.
 
 The layout is based on the pinned
-[gta-reversed VehicleModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.h)
+[gta-reversed VehicleModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.h),
+[ClumpModelInfo.h](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/ClumpModelInfo.h),
 and
 [VehicleModelInfo.cpp](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.cpp).
 It is evidence only: it provides no function addresses and is not used to
 dereference live game memory. The native backend must still verify the loaded
 GTA executable profile before using any game structure or function.
+
+`prepareVehicleModelInfoClone()` is a pure preparation helper for a copied
+`0x308` vehicle interface. It accepts only the pinned GTA SA 1.0 US vehicle
+vtable and a TXD pool slot in `0-4999`; on success it resets the reference
+count, RW-object pointer, visual-structure pointer, and the two `0xFFFF`
+sentinel fields used by the audited MTA clone path. It preserves compatible
+vehicle properties. It performs no allocation, native method call, model-table
+registration, or game-memory write. A future runtime allocator must separately
+verify executable identity, the source vehicle record, and the target slot.
 
 The shared core now also contains `VehicleModelSlotRegistry` and a stable C ABI
 for it in `Shared/include/custom_vehicle/bridge.h`. The registry maps a server

@@ -132,6 +132,9 @@ constexpr StreamingInfoLayout makeIndependentStreamingInfo(
 // Created by CVehicleModelInfo::SetupCommonData in the referenced GTA build.
 // SetClump allocates one VehicleStructure; DeleteRwObject releases it.
 inline constexpr std::size_t VehicleStructurePoolInitialCapacity = 50;
+// Profile guard copied from the pinned GTA SA 1.0 US reverse-engineered vtable.
+// This is evidence only; it is not a callable function address.
+inline constexpr std::uint32_t VehicleModelInfoVTableAddress = 0x0085C5C8;
 
 struct VehicleUpgradePositionLayout
 {
@@ -241,6 +244,31 @@ static_assert(sizeof(VehicleStructureLayout) == 0x314);
 static_assert(offsetof(VehicleStructureLayout, upgrade_positions) == 0x0B4);
 static_assert(offsetof(VehicleStructureLayout, extras) == 0x2F4);
 static_assert(offsetof(VehicleStructureLayout, damageable_component_mask) == 0x310);
+
+// Pure preparation only: no heap allocation, game-memory access, or table writes.
+// The adapter must still validate the executable and reserve an empty model slot.
+constexpr bool prepareVehicleModelInfoClone(
+    const VehicleModelInfoLayout& base,
+    std::int16_t txd_pool_slot,
+    VehicleModelInfoLayout& output) noexcept
+{
+    if (base.clump_model_info.base.vtable != VehicleModelInfoVTableAddress ||
+        txdResourceIdForPoolSlot(txd_pool_slot) < FirstTxdResourceId)
+    {
+        return false;
+    }
+
+    auto candidate = base;
+    auto& model_base = candidate.clump_model_info.base;
+    model_base.reference_count = 0;
+    model_base.texture_dictionary_index = txd_pool_slot;
+    model_base.two_d_effect_index = -1;
+    model_base.object_info_index = -1;
+    model_base.renderware_object = 0;
+    candidate.vehicle_structure = nullptr;
+    output = candidate;
+    return true;
+}
 
 static_assert(sizeof(VehicleModelInfoLayout) == 0x308);
 static_assert(offsetof(VehicleModelInfoLayout, clump_model_info) == 0x00);
