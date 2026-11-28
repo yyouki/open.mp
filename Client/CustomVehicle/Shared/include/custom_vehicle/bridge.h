@@ -33,6 +33,14 @@ typedef int32_t (*custom_vehicle_native_txd_slot_allocate_fn)(
 typedef void (*custom_vehicle_native_txd_slot_rollback_fn)(
 	void* user_data,
 	int32_t txd_pool_slot);
+/*
+ * Non-zero only after BOTH conditions hold:
+ * 1) CTxdPool no longer contains txd_pool_slot; and
+ * 2) streaming resource 20000 + txd_pool_slot has the empty
+ *    CStreamingInfo::Init state: all links -1, flags/image/offset/size zero,
+ *    NOT_LOADED, and no outstanding request/read state.
+ * Pool vacancy alone is insufficient. Run the query on the verified game thread.
+ */
 typedef int32_t (*custom_vehicle_native_txd_slot_vacancy_fn)(
 	void* user_data,
 	int32_t txd_pool_slot);

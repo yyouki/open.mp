@@ -16,6 +16,10 @@ inline constexpr std::int32_t TxdPoolSlotCount = 5000;
 
 using NativeTxdSlotAllocate = bool (*)(void* user_data, std::int32_t& txd_pool_slot) noexcept;
 using NativeTxdSlotRollback = void (*)(void* user_data, std::int32_t txd_pool_slot) noexcept;
+
+// True only when the CTxdPool entry is absent AND resource (20000 + slot) has
+// the empty CStreamingInfo::Init state: every link is -1, flags/image/offset/
+// size are zero, load state is NOT_LOADED, and no request/read is outstanding.
 using NativeTxdSlotVacancyQuery = bool (*)(void* user_data, std::int32_t txd_pool_slot) noexcept;
 
 enum class TxdSlotReserveResult
@@ -57,8 +61,12 @@ enum class TxdSlotReleaseResult
  *
  * The DFF model lifecycle owns vehicle leases and TXD reference counts. Retire
  * a TXD mapping only after the DFF owner stops accepting vehicle bindings;
- * release it only after CTxdStore::RemoveTxdSlot has freed the pool entry and
- * the vacancy callback confirms it is free.
+ * release it only after the final TXD reference has triggered streaming unload,
+ * the record for resource ID (20000 + slot) has been reset to the empty
+ * CStreamingInfo::Init state (all links -1, flags/image/offset/size zero,
+ * NOT_LOADED), CTxdStore::RemoveTxdSlot has freed the pool entry, and the
+ * vacancy callback confirms both native conditions. Pool vacancy alone is
+ * insufficient.
  *
  * This portable class has no GTA memory access or executable addresses. The
  * Windows x86 native backend supplies the callbacks.

@@ -18,6 +18,23 @@ namespace
 {
 using custom_vehicle::gta_sa::StreamingInfoLayout;
 using custom_vehicle::gta_sa::makeIndependentStreamingInfo;
+using custom_vehicle::gta_sa::makeStreamingInfoForArchive;
+
+constexpr auto StandaloneArchiveInfo =
+	makeStreamingInfoForArchive(6, 0x12345678, 0x2345);
+constexpr auto ChainedArchiveInfo =
+	makeStreamingInfoForArchive(6, 0x12345678, 0x2345, 30002);
+
+static_assert(custom_vehicle::gta_sa::StreamingSectorSizeInBytes == 2048);
+static_assert(StandaloneArchiveInfo.next_index == -1);
+static_assert(StandaloneArchiveInfo.previous_index == -1);
+static_assert(StandaloneArchiveInfo.next_index_on_cd == -1);
+static_assert(StandaloneArchiveInfo.flags == 0);
+static_assert(StandaloneArchiveInfo.image_id == 6);
+static_assert(StandaloneArchiveInfo.cd_offset == 0x12345678);
+static_assert(StandaloneArchiveInfo.cd_size == 0x2345);
+static_assert(StandaloneArchiveInfo.load_state == 0);
+static_assert(ChainedArchiveInfo.next_index_on_cd == 30002);
 
 constexpr StreamingInfoLayout BaseStreamingInfo{
 	7, 8, 9, 0x3F, 4, 0x12345678, 0x2345, 1, { 0xAA, 0xBB, 0xCC }

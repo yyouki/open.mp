@@ -352,6 +352,32 @@ must remain independent. This follows the pinned MTA
 `CopyStreamingInfoFromModel` implementation and GTA
 `CStreamingInfo::Init` semantics.
 
+A streaming record alone does not register a downloaded file. The
+`image_id` field indexes `CStreaming::ms_files`, not the TXD pool. MTA's
+`CStreamingSA::AddArchive()` registers an IMG file and returns the archive ID;
+its `CClientIMG` path parses the IMG directory entry and passes the archive's
+sector offset and sector size into `CStreamingSA::SetStreamingInfo()`. Both
+offset and size are measured in 2048-byte sectors, not bytes.
+`next_index_on_cd` is the next model ID in that archive chain, or `-1` for a
+standalone entry. The referenced MTA wrapper accepts `size` as
+`unsigned short`, so a backend using that wrapper must reject entries larger
+than 65,535 sectors rather than truncate them; the GTA x86
+`CStreamingInfo::cd_size` field itself is 32-bit.
+
+The new `makeStreamingInfoForArchive()` constexpr helper creates a clean
+`CStreamingInfo` for a registered archive entry. It resets request flags,
+linked-list indices, and load state while accepting an archive ID, offset/size
+in blocks, and an optional next-in-archive model ID. The Win32 compile-check
+tests both standalone and chained entries. This helper does not open/register
+an archive, add a file to its directory, call `SetStreamingInfo()`, or request
+streaming. For the MTA wrapper, prepare the replacement while affected vehicle
+entities are streamed out, update the record, then use the verified streaming
+reinitialization/restream path; changing an active DFF's archive can otherwise
+leave its RW object outside the streamer's tracking. A downloaded DFF/TXD in
+the app cache is not automatically a GTA streaming resource; the native backend
+must register a valid archive/file source or use a separately verified direct
+RenderWare loading path.
+
 ### TXD pool and resource IDs are separate from DFF model IDs
 
 GTA SA has 20,000 DFF resource IDs (`0-19999`) and a separate 5,000-entry TXD
@@ -372,6 +398,27 @@ On GTA SA 1.0 US, `CTxdStore::AddTxdSlot()` obtains a `TxdDef` via
 The native allocator must preflight `CTxdPool::GetNoOfFreeSpaces()` before
 calling it. If the pool is full, it must return an allocation-pending/failure
 result without calling `AddTxdSlot()`.
+
+For a freshly cloned vehicle model-info, set `m_nTxdIndex` to the allocated
+CTxdPool slot before the clump is attached. `CClumpModelInfo::SetClump()`
+itself acquires a TXD reference through `CBaseModelInfo::AddTexDictionaryRef()`;
+its paired `DeleteRwObject()` destroys the clump and releases that reference.
+Do not manually add a duplicate reference for the same clump. If changing TXD on
+a model that already has model references or an active RW object, do not simply
+overwrite the field: MTA's `SetTextureDictionaryID()` transfers existing TXD
+references from the old slot to the new one, including the active RW-object ref.
+
+The teardown order is strict: stop new bindings, stream vehicles out, remove
+their RW objects/vehicle structures, and release model/entity references first.
+When the final TXD reference is removed, `CTxdStore::RemoveRef()` asks GTA
+streaming to remove resource ID `20000 + slot`; the streaming path destroys
+the RW dictionary and releases any parent-dictionary reference. Wait until the
+matching `CStreamingInfo` has been reset to the empty `CStreamingInfo::Init()`
+state (all links `-1`, flags/image/offset/size zero, and `NOT_LOADED`) and the
+`CTxdPool` entry is absent. Only then may the backend release the TXD mapping.
+Its vacancy callback must check both the pool entry and the reset streaming
+record; an empty pool slot alone is not enough to prevent a pending request or
+stale archive metadata from observing a recycled TXD slot.
 
 The compile-only header now asserts the exact 0x14-byte streaming record, the
 0x20-byte `CBaseModelInfo` prefix, and the model-info/streaming table constants.
@@ -413,6 +460,12 @@ operations are separately validated.
 
 Pinned references:
 [model-info allocation and deallocation](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CModelInfoSA.cpp),
+[base-model TXD reference counting](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/BaseModelInfo.cpp),
+[clump TXD and animation references](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/ClumpModelInfo.cpp),
+[vehicle clump and structure lifetime](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.cpp),
+[TXD streaming unload](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/TxdStore.cpp),
+[streaming record initialization](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/StreamingInfo.cpp),
+[streaming record state](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Streaming.cpp),
 [model-info and streaming tables](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/ModelInfo.h),
 [vehicle model-info layout](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/Models/VehicleModelInfo.h),
 [streaming-info record layout](https://github.com/gta-reversed/gta-reversed/blob/85bce0be4bd3229eb5ef445d3a7ac2e611a994f4/source/game_sa/StreamingInfo.h),
@@ -421,7 +474,10 @@ Pinned references:
 [TXD texture ownership](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientTXD.cpp),
 [TXD replacement reference tracking](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.TextureReplacing.cpp),
 and
-[vehicle clump replacement/pool cleanup](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.cpp).
+[vehicle clump replacement/pool cleanup](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CRenderWareSA.cpp),
+[IMG archive registration and linking](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/mods/deathmatch/logic/CClientIMG.cpp),
+[streaming archive registration](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CStreamingSA.cpp),
+[TXD pool allocation and release](https://github.com/multitheftauto/mtasa-blue/blob/002d0274c63740c512ae06daab67e0b6e770745a/Client/game_sa/CTxdPoolSA.cpp).
 These are implementation patterns for the pinned GTA SA 1.0 US source revision,
 not verified addresses for every SA-MP client revision. They are not copied
 into the adapter as native calls.

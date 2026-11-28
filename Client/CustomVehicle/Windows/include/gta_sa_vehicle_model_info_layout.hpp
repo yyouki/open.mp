@@ -84,23 +84,40 @@ struct BaseModelInfoLayout
 };
 
 inline constexpr std::uint8_t StreamingLoadStateNotLoaded = 0;
+inline constexpr std::uint32_t StreamingSectorSizeInBytes = 2048;
+
+// Creates a fresh streaming record for one file in a registered GTA archive.
+// offset_in_blocks and size_in_blocks are IMG sectors, not byte counts.
+// next_index_on_cd is the next model ID in the same archive chain, or -1 when
+// this file has no following entry in the archive.
+constexpr StreamingInfoLayout makeStreamingInfoForArchive(
+	std::uint8_t archive_id,
+	std::uint32_t offset_in_blocks,
+	std::uint32_t size_in_blocks,
+	std::int16_t next_index_on_cd = -1) noexcept
+{
+	return StreamingInfoLayout{
+		-1,                         // next_index
+		-1,                         // previous_index
+		next_index_on_cd,           // next file in this archive
+		0,                          // request flags
+		archive_id,                 // CStreaming::ms_files image index
+		offset_in_blocks,
+		size_in_blocks,
+		StreamingLoadStateNotLoaded,
+		{ 0, 0, 0 }                 // deterministic padding
+	};
+}
 
 // Matches CStreamingInfo::Init followed by the safe MTA archive-metadata copy.
 // No linked-list links, request flags, or load state are shared with the base ID.
 constexpr StreamingInfoLayout makeIndependentStreamingInfo(
 	const StreamingInfoLayout& base) noexcept
 {
-	return StreamingInfoLayout{
-		-1,                         // next_index
-		-1,                         // previous_index
-		-1,                         // next_index_on_cd
-		0,                          // flags
-		base.image_id,              // archive image only
-		base.cd_offset,             // archive offset only
-		base.cd_size,               // archive size only
-		StreamingLoadStateNotLoaded,
-		{ 0, 0, 0 }                 // deterministic padding
-	};
+	return makeStreamingInfoForArchive(
+		base.image_id,
+		base.cd_offset,
+		base.cd_size);
 }
 
 // Created by CVehicleModelInfo::SetupCommonData in the referenced GTA build.

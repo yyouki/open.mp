@@ -102,8 +102,13 @@ The first implementation is in [Shared](Shared/). It currently provides:
   the actual GTA `CTxdPool` slot and separate TXD streaming resource ID
   `20000 + slot`. It includes reserve/retire/release checks, rollback handling,
   and a C ABI for C, Rust, and JNI-backed hosts. An occupied slot is never
-  rolled back, and a mapping is released only after the native dictionary is
-  removed and the pool reports the slot vacant.
+  rolled back. The release callback must also confirm the matching TXD streaming
+  record has been reset to `CStreamingInfo::Init()` (empty links, flags, archive
+  metadata, and `NOT_LOADED`); pool vacancy by itself is insufficient.
+- A compile-time GTA SA 1.0 US `CStreamingInfo` archive-entry helper. It uses
+  image IDs from `CStreaming::ms_files`, sector offsets/sizes in 2048-byte
+  units, and an optional next-in-IMG model ID. It does not register archives or
+  connect downloaded cache files to the GTA streaming system.
 - A bounded native model-slot registry that maps server IDs `30001-32767` to
   confirmed-vacant entries in GTA SA's original `0-19999` model-info table.
   Its default allocation range is `612-19999`; each slot is checked through

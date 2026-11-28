@@ -53,6 +53,7 @@ extern "C" std::int32_t cAbiNativeModelSlotIsVacant(void* userData, std::int32_t
 struct CAbiTxdPoolFixture
 {
 	std::vector<bool> occupied;
+	std::vector<bool> streaming_busy;
 };
 
 extern "C" std::int32_t cAbiAllocateTxdPoolSlot(void* userData, std::int32_t* output)
@@ -106,7 +107,10 @@ extern "C" std::int32_t cAbiTxdPoolSlotIsVacant(void* userData, std::int32_t slo
 	}
 	const auto& fixture = *static_cast<const CAbiTxdPoolFixture*>(userData);
 	const auto index = static_cast<std::size_t>(slot);
-	return index < fixture.occupied.size() && !fixture.occupied[index] ? 1 : 0;
+	return index < fixture.occupied.size()
+		&& index < fixture.streaming_busy.size()
+		&& !fixture.occupied[index]
+		&& !fixture.streaming_busy[index] ? 1 : 0;
 }
 
 static_assert(sizeof(custom_vehicle_stream_in_vehicle_v1) == 76);
@@ -131,6 +135,7 @@ struct NativeSlotVacancyState
 struct TxdPoolFixture
 {
     std::vector<bool> occupied;
+    std::vector<bool> streaming_busy;
 };
 
 bool allocateTxdPoolSlot(void* userData, std::int32_t& slot) noexcept
@@ -162,7 +167,10 @@ bool isTxdPoolSlotVacant(void* userData, std::int32_t slot) noexcept
     if (userData == nullptr || slot < 0) return false;
     const auto& fixture = *static_cast<const TxdPoolFixture*>(userData);
     const auto i = static_cast<std::size_t>(slot);
-    return i < fixture.occupied.size() && !fixture.occupied[i];
+    return i < fixture.occupied.size()
+        && i < fixture.streaming_busy.size()
+        && !fixture.occupied[i]
+        && !fixture.streaming_busy[i];
 }
 
 bool isNativeModelSlotVacant(void* userData, std::int32_t slot) noexcept
@@ -712,7 +720,7 @@ void testNativeVehicleTxdSlotRegistry()
 {
     using namespace custom_vehicle::native;
 
-    TxdPoolFixture pool { std::vector<bool>(2, false) };
+    TxdPoolFixture pool { std::vector<bool>(2, false), std::vector<bool>(2, false) };
     TxdResourceSlotRegistry registry(0, 1);
     assert(registry.hasValidRange());
     assert(registry.size() == 0);
@@ -754,8 +762,12 @@ void testNativeVehicleTxdSlotRegistry()
     assert(registry.release(30001, 0, isTxdPoolSlotVacant, &pool)
         == TxdSlotReleaseResult::NativeSlotStillOccupied);
 
-    // Native teardown removes the TXD pool entry before its registry mapping.
+    // A free pool slot is still unsafe while the matching TXD resource is busy.
     pool.occupied[0] = false;
+    pool.streaming_busy[0] = true;
+    assert(registry.release(30001, 0, isTxdPoolSlotVacant, &pool)
+        == TxdSlotReleaseResult::NativeSlotStillOccupied);
+    pool.streaming_busy[0] = false;
     assert(registry.release(30001, 0, isTxdPoolSlotVacant, &pool)
         == TxdSlotReleaseResult::Released);
     assert(!registry.find(30001, slot, resource));
@@ -773,7 +785,7 @@ void testNativeVehicleTxdSlotRegistry()
 
 void testNativeVehicleTxdSlotRegistryCAbi()
 {
-	CAbiTxdPoolFixture pool { std::vector<bool>(2, false) };
+	CAbiTxdPoolFixture pool { std::vector<bool>(2, false), std::vector<bool>(2, false) };
 	auto* registry = custom_vehicle_native_txd_slot_registry_create(0, 1);
 	assert(registry != nullptr);
 	assert(custom_vehicle_native_txd_slot_registry_has_valid_range(registry) == 1);
@@ -831,6 +843,11 @@ void testNativeVehicleTxdSlotRegistryCAbi()
 		== CUSTOM_VEHICLE_TXD_SLOT_STILL_OCCUPIED);
 
 	pool.occupied[0] = false; // Simulate CTxdStore::RemoveTxdSlot after refs reach zero.
+	pool.streaming_busy[0] = true; // The TXD streaming record is still active.
+	assert(custom_vehicle_native_txd_slot_registry_release(
+		registry, 30001, 0, cAbiTxdPoolSlotIsVacant, &pool)
+		== CUSTOM_VEHICLE_TXD_SLOT_STILL_OCCUPIED);
+	pool.streaming_busy[0] = false;
 	assert(custom_vehicle_native_txd_slot_registry_release(
 		registry, 30001, 0, cAbiTxdPoolSlotIsVacant, &pool)
 		== CUSTOM_VEHICLE_TXD_SLOT_RELEASED);
