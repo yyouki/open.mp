@@ -71,6 +71,31 @@ call `hasAsset(type, checksum, expectedSize)` to re-read and verify the file
 from disk. Only then should the host pass `assetPath(type, checksum)` to its
 model loader.
 
+## AML integration track (not implemented yet)
+
+A Windows `.asi` cannot be loaded into an Android game process. The intended
+Android runtime path is a separate Android Mod Loader (AML) native mod built
+as an ARM `.so`; it is not the same artifact as the JNI bridge described above.
+The portable Shared core can be reused, but the current
+`libcustom_vehicle_android.so` is a JNI library and does not yet declare AML
+mod metadata or implement AML entry points.
+
+The current AML documentation describes ARM-only plugin ABIs:
+`armeabi-v7a` (`AML32`) and `arm64-v8a` (`AML64`). Its plugin SDK currently
+lists GTA: SA v2.00 and GTA: SA v2.10 (64-bit) as supported game targets.
+Therefore the existing Android `x86` and `x86_64` CI builds validate only the
+portable/JNI layer; they do not establish AML runtime support for those ABIs.
+Each target APK still needs its own verified executable/library fingerprint,
+per-version offsets and structure layouts, and tested multiplayer-client hooks.
+Do not reuse GTA SA 1.0 US PC addresses or x86 layouts on Android. Unknown game
+builds must fail closed.
+
+The first Android native milestone should be an AML module for one explicitly
+identified GTA SA Android build and ABI, with load/unload safety and read-only
+runtime diagnostics before adding model registration or vehicle mutation. The
+module must also identify a concrete Android SA-MP/open.mp client; loading into
+the standalone GTA SA process does not by itself provide multiplayer RPC hooks.
+
 ## What this does not provide
 
 The Android client must still implement all of the following:

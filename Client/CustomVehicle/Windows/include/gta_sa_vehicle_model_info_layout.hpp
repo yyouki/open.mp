@@ -12,7 +12,8 @@
  *
  * Layout evidence:
  * - gta-reversed/gta-reversed, source/game_sa/Models/VehicleModelInfo.h,
- *   Models/BaseModelInfo.h, StreamingInfo.h, Streaming.h
+ *   Models/ClumpModelInfo.h, Models/BaseModelInfo.h, StreamingInfo.h,
+ *   Streaming.h
  *   commit 85bce0be4bd3229eb5ef445d3a7ac2e611a994f4
  * - multitheftauto/mtasa-blue, Client/game_sa/CModelInfoSA.h
  *   commit 002d0274c63740c512ae06daab67e0b6e770745a
@@ -83,6 +84,14 @@ struct BaseModelInfoLayout
 	std::uint32_t renderware_object;
 };
 
+// CClumpModelInfo is CBaseModelInfo plus a 32-bit animation-file union
+// (char* filename or uint32 animation index) in the pinned x86 build.
+struct ClumpModelInfoLayout
+{
+    BaseModelInfoLayout base;
+    std::uint32_t animation_file_or_index;
+};
+
 inline constexpr std::uint8_t StreamingLoadStateNotLoaded = 0;
 inline constexpr std::uint32_t StreamingSectorSizeInBytes = 2048;
 
@@ -142,13 +151,13 @@ struct VehicleStructureLayout
 };
 
 /*
- * The 0x24-byte prefix is CClumpModelInfo (0x20-byte CBaseModelInfo plus
- * its animation-file field). Explicit byte ranges preserve unknown native
- * members without inventing semantics.
+ * Unknown native members remain byte ranges; known inheritance prefixes are
+ * represented by their verified layout types. This keeps the TXD index at its
+ * real CBaseModelInfo offset without treating the whole structure as opaque.
  */
 struct VehicleModelInfoLayout
 {
-	std::uint8_t clump_model_info_prefix[0x24];
+    ClumpModelInfoLayout clump_model_info;
 	void* plate_material;
 	char plate_text[9];
 	std::uint8_t plate_type;
@@ -214,6 +223,9 @@ static_assert(txdResourceIdForPoolSlot(4999) == 24999);
 static_assert(txdResourceIdForPoolSlot(-1) == -1);
 static_assert(txdResourceIdForPoolSlot(5000) == -1);
 static_assert(sizeof(BaseModelInfoLayout) == 0x20);
+static_assert(sizeof(ClumpModelInfoLayout) == 0x24);
+static_assert(offsetof(ClumpModelInfoLayout, base) == 0x00);
+static_assert(offsetof(ClumpModelInfoLayout, animation_file_or_index) == 0x20);
 static_assert(offsetof(BaseModelInfoLayout, reference_count) == 0x08);
 static_assert(offsetof(BaseModelInfoLayout, texture_dictionary_index) == 0x0A);
 static_assert(offsetof(BaseModelInfoLayout, alpha) == 0x0C);
@@ -231,6 +243,11 @@ static_assert(offsetof(VehicleStructureLayout, extras) == 0x2F4);
 static_assert(offsetof(VehicleStructureLayout, damageable_component_mask) == 0x310);
 
 static_assert(sizeof(VehicleModelInfoLayout) == 0x308);
+static_assert(offsetof(VehicleModelInfoLayout, clump_model_info) == 0x00);
+static_assert(
+    offsetof(VehicleModelInfoLayout, clump_model_info) +
+        offsetof(ClumpModelInfoLayout, base) +
+        offsetof(BaseModelInfoLayout, texture_dictionary_index) == 0x0A);
 static_assert(offsetof(VehicleModelInfoLayout, vehicle_type) == 0x3C);
 static_assert(offsetof(VehicleModelInfoLayout, vehicle_structure) == 0x5C);
 static_assert(offsetof(VehicleModelInfoLayout, dirt_materials) == 0x230);
